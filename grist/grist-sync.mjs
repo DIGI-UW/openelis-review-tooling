@@ -1,6 +1,6 @@
-// Grist <-> uat-*.json sync. Two modes:
-//   seed      review/uat-*.json  ->  Grist (authoring source of truth)
-//   generate  Grist              ->  review/uat-*.json (what the overlay serves)
+// Offline Grist checklist import/export utility. Two modes:
+//   seed    uat-*.json -> Grist (destructive initialization only)
+//   export  Grist      -> uat-*.json (offline snapshot; not the live widget path)
 //
 // Env: GRIST_URL, GRIST_KEY, GRIST_ORG (default "openelis"),
 //      GRIST_DOC_NAME (default "UAT Checklists"), REVIEW_DIR (default ../review).
@@ -149,7 +149,7 @@ async function seed() {
   console.log(doc);
 }
 
-async function generate() {
+async function exportSnapshot() {
   const doc = await resolveDoc();
   const meta = {};
   for (const r of (await api(`/api/docs/${doc}/tables/UAT_Meta/records`)).records)
@@ -188,8 +188,8 @@ async function generate() {
 
 const mode = process.argv[2];
 if (mode === "seed") await seed();
-else if (mode === "generate") await generate();
+else if (mode === "export") await exportSnapshot();
 else {
-  console.error("usage: grist-sync.mjs seed|generate");
+  console.error("usage: grist-sync.mjs seed|export");
   process.exit(1);
 }

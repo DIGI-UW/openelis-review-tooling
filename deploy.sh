@@ -33,7 +33,8 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 [ -f "$HERE/.env" ] && . "$HERE/.env" || { echo "!! $HERE/.env missing — copy .env.example to .env and fill it in" >&2; exit 1; }
 
 : "${REGION:?}" "${INSTANCE_ID:?}" "${EIP:?}" "${SG_ID:?}" "${OS_USER:?}" "${SSH_KEY:?}"
-: "${AMR_DOMAIN:?}" "${ANALYZERS_DOMAIN:?}" "${AMR_BRANCH:?}" "${ANALYZERS_BRANCH:?}"
+: "${AMR_DOMAIN:?}" "${ANALYZERS_DOMAIN:?}" "${GRIST_DOMAIN:?}"
+: "${AMR_BRANCH:?}" "${ANALYZERS_BRANCH:?}"
 : "${EDGE_DIR:?}" "${AMR_DIR:?}" "${ANALYZERS_DIR:?}" "${LETSENCRYPT_EMAIL:?}"
 SSH_KEY_EXPANDED="${SSH_KEY/#\~/$HOME}"
 # Two repos: this harness (cloned into EDGE_DIR) and the OpenELIS app it builds
@@ -138,7 +139,7 @@ mkdir -p "$LE_DIR" "$WEBROOT_DIR"
 
 echo "[deploy] router up (self-signed until certs issued)"
 cd "$EDGE_DIR/$ROUTER_SUBDIR"
-AMR_DOMAIN="$AMR_DOMAIN" ANALYZERS_DOMAIN="$ANALYZERS_DOMAIN" \\
+AMR_DOMAIN="$AMR_DOMAIN" ANALYZERS_DOMAIN="$ANALYZERS_DOMAIN" GRIST_DOMAIN="$GRIST_DOMAIN" \\
   docker compose -p oe-edge -f docker-compose.router.yml up -d --build
 
 echo "[deploy] amr stack build+up"
@@ -224,12 +225,12 @@ chmod +x '$REMOTE_RUNNER'" >/dev/null || die "failed to write runner"
 
 cmd_certs() {
   require_aws
-  for d in "$AMR_DOMAIN" "$ANALYZERS_DOMAIN"; do
+  for d in "$AMR_DOMAIN" "$ANALYZERS_DOMAIN" "$GRIST_DOMAIN"; do
     got="$(dig +short "$d" | tail -1)"
     [ "$got" = "$EIP" ] || warn "DNS: $d -> ${got:-<none>} (expected $EIP) — ACME will fail until this resolves"
   done
   log "issuing certs for both domains on the host"
-  ssm_run "AMR_DOMAIN=$AMR_DOMAIN ANALYZERS_DOMAIN=$ANALYZERS_DOMAIN LETSENCRYPT_EMAIL=$LETSENCRYPT_EMAIL LETSENCRYPT_STAGING=${LETSENCRYPT_STAGING:-false} LETSENCRYPT_DIR=$LE_DIR CERTBOT_WEBROOT=$WEBROOT_DIR bash $EDGE_DIR/scripts/generate-certs.sh" \
+  ssm_run "AMR_DOMAIN=$AMR_DOMAIN ANALYZERS_DOMAIN=$ANALYZERS_DOMAIN GRIST_DOMAIN=$GRIST_DOMAIN LETSENCRYPT_EMAIL=$LETSENCRYPT_EMAIL LETSENCRYPT_STAGING=${LETSENCRYPT_STAGING:-false} LETSENCRYPT_DIR=$LE_DIR CERTBOT_WEBROOT=$WEBROOT_DIR bash $EDGE_DIR/scripts/generate-certs.sh" \
     || die "cert issuance failed"
   cmd_status
 }
@@ -241,10 +242,8 @@ cmd_certs() {
 #   amr       — scripts/seed-microbiology.sh (a bacteriology + sibling TB case,
 #               reusing the PR's own test-fixture SQL) so /MicrobiologyWorklist
 #               and /MicrobiologyCaseView/:caseId have something to review.
-# NOTE: neither /MicrobiologyWorklist nor /MicrobiologyCaseView has a sidenav
-# entry on this branch — they're real, working, unlinked routes. Reviewers need
-# the direct URL (printed below); this is a product gap upstream, not something
-# this deploy script should patch around by hand-editing the frontend nav.
+# Product navigation and route expectations belong to the live UAT checklist,
+# not this infrastructure script.
 cmd_seed() {
   require_aws
   log "seeding analyzers.openelis-global.org (9-device fleet via the harness's own seed script)"
@@ -257,15 +256,14 @@ SEEDEOF
 chmod +x /tmp/seed-microbiology.sh
 DB_CONTAINER=amr-openelisglobal-database BASE_URL=https://$AMR_DOMAIN /tmp/seed-microbiology.sh" \
     || warn "microbiology seed failed — see output above"
-  log "seed complete. Microbiology worklist has NO sidenav entry — visit directly:"
-  log "  https://$AMR_DOMAIN/MicrobiologyWorklist"
+  log "seed complete — use the Review overlay on https://$AMR_DOMAIN/ for the current workflow"
 }
 
 cmd_status() {
   require_aws
   log "instance"; aws ec2 describe-instances --region "$REGION" --instance-ids "$INSTANCE_ID" \
     --query "Reservations[0].Instances[0].[State.Name,PublicIpAddress,InstanceType]" --output text | sed 's/^/   /'
-  for d in "$AMR_DOMAIN" "$ANALYZERS_DOMAIN"; do
+  for d in "$AMR_DOMAIN" "$ANALYZERS_DOMAIN" "$GRIST_DOMAIN"; do
     printf '   https://%s/ -> HTTP %s\n' "$d" "$(curl -sk -o /dev/null -w '%{http_code}' --max-time 15 "https://$d/" 2>/dev/null || echo 000)"
   done
   echo "   containers:"

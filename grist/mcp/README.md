@@ -1,61 +1,49 @@
-# Grist UAT bridge (MCP authoring + live widget read)
+# Grist UAT Read Adapter
 
-One small service (`server.mjs`) that makes the Grist "UAT Checklists" doc the
-single source of truth for the reviewer overlays:
+`server.mjs` keeps the reviewer overlay independent of Grist's internal record
+shape:
 
-- `POST /mcp` — MCP over Streamable HTTP, **bearer-gated**. The LLM authoring
-  surface: create/update/delete checklist steps and per-instance meta.
-- `GET /uat/<instance>.json` — **public read**. Returns the exact shape the
-  reviewer widget already consumes, computed live from Grist. The router points
-  `https://<amr|analyzers>…/__review/uat-<instance>.json` at this, so edits made
-  in Grist (by a human) or via MCP (by an LLM) show up immediately — no publish
-  step, no static-file regeneration.
+- GET `/uat/<instance>.json` is the public, read-only live checklist endpoint.
+- POST `/mcp` is a deprecated compatibility authoring endpoint for older CLI
+  clients.
+- GET `/healthz` is the container liveness endpoint.
 
-The Grist API key lives only inside this service (mounted read-only from the box
-state dir); callers never see it. Reads are public but read-only and non-secret;
-writes require a token.
+The service holds a Grist API key in a read-only runtime mount. That key is
+never returned to widget callers. Router cache policy limits checklist staleness
+to about 30 seconds, and there is no publish step.
 
-## Tools
+## Authoritative Authoring Surface
+
+New agent integrations use Grist's native MCP:
+
+```text
+https://grist.openelis-global.org/api/mcp
+```
+
+See [`../../docs/AGENTS.md`](../../docs/AGENTS.md) for CLI and OAuth connection
+instructions. Native MCP and the Grist UI target the same row IDs and are the
+supported authoring paths.
+
+## Deprecated Compatibility Surface
+
+The custom `/mcp` tools remain temporarily available:
 
 | Tool | Purpose |
-|------|---------|
-| `uat_list_instances` | list instances (amr, analyzers) with title + Jira key |
-| `uat_get` | full checklist for one instance, each step with its Grist row `id` |
-| `uat_upsert_step` | create a step (omit `id`) or update one in place (pass `id`) |
-| `uat_delete_step` | delete a step by row `id` |
-| `uat_set_meta` | upsert an instance's title / intro / jira |
+|---|---|
+| `uat_list_instances` | List instance metadata |
+| `uat_get` | Read one checklist with Grist row IDs |
+| `uat_upsert_step` | Create or update one step |
+| `uat_delete_step` | Delete one step |
+| `uat_set_meta` | Create or update instance metadata |
 
-Upserts target Grist's built-in row `id`, so an LLM editing one step never
-clobbers a human editing another — no whole-table replace.
+Compatibility tokens are stored outside Git in
+`${GRIST_STATE_DIR}/mcp-tokens.json`. `mcp-token.sh` may manage those tokens for
+an existing legacy client, but no new client should be connected to this
+surface.
 
-## Connect (Claude Code CLI)
+Removal criteria:
 
-Each person gets their own token. On the box:
-
-```bash
-cd /opt/oe-edge/grist/mcp
-./mcp-token.sh generate "Alice (CLI)"     # prints the token + the exact add command
-./mcp-token.sh list                        # who has a token
-./mcp-token.sh revoke "Alice (CLI)"        # cut one person off
-```
-
-`generate` prints a ready-to-run line:
-
-```bash
-claude mcp add --transport http grist-uat https://grist.openelis-global.org/mcp --header "Authorization: Bearer <token>"
-```
-
-Tokens live in `/home/ubuntu/oe-grist/mcp-tokens.json` (box-side, never
-committed). The server re-reads that file per request, so `generate`/`revoke`
-take effect without a restart.
-
-> **claude.ai web/desktop:** the connector UI expects OAuth and may not let you
-> set a static header — the CLI one-liner is the smooth path today. Proper OAuth
-> (via the Dex we already run) is the planned follow-up; the bearer check here is
-> the exact seam it drops into.
-
-## Auth model
-
-A single verifier checks the caller's `Bearer` token against the box-side file.
-That is deliberately the same shape as OAuth token verification, so swapping the
-static check for "validate a Dex-issued token" is a local change to one function.
+1. inventory existing `/mcp` clients;
+2. migrate each to native `/api/mcp`;
+3. verify the public `/uat` adapter independently;
+4. remove the compatibility route, token script, and write tools in one change.

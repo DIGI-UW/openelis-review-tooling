@@ -1,11 +1,12 @@
-// Grist UAT bridge — one process, two surfaces:
-//   POST /mcp            MCP (Streamable HTTP, stateless). Bearer-gated authoring.
+// Grist UAT adapter — one process, two surfaces:
+//   POST /mcp            Deprecated MCP compatibility. Bearer-gated authoring.
 //   GET  /uat/:file      Public read. Returns the reviewer-widget checklist shape
 //                        for <file>=<instance>.json, computed live from Grist.
 //   GET  /healthz        Liveness.
 //
 // The Grist API key is held here (server-side) and never exposed to callers:
-// the widget reads through GET /uat, LLM clients write through the authed tools.
+// the widget reads through GET /uat. New LLM clients author through Grist's
+// native /api/mcp endpoint; /mcp remains temporarily for older clients.
 //
 // Env: GRIST_URL, GRIST_KEY | GRIST_KEY_FILE, GRIST_ORG, GRIST_DOC_NAME,
 //      TOKEN_FILE (JSON [{token,label,created}]), PORT.

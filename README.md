@@ -7,7 +7,8 @@ of that repo, so it can iterate on its own.
 
 ## The loop, in three lines
 - **Author** — humans edit checklists in a Grist spreadsheet, or agents author them
-  over Grist's native MCP. See [`docs/AGENTS.md`](docs/AGENTS.md).
+  over Grist's native MCP. Row edits are live; there is no publish step. See
+  [`docs/AGENTS.md`](docs/AGENTS.md).
 - **Review** — a lightweight overlay on each demo site loads the checklist and
   captures pass / fail / n-a + notes.
 - **Feedback** — the reviewer downloads a Markdown + JSON report and pastes it into
@@ -33,7 +34,7 @@ Two URLs, no build, no redeploy — a script tag or one nginx line:
 |---|---|
 | [`widget/`](widget/) | The reviewer overlay as a **standalone, backend-free drop-in plugin**. Grab-and-go — no OE2, no build, no server needed. |
 | [`integration/`](integration/) | Copy-paste ways to attach the overlay to an **existing** deployment (config, not code). |
-| `grist/` | The authoring backend: Grist as source of truth + native MCP, plus the slim `/uat` read service (`mcp/server.mjs`) and `mcp/mcp-token.sh`. |
+| `grist/` | The authoring backend: Grist as source of truth + native MCP, plus the slim `/uat` read adapter. Its custom `/mcp` authoring surface is deprecated compatibility. |
 | `router/`, `amr/`, `analyzers/`, `scripts/`, `deploy.sh` | The demo deployment: an umbrella nginx router splitting subdomains, additive Compose overlays on the OE2 app builds, and Let's Encrypt certs. |
 | `docs/` | [`AGENTS.md`](docs/AGENTS.md) (context for agents) and `overview.html` (a collaborator overview page). |
 
@@ -59,11 +60,20 @@ Docker-network alias. Isolation is by Compose **project name** (`-p`), explicit
 cp .env.example .env      # fill in your host, domains, email, repos/branches
 ./deploy.sh configure     # install Docker/git + the cert-renew cron (idempotent)
 ./deploy.sh deploy --yes  # build + bring up the router + both OE2 stacks (self-signed, ~20-40 min)
+# On the host, after its private .env is provisioned:
+#   cd /opt/oe-edge && ./grist/bootstrap.sh up
 # → point DNS: amr, analyzers, grist A-records → the host EIP (all share one IP)
 ./deploy.sh certs         # issue Let's Encrypt once DNS resolves
 ./deploy.sh seed          # seed reviewable demo data on both instances
 ./deploy.sh status        # instance + HTTPS codes + container states
 ```
+
+The current application deploy is intentionally documented as a full
+dual-instance operation: it does not provide targeted AMR/analyzers deployment,
+rollback, or immutable commit identity yet. See
+[`docs/OPERATIONS.md`](docs/OPERATIONS.md) for the exact current boundary and
+the approved target interface. The script also does not provision the private
+Grist `.env`; fresh-host secret delivery remains an explicit operator step.
 
 `configure` + `deploy` need no DNS (stacks come up on self-signed, verifiable via
 Host-header curl); only `certs` needs DNS (ACME HTTP-01). Commands run over **SSM**
@@ -86,9 +96,9 @@ Fresh instances come up with zero demo data. `./deploy.sh seed`:
   sharing one specimen, plus AST reference data, left at `stage=RECEIVED` so a
   reviewer drives the isolate/AST steps.
 
-> **Known product gap:** on the OGC-782 branch, `/MicrobiologyWorklist` and the case
-> view are real, working, but **unlinked** routes (no sidenav entry). `seed` prints
-> the direct URL — reviewers need it.
+The checklist, rather than this infrastructure repository, defines which
+navigation and routes a reviewer must validate. This keeps deployment tooling
+from freezing a temporary product gap into its operating contract.
 
 > The demo admin login is the standard OpenELIS default (`admin` / `adminADMIN!`) —
 > a well-known demo credential, not a secret.
@@ -103,6 +113,12 @@ Fresh instances come up with zero demo data. `./deploy.sh seed`:
 - **Two separate LE certs**, not one multi-SAN — renewals/failures stay decoupled.
 - **Enterprise Grist** is activated by `/persist/config.json`
   (`{"version":"1","edition":"enterprise"}`); delete it to revert to community.
+
+## Validate a change
+
+`npm run check` runs shell and JavaScript syntax checks, repository contract
+tests, and both Compose model renders. It does not contact or mutate the live
+demo host. The same command runs on pull requests.
 
 ## License
 MIT — see [LICENSE](LICENSE).

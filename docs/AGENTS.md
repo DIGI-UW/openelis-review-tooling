@@ -36,6 +36,11 @@ Types & Mapping, OGC-1054).
   with dynamic client registration + PKCE, so the client auto-registers; the flow is
   connector → Grist → Dex sign-in → consent → token.
 
+The custom bridge endpoint at `https://grist.openelis-global.org/mcp` is
+deprecated compatibility for older CLI clients. Do not use it for new
+connections. Its public `GET /uat/<instance>.json` adapter remains part of the
+live delivery path.
+
 ### The data model
 
 - Document **"UAT Checklists"**, id `hvZ4rzsyGJuqggkZBko8gc`.
@@ -107,5 +112,8 @@ issues; don't file them unless asked.
 - Grist runs the **full edition**, activated by `/persist/config.json`
   (`{"version":"1","edition":"enterprise"}`) + `GRIST_MCP_ENABLED=true`. Removing
   that file reverts to community (rollback-safe; data untouched).
-- Don't `git checkout -f` the deploy checkout on the box — it reverts box-side
-  secrets (the Dex login hash) and breaks Grist login.
+- Git checkouts are disposable; secrets and durable data are not stored there.
+  They live in the box-side `.env`, `${GRIST_STATE_DIR}`, certificate directory,
+  and Docker volumes described in `docs/OPERATIONS.md`. A forced checkout does
+  not expose those values, but it can discard uncommitted operator changes and
+  must not be used as a deployment-state model.

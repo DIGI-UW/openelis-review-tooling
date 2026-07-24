@@ -7,8 +7,8 @@
 #   docker compose -p oe-grist -f docker-compose.grist.yml up -d
 #
 # Reachable by humans only through the router vhost (grist.openelis-global.org,
-# basic-auth, TLS) once that DNS resolves; the seed + generator reach it over
-# the internal network and need no public DNS.
+# OIDC login through Dex, TLS) once DNS resolves. Internal bootstrap operations
+# reach it over the shared network and need no public DNS.
 # =============================================================================
 
 services:
@@ -17,12 +17,11 @@ services:
     container_name: oe-edge-grist
     restart: unless-stopped
     environment:
-      # Public URL the human UI is served under (set even before DNS resolves;
-      # the REST API used by seed/generate works over the internal net regardless).
-      - APP_HOME_URL=https://grist.openelis-global.org
-      # Light: no gVisor/pynbox sandbox. Acceptable for an internal, single-tenant
-      # authoring instance behind basic-auth; do NOT expose formula editing to
-      # untrusted users in this mode.
+      # Public URL the human UI is served under.
+      - APP_HOME_URL=https://${GRIST_DOMAIN:-grist.openelis-global.org}
+      # Light: no gVisor/pynbox sandbox. Acceptable for this controlled,
+      # single-tenant authoring instance; do not expose formula editing to
+      # untrusted users.
       - GRIST_SANDBOX_FLAVOR=unsandboxed
       - GRIST_SINGLE_ORG=openelis
       - GRIST_DEFAULT_EMAIL=admin@openelis-global.org
@@ -85,9 +84,9 @@ services:
       edge:
         aliases: [redis]
 
-  # Authoring + read bridge for the UAT checklists. Two surfaces on one process:
-  #   POST /mcp        MCP tools (bearer-gated) — the LLM authoring interface
-  #   GET  /uat/:file  public read — what the router points the reviewer widget at
+  # Grist-to-widget adapter plus deprecated MCP compatibility. Two surfaces:
+  #   POST /mcp        deprecated bearer-gated MCP compatibility
+  #   GET  /uat/:file  public read used by the reviewer widget
   # Holds the Grist API key server-side (mounted read-only from the box state dir);
   # callers never see it. Bearer tokens live in that same dir (mcp-tokens.json).
   mcp:

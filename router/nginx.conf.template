@@ -197,9 +197,9 @@ http {
     }
 
     # -------------------------------------------------------------------------
-    # grist.openelis-global.org -> Grist UAT authoring UI (basic-auth gated).
-    # Grist runs login-less in this light mode; the router enforces access.
-    # SSO (Grist OIDC against an IdP) is the intended upgrade — see grist/README.md.
+    # grist.openelis-global.org -> Grist UAT authoring UI.
+    # Grist uses its OIDC flow against Dex; the router only terminates TLS and
+    # forwards the relevant Grist, Dex, native-MCP, and read-adapter routes.
     # -------------------------------------------------------------------------
     server {
         listen 443 ssl;
@@ -227,7 +227,8 @@ http {
         # ---- central integration surface -------------------------------------
         # These two are what an EXISTING deployment points at to adopt the review
         # overlay: one script tag, no proxy, no frontend build on their side.
-        # Both are public and read-only (authoring still requires auth via /mcp).
+        # Both are public and read-only. New authoring connections use Grist's
+        # authenticated native MCP at /api/mcp.
 
         # The reviewer widget itself, served from this central host so integrators
         # reference a URL instead of vendoring a copy of the file.
@@ -255,9 +256,9 @@ http {
             add_header X-UAT-Source "grist-live" always;
         }
 
-        # Public MCP endpoint. The MCP service does its own bearer check, so no
-        # gate here; the Authorization header passes through untouched and the
-        # POST body is proxied as-is. More specific than "location /" below.
+        # Deprecated custom MCP compatibility endpoint. The service does its own
+        # bearer check. New clients use Grist's native /api/mcp endpoint through
+        # the general Grist location below.
         location /mcp {
             set $mcp_up "mcp";
             proxy_pass http://$mcp_up:8585$request_uri;

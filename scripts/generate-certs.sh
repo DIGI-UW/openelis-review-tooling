@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 # =============================================================================
-# Issue Let's Encrypt certs for BOTH subdomains against the umbrella router.
+# Issue Let's Encrypt certs for all three subdomains against the umbrella router.
 #
-# Two independent single-domain certs (not one multi-SAN) — decoupled per the
+# Independent single-domain certs (not one multi-SAN) — decoupled per the
 # deploy decision. Reuses the exact `certbot certonly --webroot` invocation from
 # scripts/generate-letsencrypt-certs.sh; the only adaptation is that it targets
 # the umbrella router (oe-edge-router) + its shared webroot, not openelisglobal-proxy.
@@ -12,13 +12,15 @@ set -euo pipefail
 # on :80 (deploy.sh guarantees this before calling here). Idempotent: skips a
 # domain whose lineage already exists.
 #
-# Env: AMR_DOMAIN, ANALYZERS_DOMAIN, LETSENCRYPT_EMAIL, [LETSENCRYPT_STAGING],
+# Env: AMR_DOMAIN, ANALYZERS_DOMAIN, GRIST_DOMAIN, LETSENCRYPT_EMAIL,
+#      [LETSENCRYPT_STAGING],
 #      LETSENCRYPT_DIR (host path mounted at the router's /etc/letsencrypt),
 #      CERTBOT_WEBROOT (host path mounted at the router's /var/www/certbot),
 #      [ROUTER_CONTAINER_NAME=oe-edge-router]
 # =============================================================================
 
-: "${AMR_DOMAIN:?}"; : "${ANALYZERS_DOMAIN:?}"; : "${LETSENCRYPT_EMAIL:?}"
+: "${AMR_DOMAIN:?}"; : "${ANALYZERS_DOMAIN:?}"; : "${GRIST_DOMAIN:?}"
+: "${LETSENCRYPT_EMAIL:?}"
 : "${LETSENCRYPT_DIR:?}"; : "${CERTBOT_WEBROOT:?}"
 ROUTER="${ROUTER_CONTAINER_NAME:-oe-edge-router}"
 STAGING_FLAG=""; [ "${LETSENCRYPT_STAGING:-false}" = "true" ] && STAGING_FLAG="--staging"
@@ -46,8 +48,8 @@ issue_one() {
 
 issue_one "$AMR_DOMAIN"
 issue_one "$ANALYZERS_DOMAIN"
-[ -n "${GRIST_DOMAIN:-}" ] && issue_one "$GRIST_DOMAIN"
+issue_one "$GRIST_DOMAIN"
 
 echo ">> reloading router so it serves the issued certs (entrypoint re-resolves LE paths)"
 docker restart "$ROUTER" >/dev/null
-echo "✓ done — both domains should now serve valid Let's Encrypt certificates"
+echo "✓ done — all review domains should now serve valid Let's Encrypt certificates"
