@@ -123,23 +123,29 @@ _runner_script() {
 #!/usr/bin/env bash
 set -euo pipefail
 echo "[deploy] start \$(date -u)"
+REMOTE_USER="$OS_USER"
+repo_git() {
+  local dir="\$1"
+  shift
+  sudo -u "\$REMOTE_USER" git -c safe.directory="\$dir" -C "\$dir" "\$@"
+}
 sync_checkout() { # dir branch repo
   local dir="\$1" br="\$2" repo="\$3"
   if [ -d "\$dir/.git" ]; then
     sudo chown -R "$OS_USER":"$OS_USER" "\$dir" 2>/dev/null || true
-    if ! git -C "\$dir" diff --quiet || ! git -C "\$dir" diff --cached --quiet; then
+    if ! repo_git "\$dir" diff --quiet || ! repo_git "\$dir" diff --cached --quiet; then
       echo "[deploy] refusing to overwrite tracked changes in \$dir" >&2
-      git -C "\$dir" status --short >&2
+      repo_git "\$dir" status --short >&2
       exit 1
     fi
-    git -C "\$dir" fetch --depth 1 origin "\$br"
-    git -C "\$dir" checkout -B "\$br" FETCH_HEAD
+    repo_git "\$dir" fetch --depth 1 origin "\$br"
+    repo_git "\$dir" checkout -B "\$br" FETCH_HEAD
   else
     sudo mkdir -p "\$dir" && sudo chown "$OS_USER":"$OS_USER" "\$dir"
-    git clone --depth 1 --single-branch --branch "\$br" "\$repo" "\$dir"
+    sudo -u "\$REMOTE_USER" git clone --depth 1 --single-branch --branch "\$br" "\$repo" "\$dir"
   fi
-  git -C "\$dir" submodule update --init --depth 1 dataexport tools/openelis-analyzer-bridge tools/analyzer-mock-server 2>/dev/null || true
-  echo "[deploy] \$dir -> \$br @\$(git -C "\$dir" rev-parse --short HEAD)"
+  repo_git "\$dir" submodule update --init --depth 1 dataexport tools/openelis-analyzer-bridge tools/analyzer-mock-server 2>/dev/null || true
+  echo "[deploy] \$dir -> \$br @\$(repo_git "\$dir" rev-parse --short HEAD)"
 }
 sync_checkout "$EDGE_DIR" "$HARNESS_BRANCH" "$HARNESS_REPO"
 sync_checkout "$AMR_DIR" "$AMR_BRANCH" "$APP_REPO"
@@ -149,9 +155,9 @@ docker network create oe-edge 2>/dev/null || true
 mkdir -p "$LE_DIR" "$WEBROOT_DIR"
 mkdir -p "$EDGE_DIR/runtime"
 
-harness_sha=\$(git -C "$EDGE_DIR" rev-parse HEAD)
-amr_sha=\$(git -C "$AMR_DIR" rev-parse HEAD)
-analyzers_sha=\$(git -C "$ANALYZERS_DIR" rev-parse HEAD)
+harness_sha=\$(repo_git "$EDGE_DIR" rev-parse HEAD)
+amr_sha=\$(repo_git "$AMR_DIR" rev-parse HEAD)
+analyzers_sha=\$(repo_git "$ANALYZERS_DIR" rev-parse HEAD)
 deployed_at=\$(date -u +%FT%TZ)
 cat > "$EDGE_DIR/runtime/build-amr.json" <<JSON
 {"instance":"amr","appRepo":"$APP_REPO","appBranch":"$AMR_BRANCH","appSha":"\$amr_sha","harnessSha":"\$harness_sha","deployedAt":"\$deployed_at"}
