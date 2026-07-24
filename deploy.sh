@@ -41,7 +41,7 @@ fi
 : "${AMR_DOMAIN:?}" "${ANALYZERS_DOMAIN:?}" "${GRIST_DOMAIN:?}"
 : "${AMR_BRANCH:?}" "${ANALYZERS_BRANCH:?}"
 : "${EDGE_DIR:?}" "${AMR_DIR:?}" "${ANALYZERS_DIR:?}" "${LETSENCRYPT_EMAIL:?}"
-: "${GRIST_STATE_DIR:?}" "${DEX_GRIST_CLIENT_SECRET:?}" "${DEX_REVIEWER_PASSWORD_HASH:?}"
+: "${GRIST_STATE_DIR:?}"
 SSH_KEY_EXPANDED="${SSH_KEY/#\~/$HOME}"
 # Two repos: this harness (cloned into EDGE_DIR) and the OpenELIS app it builds
 # (cloned into AMR_DIR / ANALYZERS_DIR). They are separate checkouts on the host.
@@ -163,8 +163,8 @@ JSON
 echo "[deploy] Grist, Dex, Redis, and UAT read service up"
 cd "$EDGE_DIR/grist"
 GRIST_DOMAIN="$GRIST_DOMAIN" GRIST_STATE_DIR="$GRIST_STATE_DIR" \\
-DEX_GRIST_CLIENT_SECRET="$DEX_GRIST_CLIENT_SECRET" \\
-DEX_REVIEWER_PASSWORD_HASH="$DEX_REVIEWER_PASSWORD_HASH" \\
+DEX_GRIST_CLIENT_SECRET="${DEX_GRIST_CLIENT_SECRET:-}" \\
+DEX_REVIEWER_PASSWORD_HASH="${DEX_REVIEWER_PASSWORD_HASH:-}" \\
 REVIEW_DIR="$EDGE_DIR/widget/examples" bash bootstrap.sh
 
 echo "[deploy] router up (self-signed until certs issued)"

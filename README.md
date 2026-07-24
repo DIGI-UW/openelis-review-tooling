@@ -71,7 +71,10 @@ Host-header curl); only `certs` needs DNS (ACME HTTP-01). Commands run over **SS
 session. `./deploy.sh connect` is the one SSH command (interactive shell), and adds
 your current IP to the security group automatically.
 
-Config lives in `.env` (copy from `.env.example`), which is **git-ignored** — real
+Config lives in `.env` (copy from `.env.example`), which is **git-ignored**. Grist
+and Dex secrets are needed there only for the first bootstrap; the harness then
+preserves them in the host-side Grist state directory and reuses them across
+checkouts and deployments. Real
 host values and all secrets stay out of the repo (this repo is public).
 
 ### Repos it orchestrates

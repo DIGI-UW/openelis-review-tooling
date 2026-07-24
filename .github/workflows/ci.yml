@@ -22,7 +22,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y shellcheck
-          shellcheck deploy.sh grist/bootstrap.sh scripts/*.sh
+          shellcheck deploy.sh grist/bootstrap.sh grist/resolve-secrets.sh scripts/*.sh
       - name: Validate Compose configuration
         env:
           AMR_DOMAIN: amr.example.org

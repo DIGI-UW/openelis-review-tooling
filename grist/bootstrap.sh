@@ -18,6 +18,10 @@ NODE_IMG=node:22-alpine
 KEYFILE="$STATE_DIR/.api-key"
 mkdir -p "$STATE_DIR"
 
+export GRIST_STATE_DIR="$STATE_DIR"
+# shellcheck disable=SC1091
+. "$HERE/resolve-secrets.sh"
+
 run_node() {
   docker run --rm --network oe-edge --user "$(id -u):$(id -g)" \
     -v "$STATE_DIR":/work -v "$REVIEW_DIR":/review \
