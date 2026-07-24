@@ -20,10 +20,11 @@ LE_LIVE=/etc/letsencrypt/live
 SELF_DIR=/etc/nginx/selfsigned
 
 resolve_cert() {
-  # $1 = domain; sets CERT and KEY (echoed as "CERT KEY")
+  # $1 = domain; sets RESOLVED_CERT and RESOLVED_KEY.
   domain="$1"
   if [ -f "$LE_LIVE/$domain/fullchain.pem" ] && [ -f "$LE_LIVE/$domain/privkey.pem" ]; then
-    echo "$LE_LIVE/$domain/fullchain.pem $LE_LIVE/$domain/privkey.pem"
+    RESOLVED_CERT="$LE_LIVE/$domain/fullchain.pem"
+    RESOLVED_KEY="$LE_LIVE/$domain/privkey.pem"
     return
   fi
   # self-signed fallback, generated once per domain
@@ -35,15 +36,16 @@ resolve_cert() {
       -subj "/CN=$domain" >/dev/null 2>&1
     echo "[router] generated self-signed fallback for $domain" >&2
   fi
-  echo "$d/self.crt $d/self.key"
+  RESOLVED_CERT="$d/self.crt"
+  RESOLVED_KEY="$d/self.key"
 }
 
-set -- $(resolve_cert "$AMR_DOMAIN")
-export AMR_CERT="$1" AMR_KEY="$2"
-set -- $(resolve_cert "$ANALYZERS_DOMAIN")
-export ANALYZERS_CERT="$1" ANALYZERS_KEY="$2"
-set -- $(resolve_cert "$GRIST_DOMAIN")
-export GRIST_CERT="$1" GRIST_KEY="$2"
+resolve_cert "$AMR_DOMAIN"
+export AMR_CERT="$RESOLVED_CERT" AMR_KEY="$RESOLVED_KEY"
+resolve_cert "$ANALYZERS_DOMAIN"
+export ANALYZERS_CERT="$RESOLVED_CERT" ANALYZERS_KEY="$RESOLVED_KEY"
+resolve_cert "$GRIST_DOMAIN"
+export GRIST_CERT="$RESOLVED_CERT" GRIST_KEY="$RESOLVED_KEY"
 
 echo "[router] AMR_DOMAIN=$AMR_DOMAIN cert=$AMR_CERT"
 echo "[router] ANALYZERS_DOMAIN=$ANALYZERS_DOMAIN cert=$ANALYZERS_CERT"
@@ -51,6 +53,7 @@ echo "[router] GRIST_DOMAIN=$GRIST_DOMAIN cert=$GRIST_CERT"
 
 # Render the template. Restrict the substituted vars so nginx runtime $variables
 # (e.g. $host, $scheme, the $amr_oe upstream vars) survive envsubst untouched.
+# shellcheck disable=SC2016
 envsubst '${AMR_DOMAIN} ${ANALYZERS_DOMAIN} ${GRIST_DOMAIN} ${AMR_CERT} ${AMR_KEY} ${ANALYZERS_CERT} ${ANALYZERS_KEY} ${GRIST_CERT} ${GRIST_KEY}' \
   < /etc/nginx/nginx.conf.template > /etc/nginx/nginx.conf
 
