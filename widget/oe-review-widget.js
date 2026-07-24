@@ -3,9 +3,11 @@
   var self = document.currentScript;
   var INSTANCE = (self && self.getAttribute("data-instance")) || "unknown";
   var LABEL = (self && self.getAttribute("data-label")) || INSTANCE;
-  var STORE_KEY = "oe-review:" + INSTANCE;
+  var LEGACY_STORE_KEY = "oe-review:" + INSTANCE;
+  var STORE_PREFIX = "oe-review:v2:" + INSTANCE + ":";
+  var STORE_KEY = null;
   var BUILD_SRC =
-    (self && self.getAttribute("data-build-src")) || "/__review/build.json";
+    (self && self.getAttribute("data-build-src")) || "/__review/target.json";
   // Checklist source, in priority order: an inline checklist (fully backend-free)
   // via window.OE_REVIEW_CHECKLIST or a <script type="application/json"
   // id="oe-review-checklist"> block; else the data-src URL; else a same-origin
@@ -23,23 +25,92 @@
   }
 
   // ---- persisted state ------------------------------------------------------
-  var state = load();
-  function load() {
+  var state = fresh();
+  var legacyStatePresent = false;
+  function normalized(value) {
+    if (!value || typeof value !== "object") return fresh();
+    value.steps = value.steps && typeof value.steps === "object" ? value.steps : {};
+    value.notes = Array.isArray(value.notes) ? value.notes : [];
+    value.reviewer = value.reviewer || "";
+    value.minimized = value.minimized !== false;
+    return value;
+  }
+  function loadStored(key) {
     try {
-      return JSON.parse(localStorage.getItem(STORE_KEY)) || fresh();
+      var raw = localStorage.getItem(key);
+      return raw === null ? null : normalized(JSON.parse(raw));
     } catch (e) {
-      return fresh();
+      return null;
     }
   }
   function fresh() {
-    return { reviewer: "", minimized: true, steps: {}, notes: [] };
+    return {
+      reviewer: "",
+      minimized: true,
+      steps: {},
+      notes: [],
+      updatedAt: null,
+    };
+  }
+  function deploymentIdentity(target) {
+    return (target && (target.deploymentId || target.appSha)) || "unbound";
+  }
+  function contextPrefix(target) {
+    return STORE_PREFIX + encodeURIComponent(deploymentIdentity(target)) + ":";
+  }
+  function contextKey(target, checklist) {
+    return contextPrefix(target) + checklist.checklistRevision;
+  }
+  function loadContext(target, checklist) {
+    STORE_KEY = contextKey(target, checklist);
+    legacyStatePresent = Boolean(localStorage.getItem(LEGACY_STORE_KEY));
+
+    var exact = loadStored(STORE_KEY);
+    if (exact) return exact;
+
+    var prefix = contextPrefix(target);
+    var latest = null;
+    try {
+      for (var i = 0; i < localStorage.length; i++) {
+        var key = localStorage.key(i);
+        if (!key || key === STORE_KEY || !key.startsWith(prefix)) continue;
+        var candidate = loadStored(key);
+        if (
+          candidate &&
+          (!latest || (candidate.updatedAt || "") > (latest.updatedAt || ""))
+        ) {
+          latest = candidate;
+        }
+      }
+    } catch (e) {
+      return fresh();
+    }
+    return latest ? normalized(JSON.parse(JSON.stringify(latest))) : fresh();
   }
   function save() {
+    if (!STORE_KEY) return;
     try {
+      state.updatedAt = nowISO();
       localStorage.setItem(STORE_KEY, JSON.stringify(state));
     } catch (e) {
       /* quota / private mode — report download still works from memory */
     }
+  }
+  function clearInstanceState() {
+    try {
+      var keys = [];
+      for (var i = 0; i < localStorage.length; i++) {
+        var key = localStorage.key(i);
+        if (key && key.startsWith(STORE_PREFIX)) keys.push(key);
+      }
+      keys.forEach(function (key) {
+        localStorage.removeItem(key);
+      });
+      localStorage.removeItem(LEGACY_STORE_KEY);
+    } catch (e) {
+      /* memory state is still reset below */
+    }
+    legacyStatePresent = false;
   }
 
   // ---- mount host + shadow root (isolated) ----------------------------------
@@ -57,7 +128,9 @@
     host.id = "oe-review-host";
     host.style.cssText = "all:initial";
     document.body.appendChild(host);
-    root = host.attachShadow({ mode: "open" });
+    root = host.attachShadow({
+      mode: window.__OE_REVIEW_TEST_OPEN_SHADOW__ ? "open" : "closed",
+    });
 
     var style = document.createElement("style");
     style.textContent = CSS();
@@ -69,7 +142,7 @@
     var inline = inlineChecklist();
     if (inline) {
       try {
-        applyChecklist(inline);
+        applyChecklist(inline, null);
       } catch (e) {
         loadError = e.message || String(e);
       }
@@ -96,6 +169,9 @@
       window.__OE_REVIEW_TEST__ = {
         buildReport: buildReport,
         refreshChecklist: refreshChecklist,
+        storageKey: function () {
+          return STORE_KEY;
+        },
       };
     }
   }
@@ -133,26 +209,23 @@
     });
   }
 
-  function applyChecklist(next) {
+  function applyChecklist(next, target) {
     next = validateChecklist(next);
-    (next.sections || []).forEach(function (section, si) {
-      (section.steps || []).forEach(function (step, ti) {
+    state = loadContext(target, next);
+    (next.sections || []).forEach(function (section) {
+      (section.steps || []).forEach(function (step) {
         var key = step.key;
-        var legacyKey = si + "." + ti;
-        if (!state.steps[key] && state.steps[legacyKey]) {
-          state.steps[key] = state.steps[legacyKey];
-          delete state.steps[legacyKey];
-        }
         var saved = state.steps[key];
         var signature = stepSignature(step);
         if (saved && saved.signature && saved.signature !== signature) {
           saved.stale = true;
         }
-        if (saved && !saved.signature) saved.signature = signature;
+        if (saved && saved.mark && !saved.signature) saved.stale = true;
       });
     });
     uat = next;
     state.checklistRevision = next.checklistRevision;
+    state.deploymentId = deploymentIdentity(target);
     save();
   }
 
@@ -180,8 +253,8 @@
       }),
     ])
       .then(function (values) {
-        applyChecklist(values[0]);
         build = values[1];
+        applyChecklist(values[0], build);
       })
       .catch(function (error) {
         loadError = error.message || String(error);
@@ -247,6 +320,13 @@
       warningMessage.setAttribute("role", "status");
       warningMessage.textContent = buildWarning;
       p.appendChild(warningMessage);
+    }
+    if (legacyStatePresent) {
+      var legacyWarning = el("div", "status warning legacy");
+      legacyWarning.setAttribute("role", "status");
+      legacyWarning.textContent =
+        "Earlier position-based answers were not reused. Review these stable checklist steps again, then Reset to remove the old local data.";
+      p.appendChild(legacyWarning);
     }
     if (uat.intro) {
       var intro = el("div", "intro");
@@ -335,6 +415,7 @@
     clr.textContent = "Reset";
     clr.onclick = function () {
       if (confirm("Clear all checklist answers and notes for this instance?")) {
+        clearInstanceState();
         state = fresh();
         state.minimized = false;
         save();
@@ -440,6 +521,7 @@
     lines.push("- Generated: " + generated);
     lines.push("- Checklist revision: `" + (uat.checklistRevision || "unknown") + "`");
     if (build) {
+      lines.push("- Deployment: `" + (build.deploymentId || "unknown") + "`");
       lines.push(
         "- Application: `" +
           (build.appRepo || "unknown") +
@@ -538,6 +620,7 @@
           reviewer: state.reviewer,
           generated: generated,
           checklistRevision: uat.checklistRevision || null,
+          deploymentId: build && build.deploymentId ? build.deploymentId : null,
           build: build,
           summary: {
             total: total,

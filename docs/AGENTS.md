@@ -45,7 +45,7 @@ Types & Mapping, OGC-1054).
   do, expect, route`.
 - Reviewers see steps grouped by `section` and ordered by
   `section_order` then `step_order`. `route` is the app path a reviewer opens
-  for that step (e.g. `/MicrobiologyWorklist`).
+  for that step (e.g. `/Microbiology/worklist`).
 - `step_key` is immutable and unique within an instance. Reordering a row must
   not change it. Changing `do`, `expect`, `route`, or `required` invalidates a
   prior reviewer mark until the reviewer confirms that step again.
@@ -73,7 +73,7 @@ grist_add_records(doc_id, "UAT_Steps", [{
   section_order: 2, step_order: 2,
   do: "…the action the reviewer performs…",
   expect: "…the expected result / what to flag if wrong…",
-  route: "/MicrobiologyWorklist"
+  route: "/Microbiology/worklist"
 }])
 ```
 
@@ -95,8 +95,9 @@ The panel also refreshes whenever it opens and has an explicit refresh action.
 The reviewer marks each step (pass/fail/na) + optional notes, then downloads
 `oe-review-<instance>-<timestamp>.md` and `.json`. The Markdown carries a
 per-section checklist with `[PASS]/[FAIL]/[N/A]/[----]` boxes, a summary line,
-and freeform feedback. Both formats include the checklist revision, application
-and harness SHAs, stable step keys, marked timestamps, and actual page URLs.
+and freeform feedback. Both formats include the checklist revision, verified
+deployment ID, application and harness SHAs, stable step keys, marked
+timestamps, and actual page URLs.
 The footer instructs the reviewer to paste it into Claude to triage into
 Jira/GitHub.
 
@@ -113,7 +114,12 @@ issues; don't file them unless asked.
 - Grist runs the **full edition**, activated by `/persist/config.json`
   (`{"version":"1","edition":"enterprise"}`) + `GRIST_MCP_ENABLED=true`. Removing
   that file reverts to community (rollback-safe; data untouched).
-- Don't `git checkout -f` the deploy checkout on the box — it reverts box-side
-  secrets (the Dex login hash) and breaks Grist login.
-- `bootstrap.sh` migrates schema and seeds only missing instances. Never use
-  `seed-force` unless replacing authored rows is the explicit intent.
+- Runtime secrets live in the untracked `${EDGE_DIR}/.env`; never put their
+  values in Git or an SSM command body.
+- `bootstrap.sh up` migrates schema and seeds only missing instances. Never use
+  `seed-examples --replace-all` unless replacement is the explicit intent.
+- The widget never reuses old position-based answers. Review state is keyed by
+  deployment, checklist revision, and immutable `step_key`; changed step
+  instructions require review again.
+- `/__review/target.json` is published only after health verification. A failed
+  candidate must not replace the last ready target.

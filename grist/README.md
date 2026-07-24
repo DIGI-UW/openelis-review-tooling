@@ -15,8 +15,9 @@ widget/examples/uat-*.json ──initial seed──▶ Grist ──live read─�
                                      UI or native MCP
 ```
 
-Grist is the source of truth once seeded; `generate` is the only writer of the
-served JSON thereafter. The overlay picks up changes immediately (`no-store`).
+Grist is the source of truth once seeded. The read-only adapter builds served
+JSON directly from current rows; `generate` is an optional diagnostic export,
+not a publish step. The overlay sees changes within the router's short cache.
 
 ## Schema
 
@@ -29,13 +30,20 @@ served JSON thereafter. The overlay picks up changes immediately (`no-store`).
 ## Run (on the box, as `ubuntu`)
 
 ```bash
-bash bootstrap.sh             # up + migrate + seed only missing instances
-bash bootstrap.sh generate    # optional export to widget/examples
-bash bootstrap.sh seed-force  # destructive replacement; explicit use only
+bash bootstrap.sh validate
+bash bootstrap.sh up
+bash bootstrap.sh status
+bash bootstrap.sh generate
+bash bootstrap.sh seed-examples --replace-all
 ```
 
 `grist-sync.mjs` (`migrate` | `seed` | `generate`) does the API work; `bootstrap.sh` wraps it
 with the container lifecycle + the headless API-key step.
+
+`up` reads Dex secrets from the untracked `${EDGE_DIR}/.env` on the host,
+migrates without clearing rows, and seeds only instances not yet present.
+`seed-examples --replace-all` is the explicit destructive path for replacing
+the committed example instances.
 
 ## The headless API-key step (why bootstrap injects it)
 

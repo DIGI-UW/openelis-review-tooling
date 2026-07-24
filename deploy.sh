@@ -41,7 +41,6 @@ fi
 : "${AMR_DOMAIN:?}" "${ANALYZERS_DOMAIN:?}" "${GRIST_DOMAIN:?}"
 : "${AMR_BRANCH:?}" "${ANALYZERS_BRANCH:?}"
 : "${EDGE_DIR:?}" "${AMR_DIR:?}" "${ANALYZERS_DIR:?}" "${LETSENCRYPT_EMAIL:?}"
-: "${GRIST_STATE_DIR:?}"
 SSH_KEY_EXPANDED="${SSH_KEY/#\~/$HOME}"
 # Two repos: this harness (cloned into EDGE_DIR) and the OpenELIS app it builds
 # (cloned into AMR_DIR / ANALYZERS_DIR). They are separate checkouts on the host.
@@ -150,6 +149,10 @@ sync_checkout() { # dir branch repo
 sync_checkout "$EDGE_DIR" "$HARNESS_BRANCH" "$HARNESS_REPO"
 sync_checkout "$AMR_DIR" "$AMR_BRANCH" "$APP_REPO"
 sync_checkout "$ANALYZERS_DIR" "$ANALYZERS_BRANCH" "$APP_REPO"
+[ -f "$EDGE_DIR/.env" ] || {
+  echo "[deploy] $EDGE_DIR/.env is missing; provision box-side Grist/Dex secrets before deployment" >&2
+  exit 1
+}
 
 docker network create oe-edge 2>/dev/null || true
 mkdir -p "$LE_DIR" "$WEBROOT_DIR"
@@ -158,20 +161,11 @@ mkdir -p "$EDGE_DIR/runtime"
 harness_sha=\$(repo_git "$EDGE_DIR" rev-parse HEAD)
 amr_sha=\$(repo_git "$AMR_DIR" rev-parse HEAD)
 analyzers_sha=\$(repo_git "$ANALYZERS_DIR" rev-parse HEAD)
-deployed_at=\$(date -u +%FT%TZ)
-cat > "$EDGE_DIR/runtime/build-amr.json" <<JSON
-{"instance":"amr","appRepo":"$APP_REPO","appBranch":"$AMR_BRANCH","appSha":"\$amr_sha","harnessSha":"\$harness_sha","deployedAt":"\$deployed_at"}
-JSON
-cat > "$EDGE_DIR/runtime/build-analyzers.json" <<JSON
-{"instance":"analyzers","appRepo":"$APP_REPO","appBranch":"$ANALYZERS_BRANCH","appSha":"\$analyzers_sha","harnessSha":"\$harness_sha","deployedAt":"\$deployed_at"}
-JSON
+deployment_id=\$(date -u +%Y%m%dT%H%M%SZ)-\${harness_sha:0:12}
 
 echo "[deploy] Grist, Dex, Redis, and UAT read service up"
-cd "$EDGE_DIR/grist"
-GRIST_DOMAIN="$GRIST_DOMAIN" GRIST_STATE_DIR="$GRIST_STATE_DIR" \\
-DEX_GRIST_CLIENT_SECRET="${DEX_GRIST_CLIENT_SECRET:-}" \\
-DEX_REVIEWER_PASSWORD_HASH="${DEX_REVIEWER_PASSWORD_HASH:-}" \\
-REVIEW_DIR="$EDGE_DIR/widget/examples" bash bootstrap.sh
+ENV_FILE="$EDGE_DIR/.env" REVIEW_DIR="$EDGE_DIR/widget/examples" \\
+  bash "$EDGE_DIR/grist/bootstrap.sh" up
 
 echo "[deploy] router up (self-signed until certs issued)"
 cd "$EDGE_DIR/$ROUTER_SUBDIR"
@@ -201,13 +195,37 @@ docker compose -p analyzers \\
         astm-simulator openelis-analyzer-bridge
 
 echo "[deploy] waiting for both webapps healthy (up to 20 min)"
+healthy=false
 for i in \$(seq 1 120); do
   a=\$(docker inspect -f '{{.State.Health.Status}}' amr-openelisglobal-webapp 2>/dev/null || echo none)
   n=\$(docker inspect -f '{{.State.Health.Status}}' analyzers-openelisglobal-webapp 2>/dev/null || echo none)
   echo "[deploy]   amr=\$a analyzers=\$n (\$((i*10))s)"
-  [ "\$a" = healthy ] && [ "\$n" = healthy ] && break
+  if [ "\$a" = healthy ] && [ "\$n" = healthy ]; then
+    healthy=true
+    break
+  fi
   sleep 10
 done
+if [ "\$healthy" != true ]; then
+  echo "[deploy] health verification failed; ready deployment metadata was not changed" >&2
+  exit 1
+fi
+
+publish_target() {
+  local instance branch app_sha deployed_at tmp
+  instance="\$1"
+  branch="\$2"
+  app_sha="\$3"
+  deployed_at=\$(date -u +%FT%TZ)
+  tmp=\$(mktemp "$EDGE_DIR/runtime/.target-\${instance}.XXXXXX")
+  cat > "\$tmp" <<TARGETJSON
+{"instance":"\$instance","deploymentId":"\$deployment_id","state":"ready","appRepo":"$APP_REPO","appBranch":"\$branch","appSha":"\$app_sha","harnessSha":"\$harness_sha","deployedAt":"\$deployed_at","scope":"full","verification":{"health":"passed"}}
+TARGETJSON
+  mv "\$tmp" "$EDGE_DIR/runtime/target-\${instance}.json"
+}
+publish_target amr "$AMR_BRANCH" "\$amr_sha"
+publish_target analyzers "$ANALYZERS_BRANCH" "\$analyzers_sha"
+echo "[deploy] published ready target metadata for deployment \$deployment_id"
 echo "[deploy] container states:"; docker ps --format '   {{.Names}}: {{.Status}}'
 echo "$DONE_MARK \$(date -u)"
 RUNNER
@@ -276,12 +294,8 @@ cmd_certs() {
 #   analyzers — the harness's own seed-analyzers.sh (9-device Madagascar fleet:
 #               ASTM + HL7/MLLP + FILE, mock networks wired to the bridge)
 #   amr       — scripts/seed-microbiology.sh (a bacteriology + sibling TB case,
-#               reusing the PR's own test-fixture SQL) so /MicrobiologyWorklist
-#               and /MicrobiologyCaseView/:caseId have something to review.
-# NOTE: neither /MicrobiologyWorklist nor /MicrobiologyCaseView has a sidenav
-# entry on this branch — they're real, working, unlinked routes. Reviewers need
-# the direct URL (printed below); this is a product gap upstream, not something
-# this deploy script should patch around by hand-editing the frontend nav.
+#               reusing the PR's own test-fixture SQL) so the configured
+#               /Microbiology/worklist and case routes have something to review.
 cmd_seed() {
   require_aws
   log "seeding analyzers.openelis-global.org (9-device fleet via the harness's own seed script)"
@@ -294,8 +308,8 @@ SEEDEOF
 chmod +x /tmp/seed-microbiology.sh
 DB_CONTAINER=amr-openelisglobal-database BASE_URL=https://$AMR_DOMAIN /tmp/seed-microbiology.sh" \
     || warn "microbiology seed failed — see output above"
-  log "seed complete. Microbiology worklist has NO sidenav entry — visit directly:"
-  log "  https://$AMR_DOMAIN/MicrobiologyWorklist"
+  log "seed complete. Microbiology worklist:"
+  log "  https://$AMR_DOMAIN/Microbiology/worklist"
 }
 
 cmd_status() {

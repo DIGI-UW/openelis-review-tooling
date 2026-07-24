@@ -1,6 +1,6 @@
 // Grist UAT lifecycle:
 //   migrate   add missing schema columns and stable keys without clearing rows
-//   seed      add checklist instances that do not exist yet (use --force to replace)
+//   seed      add missing checklist instances (use --replace-all intentionally)
 //   generate  export Grist checklists as schema-v2 JSON
 //
 // Env: GRIST_URL, GRIST_KEY, GRIST_ORG (default "openelis"),
@@ -180,7 +180,7 @@ async function migrate() {
   return doc;
 }
 
-async function seed(force) {
+async function seed(replaceAll) {
   const doc = await migrate();
   for (const inst of instancesFromReviewDir()) {
     const j = JSON.parse(readFileSync(join(REVIEW_DIR, `uat-${inst}.json`), "utf8"));
@@ -198,11 +198,11 @@ async function seed(force) {
         )}`,
       )
     ).records;
-    if ((existingMeta.length || existingSteps.length) && !force) {
+    if ((existingMeta.length || existingSteps.length) && !replaceAll) {
       console.log(`  skipped ${inst}: already authored in Grist`);
       continue;
     }
-    if (force) {
+    if (replaceAll) {
       await deleteInstance(doc, "UAT_Meta", inst);
       await deleteInstance(doc, "UAT_Steps", inst);
     }
@@ -261,9 +261,9 @@ async function generate() {
 
 const mode = process.argv[2];
 if (mode === "migrate") await migrate();
-else if (mode === "seed") await seed(process.argv.includes("--force"));
+else if (mode === "seed") await seed(process.argv.includes("--replace-all"));
 else if (mode === "generate") await generate();
 else {
-  console.error("usage: grist-sync.mjs migrate|seed [--force]|generate");
+  console.error("usage: grist-sync.mjs migrate|seed [--replace-all]|generate");
   process.exit(1);
 }

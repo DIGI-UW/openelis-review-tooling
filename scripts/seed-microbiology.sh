@@ -119,5 +119,5 @@ echo
 echo "=== SEEDED ==="
 echo "primary case:  $CREATED_CASE_ID  -> $BASE_URL/MicrobiologyCaseView/$CREATED_CASE_ID"
 echo "sibling case:  $TB_CASE_ID  -> $BASE_URL/MicrobiologyCaseView/$TB_CASE_ID"
-echo "worklist:      $BASE_URL/MicrobiologyWorklist"
+echo "worklist:      $BASE_URL/Microbiology/worklist"
 echo "MICRO_SEED_DONE"

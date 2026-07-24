@@ -100,8 +100,15 @@ http {
             add_header X-UAT-Source "grist-live" always;
         }
 
+        # Published atomically only after application health verification.
+        location = /__review/target.json {
+            alias /etc/nginx/runtime/target-amr.json;
+            default_type application/json;
+            add_header Cache-Control "no-store";
+        }
+        # Compatibility alias for widgets deployed before the target contract.
         location = /__review/build.json {
-            alias /etc/nginx/runtime/build-amr.json;
+            alias /etc/nginx/runtime/target-amr.json;
             default_type application/json;
             add_header Cache-Control "no-store";
         }
@@ -175,8 +182,13 @@ http {
             add_header X-UAT-Source "grist-live" always;
         }
 
+        location = /__review/target.json {
+            alias /etc/nginx/runtime/target-analyzers.json;
+            default_type application/json;
+            add_header Cache-Control "no-store";
+        }
         location = /__review/build.json {
-            alias /etc/nginx/runtime/build-analyzers.json;
+            alias /etc/nginx/runtime/target-analyzers.json;
             default_type application/json;
             add_header Cache-Control "no-store";
         }
@@ -209,9 +221,8 @@ http {
     }
 
     # -------------------------------------------------------------------------
-    # grist.openelis-global.org -> Grist UAT authoring UI (basic-auth gated).
-    # Grist runs login-less in this light mode; the router enforces access.
-    # SSO (Grist OIDC against an IdP) is the intended upgrade — see grist/README.md.
+    # grist.openelis-global.org -> Grist UAT authoring UI and native MCP.
+    # Grist authenticates through its OIDC flow against Dex.
     # -------------------------------------------------------------------------
     server {
         listen 443 ssl;

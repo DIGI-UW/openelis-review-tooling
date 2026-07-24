@@ -15,9 +15,13 @@ Open `index.html` for a live, backend-free demo.
         data-src="https://example.org/uat-amr.json"></script>
 ```
 
-- `data-instance` — a slug; namespaces the reviewer's saved answers in `localStorage`.
+- `data-instance` — a slug used with deployment identity and checklist revision
+  to isolate the reviewer's saved answers in `localStorage`.
 - `data-label` — human title shown in the panel and the report.
 - `data-src` — URL of the checklist JSON (see schema below). **Optional.**
+- `data-build-src` — URL of verified deployment metadata. Defaults to
+  `/__review/target.json`; the historical attribute name is retained for
+  compatibility.
 
 ### Where the checklist comes from (priority order)
 1. **Inline** (fully backend-free): a `window.OE_REVIEW_CHECKLIST` object, or
@@ -56,13 +60,16 @@ Open `index.html` for a live, backend-free demo.
 
 Each stable step can be marked **pass / fail / n-a** with an optional note, plus
 freeform page-level notes. Reordering keeps the answer; changed instructions mark
-the answer stale until it is reviewed again. **Download review report** produces:
+the answer stale until it is reviewed again. Answers never carry into a different
+deployment, and old position-based state is not reused. **Download review report**
+produces:
 
 - `oe-review-<instance>-<timestamp>.md` — a readable checklist with `[PASS]/[FAIL]/
   [N/A]/[----]` boxes, a summary line, and the freeform notes. Its footer says to
   paste it into Claude to triage into Jira/GitHub.
-- `.json` — the same data structured, including checklist revision, build
-  provenance, stable key, required flag, marked time, actual URL, status, and note.
+- `.json` — the same data structured, including checklist revision, verified
+  deployment provenance, stable key, required flag, marked time, actual URL,
+  status, and note.
 
 ## Authoring checklists (optional)
 

@@ -35,7 +35,7 @@ Two URLs, no build, no redeploy — a script tag or one nginx line:
 | [`integration/`](integration/) | Copy-paste ways to attach the overlay to an **existing** deployment (config, not code). |
 | `grist/` | The authoring backend: Grist as source of truth + native MCP, plus the slim read-only `/uat` transformer. |
 | `router/`, `amr/`, `analyzers/`, `scripts/`, `deploy.sh` | The demo deployment: an umbrella nginx router splitting subdomains, additive Compose overlays on the OE2 app builds, and Let's Encrypt certs. |
-| `docs/` | [`AGENTS.md`](docs/AGENTS.md) (context for agents) and `overview.html` (a collaborator overview page). |
+| `docs/` | [`AGENTS.md`](docs/AGENTS.md) (agent contract), [`OPERATIONS.md`](docs/OPERATIONS.md) (runtime contract), and collaborator guides. |
 
 **Just want the widget?** It stands entirely on its own — see
 [`widget/README.md`](widget/README.md). The rest is optional backend + demo infra.
@@ -71,17 +71,17 @@ Host-header curl); only `certs` needs DNS (ACME HTTP-01). Commands run over **SS
 session. `./deploy.sh connect` is the one SSH command (interactive shell), and adds
 your current IP to the security group automatically.
 
-Config lives in `.env` (copy from `.env.example`), which is **git-ignored**. Grist
-and Dex secrets are needed there only for the first bootstrap; the harness then
-preserves them in the host-side Grist state directory and reuses them across
-checkouts and deployments. Real
-host values and all secrets stay out of the repo (this repo is public).
+Local deploy configuration comes from `.env.example` and lives in a git-ignored
+`.env`. Grist/Dex secrets use the separate `grist/.env.example` template and
+live only in `${EDGE_DIR}/.env` on the host; they are never embedded in an SSM
+command. See [`docs/OPERATIONS.md`](docs/OPERATIONS.md).
 
 ### Repos it orchestrates
 `deploy.sh` clones **this** repo (`HARNESS_REPO`) for the orchestration and the OE2
 app repo (`APP_REPO`) for the stacks it builds — two separate checkouts on the host.
-Each app exposes `/__review/build.json`; downloaded reports pair that build
-provenance with the live checklist revision.
+Each app exposes its verified deployment at `/__review/target.json`
+(`/__review/build.json` remains a compatibility alias). Downloaded reports pair
+that deployment provenance with the live checklist revision.
 
 ### Seed data
 Fresh instances come up with zero demo data. `./deploy.sh seed`:
@@ -91,9 +91,8 @@ Fresh instances come up with zero demo data. `./deploy.sh seed`:
   sharing one specimen, plus AST reference data, left at `stage=RECEIVED` so a
   reviewer drives the isolate/AST steps.
 
-> **Known product gap:** on the OGC-782 branch, `/MicrobiologyWorklist` and the case
-> view are real, working, but **unlinked** routes (no sidenav entry). `seed` prints
-> the direct URL — reviewers need it.
+The Microbiology worklist is available from the configured sidenav and at the
+stable `/Microbiology/worklist` route.
 
 > The demo admin login is the standard OpenELIS default (`admin` / `adminADMIN!`) —
 > a well-known demo credential, not a secret.

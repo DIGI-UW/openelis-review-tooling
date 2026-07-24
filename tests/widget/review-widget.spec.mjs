@@ -7,6 +7,13 @@ async function openPanel(page) {
   return widget;
 }
 
+async function savedState(page) {
+  return page.evaluate(() => {
+    const key = window.__OE_REVIEW_TEST__.storageKey();
+    return { key, value: JSON.parse(localStorage.getItem(key)) };
+  });
+}
+
 test("keys answers by stable step key and includes provenance in reports", async ({
   page,
 }) => {
@@ -17,16 +24,18 @@ test("keys answers by stable step key and includes provenance in reports", async
     .getByText("Pass", { exact: true })
     .click();
 
-  const state = await page.evaluate(() =>
-    JSON.parse(localStorage.getItem("oe-review:analyzers")),
+  const stored = await savedState(page);
+  expect(stored.key).toContain(
+    "oe-review:v2:analyzers:deploy-analyzers-001:revision-one",
   );
-  expect(state.steps["AN-QC-001"].mark).toBe("pass");
-  expect(state.steps["0.0"]).toBeUndefined();
+  expect(stored.value.steps["AN-QC-001"].mark).toBe("pass");
+  expect(stored.value.steps["0.0"]).toBeUndefined();
 
   const report = await page.evaluate(() => window.__OE_REVIEW_TEST__.buildReport());
   const json = JSON.parse(report.json);
   expect(json.schemaVersion).toBe(2);
   expect(json.checklistRevision).toBe("revision-one");
+  expect(json.deploymentId).toBe("deploy-analyzers-001");
   expect(json.build.appSha).toBe("abc123");
   expect(json.checklist[0].steps[0].key).toBe("AN-QC-001");
   expect(json.checklist[0].steps[0].markedAt).toBeTruthy();
@@ -83,11 +92,9 @@ test("refresh preserves reordered answers and marks changed instructions stale",
 
   await expect(widget.getByText("Find and inspect a shipped profile")).toBeVisible();
   await expect(widget.getByText("Review again")).toBeVisible();
-  const state = await page.evaluate(() =>
-    JSON.parse(localStorage.getItem("oe-review:analyzers")),
-  );
-  expect(state.steps["AN-QC-001"].mark).toBe("pass");
-  expect(state.steps["AN-QC-001"].stale).toBe(true);
+  const stored = await savedState(page);
+  expect(stored.value.steps["AN-QC-001"].mark).toBe("pass");
+  expect(stored.value.steps["AN-QC-001"].stale).toBe(true);
 });
 
 test("shows checklist load failures instead of an empty checklist", async ({ page }) => {
@@ -96,4 +103,66 @@ test("shows checklist load failures instead of an empty checklist", async ({ pag
   );
   const widget = await openPanel(page);
   await expect(widget.getByRole("alert")).toContainText("Could not load");
+});
+
+test("does not reuse position-based legacy answers", async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.setItem(
+      "oe-review:analyzers",
+      JSON.stringify({
+        reviewer: "Legacy reviewer",
+        minimized: true,
+        steps: { "0.0": { mark: "pass" } },
+        notes: [],
+      }),
+    );
+  });
+
+  const widget = await openPanel(page);
+  await expect(widget.locator(".legacy")).toContainText("were not reused");
+  await expect(
+    widget
+      .locator(".step")
+      .filter({ hasText: "Find a shipped profile" })
+      .locator(".mark.pass"),
+  ).not.toHaveClass(/on/);
+
+  page.once("dialog", (dialog) => dialog.accept());
+  await widget.getByRole("button", { name: "Reset" }).click();
+  const legacy = await page.evaluate(() => localStorage.getItem("oe-review:analyzers"));
+  expect(legacy).toBeNull();
+});
+
+test("does not carry answers into a different deployment", async ({ page }) => {
+  let deploymentId = "deploy-analyzers-001";
+  await page.route("**/tests/widget/target.json", (route) =>
+    route.fulfill({
+      json: {
+        instance: "analyzers",
+        deploymentId,
+        state: "ready",
+        appSha: deploymentId === "deploy-analyzers-001" ? "abc123" : "xyz789",
+        harnessSha: "def456",
+        verification: { health: "passed" },
+      },
+    }),
+  );
+
+  let widget = await openPanel(page);
+  await widget
+    .locator(".step")
+    .filter({ hasText: "Find a shipped profile" })
+    .getByText("Pass", { exact: true })
+    .click();
+
+  deploymentId = "deploy-analyzers-002";
+  await page.reload();
+  widget = page.locator("#oe-review-host");
+  await widget.getByRole("button", { name: "Review" }).click();
+  await expect(
+    widget
+      .locator(".step")
+      .filter({ hasText: "Find a shipped profile" })
+      .locator(".mark.pass"),
+  ).not.toHaveClass(/on/);
 });
