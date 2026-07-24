@@ -49,6 +49,12 @@ require_box_config() {
   case "${DEX_REVIEWER_PASSWORD_HASH:-}" in
     "" | *replace-*) die "DEX_REVIEWER_PASSWORD_HASH must be a real bcrypt hash" ;;
   esac
+  case "$DEX_REVIEWER_PASSWORD_HASH" in
+    '$2a$'* | '$2b$'* | '$2y$'*) ;;
+    *)
+      die "DEX_REVIEWER_PASSWORD_HASH must start with a supported bcrypt prefix"
+      ;;
+  esac
 }
 
 copy_runtime_scripts() {

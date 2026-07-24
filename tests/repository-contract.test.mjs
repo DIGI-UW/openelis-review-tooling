@@ -20,6 +20,7 @@ test("remote deploy commands never carry Grist or Dex secret values", async () =
   const deploy = await read("deploy.sh");
   const localEnv = await read(".env.example");
   const hostEnv = await read("grist/.env.example");
+  const bootstrap = await read("grist/bootstrap.sh");
   const runnerStart = deploy.indexOf("_runner_script() {");
   const runnerEnd = deploy.indexOf("\n_poll() {", runnerStart);
   const runner = deploy.slice(runnerStart, runnerEnd);
@@ -31,6 +32,10 @@ test("remote deploy commands never carry Grist or Dex secret values", async () =
   assert.doesNotMatch(localEnv, /^DEX_/m);
   assert.match(hostEnv, /^DEX_GRIST_CLIENT_SECRET=/m);
   assert.match(hostEnv, /^DEX_REVIEWER_PASSWORD_HASH=/m);
+  assert.match(
+    bootstrap,
+    /DEX_REVIEWER_PASSWORD_HASH must start with a supported bcrypt prefix/,
+  );
 });
 
 test("ready target metadata is published only after successful health verification", async () => {
