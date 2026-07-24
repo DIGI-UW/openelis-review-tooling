@@ -13,11 +13,26 @@ of that repo, so it can iterate on its own.
 - **Feedback** — the reviewer downloads a Markdown + JSON report and pastes it into
   Claude, which triages it into Jira/GitHub items.
 
+## Add it to a deployment you already have
+
+Two URLs, no build, no redeploy — a script tag or one nginx line:
+
+```html
+<script src="https://grist.openelis-global.org/oe-review-widget.js"
+        data-instance="my-feature"
+        data-label="My Feature (OGC-1234)"
+        data-src="https://grist.openelis-global.org/uat/my-feature.json"></script>
+```
+
+→ **[Integration options](integration/README.md)** (script tag · nginx snippet · bookmarklet)
+→ **[Tutorial: set up a review for a branch, PR, or ticket](docs/TUTORIAL.md)**
+
 ## What's here
 
 | Path | What it is |
 |---|---|
 | [`widget/`](widget/) | The reviewer overlay as a **standalone, backend-free drop-in plugin**. Grab-and-go — no OE2, no build, no server needed. |
+| [`integration/`](integration/) | Copy-paste ways to attach the overlay to an **existing** deployment (config, not code). |
 | `grist/` | The authoring backend: Grist as source of truth + native MCP, plus the slim `/uat` read service (`mcp/server.mjs`) and `mcp/mcp-token.sh`. |
 | `router/`, `amr/`, `analyzers/`, `scripts/`, `deploy.sh` | The demo deployment: an umbrella nginx router splitting subdomains, additive Compose overlays on the OE2 app builds, and Let's Encrypt certs. |
 | `docs/` | [`AGENTS.md`](docs/AGENTS.md) (context for agents) and `overview.html` (a collaborator overview page). |

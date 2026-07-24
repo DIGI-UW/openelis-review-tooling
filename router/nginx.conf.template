@@ -224,6 +224,37 @@ http {
             proxy_set_header X-Forwarded-Proto $scheme;
         }
 
+        # ---- central integration surface -------------------------------------
+        # These two are what an EXISTING deployment points at to adopt the review
+        # overlay: one script tag, no proxy, no frontend build on their side.
+        # Both are public and read-only (authoring still requires auth via /mcp).
+
+        # The reviewer widget itself, served from this central host so integrators
+        # reference a URL instead of vendoring a copy of the file.
+        location = /oe-review-widget.js {
+            alias /etc/nginx/review/oe-review-widget.js;
+            default_type application/javascript;
+            add_header Access-Control-Allow-Origin "*" always;
+            add_header Cache-Control "public, max-age=300" always;
+        }
+
+        # A checklist, by instance slug: /uat/<instance>.json. Cross-origin GET so
+        # a widget running on any other site can read it directly.
+        location ~ ^/uat/(?<uat_instance>[a-z0-9_-]+)\.json$ {
+            if ($request_method = OPTIONS) { return 204; }
+            set $uat_up "mcp";
+            proxy_pass http://$uat_up:8585/uat/$uat_instance.json;
+            proxy_ignore_headers Cache-Control Expires;
+            proxy_cache uat_cache;
+            proxy_cache_valid 200 30s;
+            proxy_cache_use_stale error timeout updating http_502 http_503 http_504;
+            add_header Access-Control-Allow-Origin "*" always;
+            add_header Access-Control-Allow-Methods "GET, OPTIONS" always;
+            add_header Access-Control-Allow-Headers "Content-Type" always;
+            add_header Cache-Control "no-store" always;
+            add_header X-UAT-Source "grist-live" always;
+        }
+
         # Public MCP endpoint. The MCP service does its own bearer check, so no
         # gate here; the Authorization header passes through untouched and the
         # POST body is proxied as-is. More specific than "location /" below.
