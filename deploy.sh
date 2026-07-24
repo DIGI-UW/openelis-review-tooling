@@ -146,32 +146,17 @@ sync_checkout() { # dir branch repo
   repo_git "\$dir" submodule update --init --depth 1 dataexport plugins tools/openelis-analyzer-bridge tools/analyzer-mock-server 2>/dev/null || true
   echo "[deploy] \$dir -> \$br @\$(repo_git "\$dir" rev-parse --short HEAD)"
 }
-GENERIC_ANALYZER_PLUGINS=(GenericASTM GenericFile GenericHL7)
-prepare_analyzer_plugins() {
-  local app_dir="\$1" source_dir destination plugin_name source_jar count
-  source_dir="\$app_dir/plugins/plugins"
+prepare_analyzer_plugin_volume() {
+  local app_dir="\$1" destination
   destination="\$app_dir/volume/plugins"
   mkdir -p "\$destination"
   find "\$destination" -maxdepth 1 -type f -name '*.jar' -delete
-  for plugin_name in "\${GENERIC_ANALYZER_PLUGINS[@]}"; do
-    source_jar="\$source_dir/\$plugin_name-1.0.jar"
-    if [ ! -f "\$source_jar" ]; then
-      echo "[deploy] missing generic analyzer plugin: \$source_jar" >&2
-      exit 1
-    fi
-    install -m 0644 "\$source_jar" "\$destination/"
-  done
-  count=\$(find "\$destination" -maxdepth 1 -type f -name 'Generic*.jar' | wc -l | tr -d '[:space:]')
-  if [ "\$count" != 3 ]; then
-    echo "[deploy] expected 3 generic analyzer runtime plugins, found \$count" >&2
-    exit 1
-  fi
-  echo "[deploy] prepared \$count generic analyzer runtime plugins"
+  echo "[deploy] cleared analyzer runtime plugin volume; the app image will seed shipped generic handlers"
 }
 sync_checkout "$EDGE_DIR" "$HARNESS_BRANCH" "$HARNESS_REPO"
 sync_checkout "$AMR_DIR" "$AMR_BRANCH" "$APP_REPO"
 sync_checkout "$ANALYZERS_DIR" "$ANALYZERS_BRANCH" "$APP_REPO"
-prepare_analyzer_plugins "$ANALYZERS_DIR"
+prepare_analyzer_plugin_volume "$ANALYZERS_DIR"
 [ -f "$EDGE_DIR/.env" ] || {
   echo "[deploy] $EDGE_DIR/.env is missing; provision box-side Grist/Dex secrets before deployment" >&2
   exit 1
@@ -233,6 +218,21 @@ if [ "\$healthy" != true ]; then
   echo "[deploy] health verification failed; ready deployment metadata was not changed" >&2
   exit 1
 fi
+
+verify_analyzer_plugin_registry() {
+  local registry
+  registry=\$(docker exec analyzers-openelisglobal-database psql -U clinlims -d clinlims -t -A -c \
+    "SELECT count(*) || ':' || string_agg(protocol, ',' ORDER BY protocol)
+       FROM clinlims.analyzer_type
+      WHERE is_active IS TRUE
+        AND is_generic_plugin IS TRUE;")
+  if [ "\$registry" != "3:ASTM,FILE,HL7" ]; then
+    echo "[deploy] expected active generic analyzer registry 3:ASTM,FILE,HL7; found '\$registry'" >&2
+    exit 1
+  fi
+  echo "[deploy] verified active generic analyzer registry: \$registry"
+}
+verify_analyzer_plugin_registry
 
 publish_target() {
   local instance branch app_sha deployed_at tmp

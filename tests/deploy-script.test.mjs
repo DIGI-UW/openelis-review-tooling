@@ -22,20 +22,18 @@ test("analyzer deployment prepares only the generic runtime plugins", () => {
   );
   assert.match(
     deployScript,
-    /GENERIC_ANALYZER_PLUGINS=\(GenericASTM GenericFile GenericHL7\)/,
+    /prepare_analyzer_plugin_volume "\$ANALYZERS_DIR"/,
   );
   assert.match(
     deployScript,
-    /prepare_analyzer_plugins "\$ANALYZERS_DIR"/,
+    /find "\\\$destination" -maxdepth 1 -type f -name '\*\.jar' -delete/,
   );
   assert.match(
     deployScript,
-    /expected 3 generic analyzer runtime plugins/,
+    /verify_analyzer_plugin_registry/,
   );
-  assert.ok(
-    deployScript.includes(
-      'source_jar="\\$source_dir/\\$plugin_name-1.0.jar"',
-    ),
+  assert.match(
+    deployScript,
+    /expected active generic analyzer registry 3:ASTM,FILE,HL7/,
   );
-  assert.ok(!deployScript.includes('"\\$source_dir/"*.jar'));
 });
