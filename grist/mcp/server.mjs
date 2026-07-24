@@ -16,6 +16,7 @@ import { readFileSync } from "node:fs";
 import { z } from "zod";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
+import { buildUatDocument } from "./uat-document.mjs";
 
 const GRIST_URL = process.env.GRIST_URL || "http://grist:8484";
 const GRIST_ORG = process.env.GRIST_ORG || "openelis";
@@ -90,30 +91,7 @@ async function deleteRecord(table, id) {
 async function uatDocument(instance) {
   const metaRecs = await listRecords("UAT_Meta", { instance: [instance] });
   const stepRecs = await listRecords("UAT_Steps", { instance: [instance] });
-  const m = (metaRecs[0] && metaRecs[0].fields) || {};
-  const rows = stepRecs
-    .map((r) => r.fields)
-    .sort((a, b) => a.section_order - b.section_order || a.step_order - b.step_order);
-  const sections = [];
-  for (const s of rows) {
-    let sec = sections.find((x) => x._order === s.section_order);
-    if (!sec) {
-      sec = { title: s.section, steps: [], _order: s.section_order };
-      sections.push(sec);
-    }
-    const step = { do: s.do };
-    if (s.expect) step.expect = s.expect;
-    if (s.route) step.route = s.route;
-    sec.steps.push(step);
-  }
-  sections.forEach((s) => delete s._order);
-  return {
-    title: m.title || `${instance} review`,
-    instance,
-    jira: m.jira || "",
-    intro: m.intro || "",
-    sections,
-  };
+  return buildUatDocument(instance, metaRecs, stepRecs);
 }
 
 const ok = (text) => ({ content: [{ type: "text", text }] });

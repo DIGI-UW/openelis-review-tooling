@@ -15,7 +15,7 @@ Open `index.html` for a live, backend-free demo.
         data-src="https://example.org/uat-amr.json"></script>
 ```
 
-- `data-instance` — a slug; namespaces the reviewer's saved answers in `localStorage`.
+- `data-instance` — a slug used in the saved-review namespace and report.
 - `data-label` — human title shown in the panel and the report.
 - `data-src` — URL of the checklist JSON (see schema below). **Optional.**
 
@@ -34,12 +34,14 @@ Open `index.html` for a live, backend-free demo.
   "title": "Microbiology MVP — review",
   "instance": "amr",
   "jira": "OGC-782",
+  "checklist_revision": "optional-author-provided-revision",
   "intro": "Optional preamble shown at the top of the panel.",
   "sections": [
     {
       "title": "A section heading",
       "steps": [
-        { "do": "The action the reviewer performs.",
+        { "step_id": "stable-step-id",
+          "do": "The action the reviewer performs.",
           "expect": "What they should see (optional).",
           "route": "/some/path (optional deep-link hint)" }
       ]
@@ -47,6 +49,17 @@ Open `index.html` for a live, backend-free demo.
   ]
 }
 ```
+
+Live Grist checklists provide `step_id` from the immutable row ID and a SHA-256
+`checklist_revision`. Static/inline checklists should provide both. For backward
+compatibility, the widget derives deterministic values when either is absent.
+
+Saved answers are keyed by stable step ID and scoped by instance, deployment
+identity (when available), and checklist revision. When a checklist changes,
+only answers whose ID and visible action/expectation/route are unchanged carry
+forward. Reordered steps and unrelated inserts are safe; rewritten or removed
+steps do not silently inherit an answer. Legacy position-based state is not
+reused.
 
 ## What the reviewer gets
 
@@ -56,8 +69,9 @@ page-level notes. **Download review report** produces two files:
 - `oe-review-<instance>-<timestamp>.md` — a readable checklist with `[PASS]/[FAIL]/
   [N/A]/[----]` boxes, a summary line, and the freeform notes. Its footer says to
   paste it into Claude to triage into Jira/GitHub.
-- `.json` — the same data structured: `{ instance, label, reviewer, summary, checklist:
-  [{ section, steps:[{ do, expect, route, mark, note }] }], feedback }`.
+- `.json` — the same data structured, including `checklist_revision`,
+  `deployment_id` when available, and
+  `checklist:[{section, steps:[{step_id, do, expect, route, mark, note}]}]`.
 
 ## Authoring checklists (optional)
 

@@ -89,13 +89,20 @@ box-side read service that reshapes live Grist rows into the widget's JSON
 (30-second serve-stale cache). So an edit in Grist or via MCP shows up in the
 overlay within ~30s — no publish step.
 
+The read adapter emits each Grist row as `step_id: "grist:<row-id>"` and includes
+a deterministic SHA-256 `checklist_revision`. A reorder changes the revision but
+not the step IDs.
+
 ## Feedback — the report
 
 The reviewer marks each step (pass/fail/na) + optional notes, then downloads
 `oe-review-<instance>-<timestamp>.md` and `.json`. The Markdown carries a
 per-section checklist with `[PASS]/[FAIL]/[N/A]/[----]` boxes, a summary line,
 and freeform feedback; the JSON is the same data structured
-(`{instance, summary, checklist:[{section, steps:[{do, expect, route, mark, note}]}], feedback}`).
+(`{instance, checklist_revision, deployment_id, summary,
+checklist:[{section, steps:[{step_id, do, expect, route, mark, note}]}],
+feedback}`). The Markdown also includes the checklist revision, stable step IDs,
+and routes.
 The footer instructs the reviewer to paste it into Claude to triage into
 Jira/GitHub.
 

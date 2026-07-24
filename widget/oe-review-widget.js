@@ -3,7 +3,13 @@
   var self = document.currentScript;
   var INSTANCE = (self && self.getAttribute("data-instance")) || "unknown";
   var LABEL = (self && self.getAttribute("data-label")) || INSTANCE;
-  var STORE_KEY = "oe-review:" + INSTANCE;
+  var LEGACY_STORE_KEY = "oe-review:" + INSTANCE;
+  var target = window.OE_REVIEW_TARGET || {};
+  var DEPLOYMENT_ID = target.deployment_id || "unbound";
+  var storeKey = "";
+  var latestKey = "";
+  var legacyStateDetected = false;
+  var migration = null;
   // Checklist source, in priority order: an inline checklist (fully backend-free)
   // via window.OE_REVIEW_CHECKLIST or a <script type="application/json"
   // id="oe-review-checklist"> block; else the data-src URL; else a same-origin
@@ -20,21 +26,185 @@
     return null;
   }
 
-  // ---- persisted state ------------------------------------------------------
-  var state = load();
-  function load() {
+  // ---- checklist and persisted-state contracts ------------------------------
+  var state = fresh();
+
+  function hashString(value) {
+    var hash = 2166136261;
+    for (var i = 0; i < value.length; i++) {
+      hash ^= value.charCodeAt(i);
+      hash = Math.imul(hash, 16777619);
+    }
+    return ("00000000" + (hash >>> 0).toString(16)).slice(-8);
+  }
+
+  function fingerprint(sectionTitle, step) {
+    return (
+      "step-v1:" +
+      hashString(
+        JSON.stringify([
+          sectionTitle || "",
+          step.do || step.text || "",
+          step.expect || "",
+          step.route || "",
+        ]),
+      )
+    );
+  }
+
+  function normalizeChecklist(input) {
+    input = input || {};
+    var seen = {};
+    var normalized = {
+      title: input.title || LABEL + " review",
+      instance: input.instance || INSTANCE,
+      jira: input.jira || "",
+      intro: input.intro || "",
+      sections: (input.sections || []).map(function (section) {
+        var title = section.title || "";
+        return {
+          title: title,
+          steps: (section.steps || []).map(function (source) {
+            var step = { do: source.do || source.text || "" };
+            if (source.expect) step.expect = source.expect;
+            if (source.route) step.route = source.route;
+
+            var explicitId = source.step_id || source.id;
+            var baseId =
+              explicitId ||
+              "static:" +
+                hashString(
+                  JSON.stringify([title, step.do, step.expect || "", step.route || ""]),
+                );
+            var occurrence = seen[baseId] || 0;
+            seen[baseId] = occurrence + 1;
+            step.step_id = occurrence ? baseId + ":" + (occurrence + 1) : String(baseId);
+            step._fingerprint = fingerprint(title, step);
+            return step;
+          }),
+        };
+      }),
+    };
+
+    var revisionSource = {
+      title: normalized.title,
+      instance: normalized.instance,
+      jira: normalized.jira,
+      intro: normalized.intro,
+      sections: normalized.sections.map(function (section) {
+        return {
+          title: section.title,
+          steps: section.steps.map(function (step) {
+            return {
+              step_id: step.step_id,
+              do: step.do,
+              expect: step.expect || "",
+              route: step.route || "",
+            };
+          }),
+        };
+      }),
+    };
+    normalized.checklist_revision =
+      input.checklist_revision || "static:" + hashString(JSON.stringify(revisionSource));
+    return normalized;
+  }
+
+  function storageKeys(instance, deploymentId, revision) {
+    var scope =
+      "oe-review:v2:" + encodeURIComponent(instance) + ":" + encodeURIComponent(deploymentId);
+    return {
+      current: scope + ":" + encodeURIComponent(revision),
+      latest: scope + ":latest",
+    };
+  }
+
+  function readState(key) {
     try {
-      return JSON.parse(localStorage.getItem(STORE_KEY)) || fresh();
+      return JSON.parse(localStorage.getItem(key));
     } catch (e) {
-      return fresh();
+      return null;
     }
   }
+
   function fresh() {
-    return { reviewer: "", minimized: true, steps: {}, notes: [] };
+    return { version: 2, reviewer: "", minimized: true, steps: {}, notes: [] };
   }
+
+  function eachStep(checklist, callback) {
+    (checklist.sections || []).forEach(function (section) {
+      (section.steps || []).forEach(function (step) {
+        callback(step, section);
+      });
+    });
+  }
+
+  function migrateState(previous, checklist) {
+    var next = fresh();
+    var carried = 0;
+    var dropped = 0;
+    if (!previous) return { state: next, carried: 0, dropped: 0 };
+
+    next.reviewer = previous.reviewer || "";
+    next.minimized = previous.minimized !== false;
+    eachStep(checklist, function (step) {
+      var saved = previous.steps && previous.steps[step.step_id];
+      if (!saved) return;
+      if (saved.fingerprint === step._fingerprint) {
+        next.steps[step.step_id] = {
+          mark: saved.mark || null,
+          note: saved.note || "",
+          fingerprint: step._fingerprint,
+        };
+        carried++;
+      } else {
+        dropped++;
+      }
+    });
+    Object.keys((previous && previous.steps) || {}).forEach(function (stepId) {
+      var stillPresent = false;
+      eachStep(checklist, function (step) {
+        if (step.step_id === stepId) stillPresent = true;
+      });
+      if (!stillPresent) dropped++;
+    });
+    return { state: next, carried: carried, dropped: dropped };
+  }
+
+  function initializeState() {
+    var keys = storageKeys(INSTANCE, DEPLOYMENT_ID, uat.checklist_revision);
+    storeKey = keys.current;
+    latestKey = keys.latest;
+    legacyStateDetected = !!readState(LEGACY_STORE_KEY);
+    migration = null;
+
+    var exact = readState(storeKey);
+    if (exact && exact.version === 2) {
+      state = exact;
+      save();
+      return;
+    }
+
+    var previousKey = null;
+    try {
+      previousKey = localStorage.getItem(latestKey);
+    } catch (e) {
+      /* private mode */
+    }
+    var previous = previousKey && previousKey !== storeKey ? readState(previousKey) : null;
+    if (previous && previous.version === 2) {
+      migration = migrateState(previous, uat);
+      state = migration.state;
+    } else {
+      state = fresh();
+    }
+    save();
+  }
+
   function save() {
     try {
-      localStorage.setItem(STORE_KEY, JSON.stringify(state));
+      localStorage.setItem(storeKey, JSON.stringify(state));
+      localStorage.setItem(latestKey, storeKey);
     } catch (e) {
       /* quota / private mode — report download still works from memory */
     }
@@ -51,7 +221,7 @@
     host.id = "oe-review-host";
     host.style.cssText = "all:initial";
     document.body.appendChild(host);
-    root = host.attachShadow({ mode: "closed" });
+    root = host.attachShadow({ mode: window.__OE_REVIEW_TEST_OPEN_SHADOW__ ? "open" : "closed" });
 
     var style = document.createElement("style");
     style.textContent = CSS();
@@ -62,8 +232,7 @@
 
     var inline = inlineChecklist();
     if (inline) {
-      uat = inline;
-      render();
+      prepare(inline);
       return;
     }
     fetch(SRC, { cache: "no-store" })
@@ -71,10 +240,25 @@
         return r.ok ? r.json() : null;
       })
       .then(function (j) {
-        if (j) uat = j;
+        prepare(j || uat);
       })
-      .catch(function () {})
-      .finally(render);
+      .catch(function () {
+        prepare(uat);
+      });
+  }
+
+  function prepare(checklist) {
+    uat = normalizeChecklist(checklist);
+    initializeState();
+    render();
+  }
+
+  if (window.__OE_REVIEW_TEST_HOOKS__) {
+    window.__OE_REVIEW_TEST_HOOKS__.normalizeChecklist = normalizeChecklist;
+    window.__OE_REVIEW_TEST_HOOKS__.storageKeys = storageKeys;
+    window.__OE_REVIEW_TEST_HOOKS__.fresh = fresh;
+    window.__OE_REVIEW_TEST_HOOKS__.migrateState = migrateState;
+    window.__OE_REVIEW_TEST_HOOKS__.buildReportFor = buildReportFor;
   }
 
   if (document.readyState === "loading") {
@@ -138,14 +322,33 @@
     who.appendChild(wi);
     p.appendChild(who);
 
+    if (legacyStateDetected || (migration && (migration.carried || migration.dropped))) {
+      var notice = el("div", "notice");
+      if (legacyStateDetected) {
+        notice.textContent =
+          "Older position-based answers were not reused. Reset removes that incompatible saved data.";
+      } else {
+        notice.textContent =
+          "Checklist updated: " +
+          migration.carried +
+          " unchanged answer" +
+          (migration.carried === 1 ? "" : "s") +
+          " carried forward" +
+          (migration.dropped
+            ? "; " + migration.dropped + " changed or removed answer" + (migration.dropped === 1 ? "" : "s") + " cleared."
+            : ".");
+      }
+      p.appendChild(notice);
+    }
+
     // checklist
     var body = el("div", "body");
-    (uat.sections || []).forEach(function (sec, si) {
+    (uat.sections || []).forEach(function (sec) {
       var sh = el("div", "sec");
       sh.textContent = sec.title;
       body.appendChild(sh);
-      (sec.steps || []).forEach(function (step, ti) {
-        body.appendChild(stepRow(si, ti, step));
+      (sec.steps || []).forEach(function (step) {
+        body.appendChild(stepRow(step));
       });
     });
     p.appendChild(body);
@@ -206,6 +409,15 @@
       if (confirm("Clear all checklist answers and notes for this instance?")) {
         state = fresh();
         state.minimized = false;
+        migration = null;
+        if (legacyStateDetected) {
+          try {
+            localStorage.removeItem(LEGACY_STORE_KEY);
+          } catch (e) {
+            /* private mode */
+          }
+          legacyStateDetected = false;
+        }
         save();
         render();
       }
@@ -216,10 +428,11 @@
     return p;
   }
 
-  function stepRow(si, ti, step) {
-    var key = si + "." + ti;
+  function stepRow(step) {
+    var key = step.step_id;
     var st = state.steps[key] || {};
     var row = el("div", "step");
+    row.setAttribute("data-step-id", key);
     var top = el("div", "steptop");
     var txt = el("div", "steplabel");
     txt.textContent = step.do || step.text || "";
@@ -246,7 +459,12 @@
       b.textContent = m[1];
       b.onclick = function () {
         st.mark = st.mark === m[0] ? null : m[0];
-        state.steps[key] = st;
+        if (st.mark || st.note) {
+          st.fingerprint = step._fingerprint;
+          state.steps[key] = st;
+        } else {
+          delete state.steps[key];
+        }
         save();
         render();
       };
@@ -260,7 +478,12 @@
     ni.value = st.note || "";
     ni.oninput = function () {
       st.note = ni.value;
-      state.steps[key] = st;
+      if (st.mark || st.note) {
+        st.fingerprint = step._fingerprint;
+        state.steps[key] = st;
+      } else {
+        delete state.steps[key];
+      }
       save();
     };
     row.appendChild(ni);
@@ -280,23 +503,35 @@
   }
 
   function buildReport() {
+    return buildReportFor(uat, state, {
+      instance: INSTANCE,
+      label: LABEL,
+      origin: location.origin,
+      generated: nowISO(),
+      deployment_id: DEPLOYMENT_ID === "unbound" ? null : DEPLOYMENT_ID,
+    });
+  }
+
+  function buildReportFor(checklist, reviewState, context) {
     var total = 0,
       pass = 0,
       fail = 0,
       na = 0;
     var lines = [];
-    lines.push("# OpenELIS review report — " + LABEL);
+    lines.push("# OpenELIS review report — " + context.label);
     lines.push("");
-    lines.push("- Instance: `" + INSTANCE + "` (" + location.origin + ")");
-    lines.push("- Reviewer: " + (state.reviewer || "_unnamed_"));
-    lines.push("- Generated: " + nowISO());
+    lines.push("- Instance: `" + context.instance + "` (" + context.origin + ")");
+    lines.push("- Checklist revision: `" + checklist.checklist_revision + "`");
+    if (context.deployment_id) lines.push("- Deployment: `" + context.deployment_id + "`");
+    lines.push("- Reviewer: " + (reviewState.reviewer || "_unnamed_"));
+    lines.push("- Generated: " + context.generated);
     lines.push("");
     lines.push("## Checklist");
-    (uat.sections || []).forEach(function (sec, si) {
+    (checklist.sections || []).forEach(function (sec) {
       lines.push("");
       lines.push("### " + sec.title);
-      (sec.steps || []).forEach(function (step, ti) {
-        var st = state.steps[si + "." + ti] || {};
+      (sec.steps || []).forEach(function (step) {
+        var st = reviewState.steps[step.step_id] || {};
         total++;
         if (st.mark === "pass") pass++;
         else if (st.mark === "fail") fail++;
@@ -310,7 +545,9 @@
                 ? "N/A "
                 : "----";
         lines.push("- [" + box + "] " + (step.do || step.text || ""));
+        lines.push("    - step id: `" + step.step_id + "`");
         if (step.expect) lines.push("    - expected: " + step.expect);
+        if (step.route) lines.push("    - route: `" + step.route + "`");
         if (st.note) lines.push("    - note: " + st.note);
       });
     });
@@ -328,10 +565,10 @@
         total +
         ")",
     );
-    if (state.notes.length) {
+    if (reviewState.notes.length) {
       lines.push("");
       lines.push("## Freeform feedback");
-      state.notes.forEach(function (n) {
+      reviewState.notes.forEach(function (n) {
         lines.push("- " + n.text);
         lines.push("    - page: " + route(n.url) + " (" + n.url + ")");
         lines.push("    - at: " + n.at);
@@ -345,18 +582,27 @@
       md: lines.join("\n"),
       json: JSON.stringify(
         {
-          instance: INSTANCE,
-          label: LABEL,
-          origin: location.origin,
-          reviewer: state.reviewer,
-          generated: nowISO(),
-          summary: { total: total, pass: pass, fail: fail, na: na },
-          checklist: (uat.sections || []).map(function (sec, si) {
+          instance: context.instance,
+          label: context.label,
+          origin: context.origin,
+          deployment_id: context.deployment_id || null,
+          checklist_revision: checklist.checklist_revision,
+          reviewer: reviewState.reviewer,
+          generated: context.generated,
+          summary: {
+            total: total,
+            pass: pass,
+            fail: fail,
+            na: na,
+            untested: total - pass - fail - na,
+          },
+          checklist: (checklist.sections || []).map(function (sec) {
             return {
               section: sec.title,
-              steps: (sec.steps || []).map(function (step, ti) {
-                var st = state.steps[si + "." + ti] || {};
+              steps: (sec.steps || []).map(function (step) {
+                var st = reviewState.steps[step.step_id] || {};
                 return {
+                  step_id: step.step_id,
                   do: step.do || step.text || "",
                   expect: step.expect || null,
                   route: step.route || null,
@@ -366,7 +612,7 @@
               }),
             };
           }),
-          feedback: state.notes,
+          feedback: reviewState.notes,
         },
         null,
         2,
@@ -378,10 +624,10 @@
   function progressText() {
     var total = 0,
       done = 0;
-    (uat.sections || []).forEach(function (sec, si) {
-      (sec.steps || []).forEach(function (step, ti) {
+    (uat.sections || []).forEach(function (sec) {
+      (sec.steps || []).forEach(function (step) {
         total++;
-        if ((state.steps[si + "." + ti] || {}).mark) done++;
+        if ((state.steps[step.step_id] || {}).mark) done++;
       });
     });
     return done + "/" + total + " checked · " + state.notes.length + " notes";
@@ -389,10 +635,10 @@
   function badge() {
     var total = 0,
       done = 0;
-    (uat.sections || []).forEach(function (sec, si) {
-      (sec.steps || []).forEach(function (_, ti) {
+    (uat.sections || []).forEach(function (sec) {
+      (sec.steps || []).forEach(function (step) {
         total++;
-        if ((state.steps[si + "." + ti] || {}).mark) done++;
+        if ((state.steps[step.step_id] || {}).mark) done++;
       });
     });
     var n = state.notes.length + (total - done > 0 ? 0 : 0);
@@ -447,6 +693,7 @@
       ".icon{background:transparent;border:none;color:inherit;font-size:16px;line-height:1;cursor:pointer;padding:2px 6px;border-radius:4px;}.icon:hover{background:rgba(255,255,255,.15);}",
       ".who{padding:10px 14px;border-bottom:1px solid #eef0f3;display:flex;flex-direction:column;gap:4px;}",
       ".who label{font-size:11px;color:#5b6673;font-weight:600;}",
+      ".notice{padding:8px 14px;background:#fff8e1;border-bottom:1px solid #f1c21b;color:#5b4b00;font-size:11px;line-height:1.4;}",
       "input[type=text],textarea{width:100%;box-sizing:border-box;border:1px solid #d0d5dd;border-radius:6px;padding:7px 9px;font:inherit;color:inherit;}",
       "input:focus,textarea:focus{outline:2px solid #0f62fe;outline-offset:-1px;border-color:#0f62fe;}",
       ".body{overflow-y:auto;padding:6px 14px 12px;}",

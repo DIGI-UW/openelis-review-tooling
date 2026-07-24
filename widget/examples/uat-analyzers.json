@@ -2,17 +2,20 @@
   "title": "Analyzer Types & Mapping — review",
   "instance": "analyzers",
   "jira": "OGC-1054",
+  "checklist_revision": "example:analyzers-v1",
   "intro": "Task-based walkthrough of the Analyzer Types & Mapping work. Sign in as admin / adminADMIN! first. Mark each step Pass/Fail/N-A and leave a note where anything is confusing or wrong.",
   "sections": [
     {
       "title": "Sign in & find the analyzers",
       "steps": [
         {
+          "step_id": "analyzers:open-list",
           "do": "Sign in with admin / adminADMIN!, then open the Analyzers page.",
           "expect": "The analyzers list loads with stat tiles (total / active / inactive) and 9 seeded analyzers (GeneXpert ASTM, Mindray BC-5380 & BS-200 HL7, and several FILE analyzers).",
           "route": "/analyzers"
         },
         {
+          "step_id": "analyzers:filter-list",
           "do": "Use the search box and the status filter.",
           "expect": "The table narrows to matching analyzers; clearing the filter restores the full list; the URL updates so a filtered view is shareable.",
           "route": "/analyzers"
@@ -23,11 +26,13 @@
       "title": "Create & configure an analyzer type",
       "steps": [
         {
+          "step_id": "analyzers:start-setup",
           "do": "Click 'Add analyzer' and step through the setup form.",
           "expect": "An inline setup form opens (not a dead-end route); required fields are validated; you can pick a type, connection details, and test units.",
           "route": "/analyzers?add=1"
         },
         {
+          "step_id": "analyzers:save-analyzer",
           "do": "Save the new analyzer, then confirm it appears in the list.",
           "expect": "A success confirmation shows and the new analyzer is in the table with the status you set."
         }
@@ -37,11 +42,13 @@
       "title": "Map tests & results",
       "steps": [
         {
+          "step_id": "analyzers:review-mappings",
           "do": "Open an analyzer's Field Mappings (row action → Field mappings) and review the result-value mapping table.",
           "expect": "You can map an instrument code/target to a test and its result; a mapping can target a component of a test; resolution is by stable code, not a display string.",
           "route": "/analyzers"
         },
         {
+          "step_id": "analyzers:copy-mappings",
           "do": "Try the Copy mappings action from one analyzer to another of the same type.",
           "expect": "Mappings copy across; the target analyzer shows the copied rows; no silent overwrite of unrelated config."
         }
@@ -51,6 +58,7 @@
       "title": "QC rules",
       "steps": [
         {
+          "step_id": "analyzers:open-qc-rules",
           "do": "Open an analyzer's QC rules page (row action → QC rules).",
           "expect": "The QC rule builder loads for that analyzer and lets you define/verify rules.",
           "route": "/analyzers"
@@ -61,6 +69,7 @@
       "title": "Overall impression",
       "steps": [
         {
+          "step_id": "analyzers:overall-impression",
           "do": "Reflect on the end-to-end flow: could a lab tech set up a new instrument and map its results without developer help?",
           "expect": "The guided path (verify deterministic matches, edit only exceptions) feels achievable for a non-developer."
         }

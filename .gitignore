@@ -13,6 +13,7 @@ selfsigned/
 # build / deps
 node_modules/
 npm-debug.log*
+test-results/
 
 # editor / OS / backups
 *.bak*

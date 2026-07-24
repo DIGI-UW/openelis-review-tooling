@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Review widget identity fixture</title>
+    <script>
+      const version = new URLSearchParams(location.search).get("version") || "before";
+      const steps =
+        version === "after"
+          ? [
+              {
+                step_id: "grist:102",
+                do: "Record an isolate",
+                expect: "The isolate is saved",
+                route: "/Microbiology/cases/42",
+              },
+              {
+                step_id: "grist:104",
+                do: "Review the patient report",
+                expect: "The interpretation is present",
+                route: "/Microbiology/cases/42",
+              },
+              {
+                step_id: "grist:101",
+                do: "Open the worklist",
+                expect: "The seeded case is listed",
+                route: "/Microbiology/worklist",
+              },
+            ]
+          : [
+              {
+                step_id: "grist:101",
+                do: "Open the worklist",
+                expect: "The seeded case is listed",
+                route: "/Microbiology/worklist",
+              },
+              {
+                step_id: "grist:102",
+                do: "Record an isolate",
+                expect: "The isolate is saved",
+                route: "/Microbiology/cases/42",
+              },
+              {
+                step_id: "grist:103",
+                do: "Enter an AST result",
+                expect: "The interpretation is calculated",
+                route: "/Microbiology/cases/42",
+              },
+            ];
+
+      window.__OE_REVIEW_TEST_OPEN_SHADOW__ = true;
+      window.OE_REVIEW_TARGET = { deployment_id: "fixture-deployment" };
+      window.OE_REVIEW_CHECKLIST = {
+        title: "Microbiology MVP",
+        instance: "amr",
+        checklist_revision: `fixture-${version}`,
+        sections: [{ title: "Workflow", steps }],
+      };
+    </script>
+    <script
+      src="/widget/oe-review-widget.js"
+      data-instance="amr"
+      data-label="Microbiology MVP"
+    ></script>
+  </head>
+  <body>
+    <main>
+      <h1>OpenELIS fixture</h1>
+    </main>
+  </body>
+</html>

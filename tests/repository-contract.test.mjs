@@ -30,10 +30,12 @@ test("operator docs describe live authoring without a publish step", async () =>
 test("custom bridge is documented as deprecated compatibility", async () => {
   const contract = await read("docs/AGENTS.md");
   const bridge = await read("grist/mcp/README.md");
+  const dockerfile = await read("grist/mcp/Dockerfile");
 
   assert.match(contract, /deprecated compatibility/i);
   assert.match(bridge, /deprecated compatibility/i);
   assert.match(bridge, /GET `\/uat\/<instance>\.json`/);
+  assert.match(dockerfile, /COPY server\.mjs uat-document\.mjs/);
 });
 
 test("router lifecycle includes every public review domain", async () => {
@@ -53,11 +55,13 @@ test("static checklist examples have complete reviewable steps", async () => {
   ]) {
     const checklist = JSON.parse(await read(file));
     assert.equal(typeof checklist.title, "string", `${file} has a title`);
+    assert.equal(typeof checklist.checklist_revision, "string", `${file} has a revision`);
     assert.ok(checklist.sections.length > 0, `${file} has sections`);
     for (const section of checklist.sections) {
       assert.equal(typeof section.title, "string", `${file} section has a title`);
       assert.ok(section.steps.length > 0, `${file} section has steps`);
       for (const step of section.steps) {
+        assert.equal(typeof step.step_id, "string", `${file} step has a stable ID`);
         assert.equal(typeof step.do, "string", `${file} step has an action`);
         assert.equal(typeof step.expect, "string", `${file} step has an expectation`);
       }

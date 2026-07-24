@@ -2,16 +2,19 @@
   "title": "Widget demo review",
   "instance": "demo",
   "jira": "",
+  "checklist_revision": "example:demo-v1",
   "intro": "A tiny sample checklist to show the overlay. Mark each step pass/fail/n-a, add a note, then download the report.",
   "sections": [
     {
       "title": "Getting started",
       "steps": [
         {
+          "step_id": "demo:open-review",
           "do": "Open the Review panel (bottom-right) and enter your name.",
           "expect": "The panel expands and remembers your name on reload."
         },
         {
+          "step_id": "demo:mark-pass",
           "do": "Mark this step Pass.",
           "expect": "The mark sticks and the progress count updates."
         }
@@ -21,10 +24,12 @@
       "title": "Feedback",
       "steps": [
         {
+          "step_id": "demo:add-note",
           "do": "Add a freeform note for this page.",
           "expect": "It appears in the notes list and in the downloaded report."
         },
         {
+          "step_id": "demo:download-report",
           "do": "Click \"Download review report\".",
           "expect": "You get an .md and a .json file carrying your marks and notes."
         }
