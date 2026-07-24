@@ -42,6 +42,13 @@ services:
       # API key or session; the OAuth-bearer path additionally needs the OIDC
       # server + Redis (see Phase B). No effect until the full edition is active.
       - GRIST_MCP_ENABLED=true
+      # Web-client MCP auth: Grist runs its own OIDC server issuing tokens to MCP
+      # clients (claude.ai/chatgpt.com auto-register via CIMD + DCR). Token storage
+      # requires Redis — without REDIS_URL, /api/mcp rejects all OAuth bearer tokens.
+      - GRIST_ENABLE_OIDC_SERVER=true
+      - GRIST_ENABLE_OIDC_DCR=true
+      - GRIST_OIDC_CIMD_ALLOWED_HOSTS=claude.ai,chatgpt.com
+      - REDIS_URL=redis://redis:6379
     volumes:
       - grist-data:/persist
     networks:
@@ -49,6 +56,7 @@ services:
         aliases: [grist]
     depends_on:
       - dex
+      - redis
 
   # Identity provider: simple static users + OAuth2 connectors. Served under
   # grist.openelis-global.org/dex (routed by the umbrella router). Secrets
@@ -66,6 +74,16 @@ services:
     networks:
       edge:
         aliases: [dex]
+
+  # Ephemeral token store for Grist's OIDC server (web-client MCP auth). Losing it
+  # just means outstanding MCP OAuth sessions must re-auth; no durable data here.
+  redis:
+    image: redis:7-alpine
+    container_name: oe-edge-redis
+    restart: unless-stopped
+    networks:
+      edge:
+        aliases: [redis]
 
   # Authoring + read bridge for the UAT checklists. Two surfaces on one process:
   #   POST /mcp        MCP tools (bearer-gated) — the LLM authoring interface
