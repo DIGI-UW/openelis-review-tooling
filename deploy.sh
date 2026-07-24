@@ -29,8 +29,13 @@
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# shellcheck disable=SC1091
-[ -f "$HERE/.env" ] && . "$HERE/.env" || { echo "!! $HERE/.env missing — copy .env.example to .env and fill it in" >&2; exit 1; }
+if [ -f "$HERE/.env" ]; then
+  # shellcheck disable=SC1091
+  . "$HERE/.env"
+else
+  echo "!! $HERE/.env missing — copy .env.example to .env and fill it in" >&2
+  exit 1
+fi
 
 : "${REGION:?}" "${INSTANCE_ID:?}" "${EIP:?}" "${SG_ID:?}" "${OS_USER:?}" "${SSH_KEY:?}"
 : "${AMR_DOMAIN:?}" "${ANALYZERS_DOMAIN:?}" "${GRIST_DOMAIN:?}"
@@ -307,6 +312,8 @@ main() {
     status) cmd_status ;;
     connect)
       allow_ssh_ingress
+      # Arguments intentionally expand on the client before the remote command runs.
+      # shellcheck disable=SC2029
       if [ "$#" -gt 0 ]; then ssh "${SSH_OPTS[@]}" "$OS_USER@$EIP" "$@"; else ssh -t "${SSH_OPTS[@]}" "$OS_USER@$EIP"; fi ;;
     configure) cmd_configure ;;
     deploy) cmd_deploy "$@" ;;

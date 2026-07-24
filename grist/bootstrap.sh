@@ -33,7 +33,7 @@ cp "$HERE/mcp/uat-document.mjs" "$STATE_DIR/mcp/uat-document.mjs"
 
 echo ">> grist up"
 docker compose -p oe-grist -f "$HERE/docker-compose.grist.yml" up -d >/dev/null
-for i in $(seq 1 30); do
+for _ in $(seq 1 30); do
   docker exec oe-edge-router sh -c 'wget -qO- --timeout=3 http://grist:8484/status >/dev/null 2>&1' && break
   sleep 3
 done
