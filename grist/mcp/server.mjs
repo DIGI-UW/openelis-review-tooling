@@ -249,7 +249,16 @@ app.get("/healthz", (_req, res) => res.json({ ok: true }));
 app.get("/uat/:file", async (req, res) => {
   const instance = req.params.file.replace(/\.json$/, "");
   try {
-    res.set("Cache-Control", "no-store").json(await uatDocument(instance));
+    const doc = await uatDocument(instance);
+    // An unknown slug would otherwise render as a valid-looking empty checklist,
+    // which reads to an integrator as "the widget is broken" rather than "typo".
+    if (!doc.sections.length) {
+      return res.status(404).json({
+        error: `no checklist for instance "${instance}"`,
+        hint: "check the slug, or add rows for it in the Grist UAT_Steps table",
+      });
+    }
+    res.set("Cache-Control", "no-store").json(doc);
   } catch (e) {
     res.status(502).json({ error: String(e.message || e) });
   }
