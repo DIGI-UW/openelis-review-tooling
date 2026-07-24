@@ -44,6 +44,11 @@ test("ready target metadata is published only after successful health verificati
     "target publication must happen after health verification",
   );
   assert.doesNotMatch(deploy, /runtime\/build-(amr|analyzers)\.json/);
+  assert.match(
+    deploy,
+    /chmod 0644 "\\\$tmp"/,
+    "published target metadata must be readable by the nginx worker",
+  );
 
   const router = await read("router/nginx.conf.template");
   assert.match(router, /location = \/__review\/target\.json/);

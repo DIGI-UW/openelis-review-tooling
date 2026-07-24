@@ -221,6 +221,7 @@ publish_target() {
   cat > "\$tmp" <<TARGETJSON
 {"instance":"\$instance","deploymentId":"\$deployment_id","state":"ready","appRepo":"$APP_REPO","appBranch":"\$branch","appSha":"\$app_sha","harnessSha":"\$harness_sha","deployedAt":"\$deployed_at","scope":"full","verification":{"health":"passed"}}
 TARGETJSON
+  chmod 0644 "\$tmp"
   mv "\$tmp" "$EDGE_DIR/runtime/target-\${instance}.json"
 }
 publish_target amr "$AMR_BRANCH" "\$amr_sha"
