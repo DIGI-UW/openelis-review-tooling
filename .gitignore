@@ -1,0 +1,19 @@
+# secrets / host-specific config (never committed)
+.env
+*.pem
+*.api-key
+mcp-tokens.json
+grist.htpasswd
+
+# TLS material + ACME state (box-side)
+letsencrypt/
+certbot/
+selfsigned/
+
+# build / deps
+node_modules/
+npm-debug.log*
+
+# editor / OS / backups
+*.bak*
+.DS_Store

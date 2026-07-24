@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>oe-review-widget — live demo (no backend)</title>
+    <style>
+      :root { color-scheme: light dark; }
+      body {
+        margin: 0; font: 16px/1.6 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+        color: #16202a; background: #f5f7f8;
+      }
+      main { max-width: 640px; margin: 0 auto; padding: 48px 24px 120px; }
+      h1 { font-size: 30px; letter-spacing: -0.02em; margin: 0 0 6px; }
+      .tag { font: 600 12px/1 ui-monospace, Menlo, monospace; letter-spacing: 0.12em;
+        text-transform: uppercase; color: #0c8f86; }
+      p { color: #37474f; }
+      code, pre { font-family: ui-monospace, "JetBrains Mono", Menlo, monospace; font-size: 13px; }
+      pre { background: #fff; border: 1px solid #d9e2e7; border-radius: 10px; padding: 14px 16px;
+        overflow-x: auto; color: #16202a; }
+      .hint { border-left: 2px solid #0c8f86; padding-left: 14px; color: #566571; }
+      @media (prefers-color-scheme: dark) {
+        body { color: #e8eef2; background: #0c1319; }
+        p { color: #93a6b2; } pre { background: #111c24; border-color: #22323c; color: #e8eef2; }
+        .hint { color: #93a6b2; }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <div class="tag">oe-review-widget</div>
+      <h1>Live demo — no backend</h1>
+      <p>
+        A drop-in reviewer checklist + feedback overlay. This page loads it with an
+        <strong>inline checklist and no server</strong>: open the <strong>Review</strong>
+        tab in the bottom-right corner, mark steps pass/fail/n-a, add a note, then hit
+        <strong>Download review report</strong> — you get a Markdown + JSON pair to paste
+        into Claude for triage.
+      </p>
+      <p class="hint">
+        Everything runs client-side. The checklist below is embedded in this page; swap it
+        for <code>data-src="…/your-checklist.json"</code> to load one from any URL instead.
+      </p>
+      <p>Embed it on any page:</p>
+      <pre>&lt;script src="oe-review-widget.js"
+        data-instance="demo"
+        data-label="Widget demo"
+        data-src="https://example.org/uat-demo.json"&gt;&lt;/script&gt;</pre>
+    </main>
+
+    <!-- The checklist, embedded inline — proves the widget needs no backend. -->
+    <script type="application/json" id="oe-review-checklist">
+      {
+        "title": "Widget demo review",
+        "instance": "demo",
+        "intro": "A tiny sample checklist. Mark each step, add a note, then download the report.",
+        "sections": [
+          {
+            "title": "Getting started",
+            "steps": [
+              { "do": "Open the Review panel (bottom-right) and enter your name.", "expect": "The panel expands and remembers your name on reload." },
+              { "do": "Mark this step Pass.", "expect": "The mark sticks and the progress count updates." }
+            ]
+          },
+          {
+            "title": "Feedback",
+            "steps": [
+              { "do": "Add a freeform note for this page.", "expect": "It appears in the notes list and in the downloaded report." },
+              { "do": "Click \"Download review report\".", "expect": "You get an .md and a .json file carrying your marks and notes." }
+            ]
+          }
+        ]
+      }
+    </script>
+
+    <!-- The plugin. No data-src, so it uses the inline checklist above. -->
+    <script src="oe-review-widget.js" data-instance="demo" data-label="Widget demo"></script>
+  </body>
+</html>
