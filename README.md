@@ -25,7 +25,7 @@ Two URLs, no build, no redeploy — a script tag or one nginx line:
 ```
 
 → **[Integration options](integration/README.md)** (script tag · nginx snippet · bookmarklet)
-→ **[Tutorial: set up a review for a branch, PR, or ticket](docs/TUTORIAL.md)**
+→ **[Tutorial: set up a review for a branch, PR, or ticket](docs/TUTORIAL.md)** · [interactive version](docs/tutorial.html)
 
 ## What's here
 

@@ -1,0 +1,568 @@
+<meta charset="utf-8">
+<title>Set up a review — OpenELIS Review Tooling</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root{
+    --paper:#f5f7f8; --surface:#fff; --surface-2:#eef3f5; --sunk:#e7eef1;
+    --ink:#16202a; --muted:#566571; --faint:#8497a3;
+    --line:#d9e2e7; --line-strong:#c3d0d7;
+    --accent:#0c8f86; --accent-soft:#e2f1ef; --accent-ink:#065c55;
+    --shadow:0 1px 2px rgba(22,32,42,.05), 0 6px 22px rgba(22,32,42,.06);
+    --mono:ui-monospace,"JetBrains Mono","SF Mono",Menlo,Consolas,monospace;
+    --sans:system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+    /* the widget's own Carbon palette — used only inside UI previews */
+    --w-blue:#0f62fe; --w-green:#24a148; --w-red:#da1e28; --w-dark:#1a1f26;
+    --w-grey:#5b6673; --w-line:#d0d5dd; --w-bg:#fafbfc;
+  }
+  @media (prefers-color-scheme:dark){
+    :root{
+      --paper:#0c1319; --surface:#111c24; --surface-2:#16232c; --sunk:#0d171e;
+      --ink:#e8eef2; --muted:#93a6b2; --faint:#6d818e;
+      --line:#22323c; --line-strong:#31454f;
+      --accent:#2fb7a9; --accent-soft:#123029; --accent-ink:#7fe0d4;
+      --shadow:0 1px 2px rgba(0,0,0,.3), 0 8px 26px rgba(0,0,0,.34);
+    }
+  }
+  :root[data-theme="light"]{
+    --paper:#f5f7f8; --surface:#fff; --surface-2:#eef3f5; --sunk:#e7eef1;
+    --ink:#16202a; --muted:#566571; --faint:#8497a3;
+    --line:#d9e2e7; --line-strong:#c3d0d7;
+    --accent:#0c8f86; --accent-soft:#e2f1ef; --accent-ink:#065c55;
+    --shadow:0 1px 2px rgba(22,32,42,.05), 0 6px 22px rgba(22,32,42,.06);
+  }
+  :root[data-theme="dark"]{
+    --paper:#0c1319; --surface:#111c24; --surface-2:#16232c; --sunk:#0d171e;
+    --ink:#e8eef2; --muted:#93a6b2; --faint:#6d818e;
+    --line:#22323c; --line-strong:#31454f;
+    --accent:#2fb7a9; --accent-soft:#123029; --accent-ink:#7fe0d4;
+    --shadow:0 1px 2px rgba(0,0,0,.3), 0 8px 26px rgba(0,0,0,.34);
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--sans);
+    font-size:16px;line-height:1.6;-webkit-font-smoothing:antialiased}
+  .mono{font-family:var(--mono)}
+  a{color:var(--accent);text-decoration:none}
+  a:hover{text-decoration:underline}
+  a:focus-visible,button:focus-visible,input:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:4px}
+
+  .shell{max-width:1120px;margin:0 auto;padding:clamp(20px,4vw,44px) clamp(16px,4vw,28px)}
+  .eyebrow{font-family:var(--mono);font-size:11.5px;letter-spacing:.16em;text-transform:uppercase;
+    color:var(--accent);font-weight:700}
+  h1{font-size:clamp(28px,4.6vw,40px);line-height:1.06;letter-spacing:-.022em;margin:.3em 0 .25em;
+    font-weight:680;text-wrap:balance}
+  .lede{font-size:clamp(16.5px,2.2vw,19px);color:var(--muted);max-width:62ch;margin:0;text-wrap:pretty}
+  .meta{display:flex;flex-wrap:wrap;gap:8px;margin-top:18px}
+  .pill{font-family:var(--mono);font-size:12px;padding:5px 11px;border:1px solid var(--line-strong);
+    border-radius:999px;background:var(--surface);color:var(--muted);box-shadow:var(--shadow)}
+
+  /* ---- setup bar: personalises every snippet on the page ---- */
+  .setup{margin:26px 0 8px;background:var(--surface);border:1px solid var(--line);border-radius:14px;
+    padding:16px 18px;box-shadow:var(--shadow);display:grid;
+    grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:14px;align-items:end}
+  .setup .full{grid-column:1/-1;margin:0 0 2px;font-size:13.5px;color:var(--muted)}
+  .field label{display:block;font-family:var(--mono);font-size:10.5px;letter-spacing:.1em;
+    text-transform:uppercase;color:var(--faint);margin-bottom:5px}
+  .field input{width:100%;font-family:var(--mono);font-size:13.5px;padding:9px 11px;color:var(--ink);
+    background:var(--sunk);border:1px solid var(--line-strong);border-radius:8px}
+
+  /* ---- layout: sticky rail + steps ---- */
+  .cols{display:grid;grid-template-columns:200px 1fr;gap:34px;margin-top:34px;align-items:start}
+  @media (max-width:860px){ .cols{grid-template-columns:1fr;gap:20px} .rail{display:none} }
+  .rail{position:sticky;top:24px}
+  .rail ol{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:2px}
+  .rail a{display:flex;gap:10px;align-items:flex-start;padding:8px 10px;border-radius:9px;
+    color:var(--muted);font-size:13.5px;line-height:1.35;border-left:2px solid transparent}
+  .rail a:hover{background:var(--surface);text-decoration:none;color:var(--ink)}
+  .rail a.on{background:var(--surface);border-left-color:var(--accent);color:var(--ink);font-weight:600;
+    box-shadow:var(--shadow)}
+  .rail .n{font-family:var(--mono);font-size:11px;color:var(--accent);font-weight:700;margin-top:2px}
+
+  .step{background:var(--surface);border:1px solid var(--line);border-radius:16px;
+    padding:clamp(18px,2.6vw,28px);box-shadow:var(--shadow);margin-bottom:22px;scroll-margin-top:20px}
+  .step-hd{display:flex;gap:14px;align-items:flex-start;margin-bottom:6px}
+  .step-n{flex:none;width:30px;height:30px;border-radius:9px;background:var(--accent-soft);
+    color:var(--accent-ink);font-family:var(--mono);font-weight:700;font-size:13.5px;
+    display:flex;align-items:center;justify-content:center;margin-top:2px}
+  .step h2{margin:0;font-size:21px;letter-spacing:-.015em;line-height:1.25}
+  .step .sub{color:var(--muted);font-size:14.5px;margin:2px 0 0}
+  .step-body{margin-top:16px}
+  .step p{margin:0 0 12px}
+  .step p:last-child{margin-bottom:0}
+
+  h3{font-size:15px;margin:22px 0 8px;letter-spacing:-.01em}
+  h3:first-child{margin-top:0}
+  .hint{border-left:2px solid var(--accent);padding:3px 0 3px 14px;color:var(--muted);font-size:14.5px;margin:14px 0}
+  .warn{border-left:2px solid #d6a11e;padding:3px 0 3px 14px;color:var(--muted);font-size:14.5px;margin:14px 0}
+
+  /* ---- code + copy ---- */
+  .code{position:relative;margin:12px 0}
+  pre{margin:0;background:var(--sunk);border:1px solid var(--line);border-radius:11px;
+    padding:14px 52px 14px 15px;overflow-x:auto;font-family:var(--mono);font-size:12.8px;
+    line-height:1.62;color:var(--ink)}
+  pre .cm{color:var(--faint)}
+  pre .tok{color:var(--accent-ink)}
+  @media (prefers-color-scheme:dark){ pre .tok{color:var(--accent)} }
+  .copy{position:absolute;top:9px;right:9px;font-family:var(--mono);font-size:10.5px;letter-spacing:.08em;
+    text-transform:uppercase;padding:5px 9px;border-radius:7px;border:1px solid var(--line-strong);
+    background:var(--surface);color:var(--muted);cursor:pointer}
+  .copy:hover{color:var(--ink);border-color:var(--accent)}
+  .copy.done{color:var(--accent);border-color:var(--accent)}
+  code{font-family:var(--mono);font-size:.87em;background:var(--surface-2);border:1px solid var(--line);
+    padding:1px 5px;border-radius:5px}
+
+  /* ---- tabs ---- */
+  .tabs{display:flex;flex-wrap:wrap;gap:6px;margin:4px 0 14px}
+  .tab{font-size:13.5px;padding:7px 13px;border-radius:9px;border:1px solid var(--line-strong);
+    background:var(--surface);color:var(--muted);cursor:pointer;font-family:var(--sans)}
+  .tab[aria-selected="true"]{background:var(--accent-soft);border-color:var(--accent);color:var(--accent-ink);font-weight:600}
+  .panel[hidden]{display:none}
+
+  /* ---- tables ---- */
+  .tbl{width:100%;border-collapse:collapse;font-size:14px;margin:12px 0}
+  .tbl th,.tbl td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+  .tbl th{font-family:var(--mono);font-size:10.5px;letter-spacing:.09em;text-transform:uppercase;color:var(--faint);font-weight:600}
+  .tbl td:first-child{font-family:var(--mono);font-size:12.5px;color:var(--accent-ink);white-space:nowrap}
+  @media (prefers-color-scheme:dark){ .tbl td:first-child{color:var(--accent)} }
+  .scroll{overflow-x:auto}
+
+  /* ---- browser frame + faithful widget preview (widget's own Carbon palette) ---- */
+  .frame{border:1px solid var(--line-strong);border-radius:12px;overflow:hidden;background:var(--w-bg);
+    box-shadow:var(--shadow);margin:14px 0}
+  .frame-bar{display:flex;align-items:center;gap:6px;padding:8px 11px;background:var(--surface-2);
+    border-bottom:1px solid var(--line)}
+  .frame-bar i{width:9px;height:9px;border-radius:50%;background:var(--line-strong);display:block}
+  .frame-url{margin-left:8px;font-family:var(--mono);font-size:11px;color:var(--faint);
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .frame-body{position:relative;min-height:210px;padding:16px;background:
+    linear-gradient(var(--sunk),var(--sunk)) padding-box}
+  .ghost{height:9px;border-radius:5px;background:var(--line);margin-bottom:9px}
+  .ghost.w60{width:60%} .ghost.w40{width:40%} .ghost.w75{width:75%}
+  .cap{font-family:var(--mono);font-size:11px;color:var(--faint);margin-top:-4px}
+
+  /* widget panel replica */
+  .wp{position:absolute;right:14px;bottom:14px;width:min(300px,86%);background:#fff;color:#161616;
+    border-radius:10px;box-shadow:0 10px 40px rgba(0,0,0,.28);overflow:hidden;
+    font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;text-align:left}
+  .wp-hd{background:var(--w-dark);color:#fff;padding:9px 12px;display:flex;justify-content:space-between;align-items:center}
+  .wp-hd b{font-size:12.5px;font-weight:600;display:block}
+  .wp-hd span{font-size:10.5px;opacity:.72;display:block;margin-top:1px}
+  .wp-bd{padding:11px 12px;background:var(--w-bg)}
+  .wp-sec{font-size:9.5px;letter-spacing:.09em;text-transform:uppercase;color:var(--w-grey);
+    font-weight:700;margin:9px 0 6px}
+  .wp-sec:first-child{margin-top:0}
+  .wp-step{background:#fff;border:1px solid var(--w-line);border-radius:8px;padding:9px;margin-bottom:7px}
+  .wp-do{font-size:11.5px;font-weight:600;line-height:1.35}
+  .wp-ex{font-size:10.5px;color:var(--w-grey);margin-top:3px;line-height:1.35}
+  .wp-marks{display:flex;gap:5px;margin-top:8px}
+  .wp-m{flex:1;text-align:center;font-size:10px;font-weight:600;padding:5px 0;border-radius:6px;
+    border:1px solid var(--w-line);background:#fff;color:var(--w-grey)}
+  .wp-m.pass{background:#defbe6;border-color:var(--w-green);color:#0e6027}
+  .wp-m.fail{background:#fff1f1;border-color:var(--w-red);color:#a2191f}
+  .wp-note{margin-top:7px;font-size:10.5px;color:#161616;background:#fff;border:1px solid var(--w-line);
+    border-radius:6px;padding:6px 8px;line-height:1.35}
+  .wp-cta{display:block;width:100%;margin-top:10px;background:var(--w-blue);color:#fff;text-align:center;
+    font-size:11.5px;font-weight:600;padding:9px;border-radius:6px}
+  .wp-tab{position:absolute;right:14px;bottom:14px;background:var(--w-blue);color:#fff;font-size:12px;
+    font-weight:600;padding:9px 16px;border-radius:20px;box-shadow:0 4px 14px rgba(0,0,0,.25);
+    font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif}
+
+  /* report preview */
+  .report{background:var(--sunk);border:1px solid var(--line);border-radius:11px;padding:14px 16px;
+    font-family:var(--mono);font-size:12.3px;line-height:1.65;overflow-x:auto;margin:12px 0}
+  .report .h{color:var(--ink);font-weight:700}
+  .report .p{color:#0e6027} .report .f{color:#a2191f}
+  @media (prefers-color-scheme:dark){ .report .p{color:#42be65} .report .f{color:#ff8389} }
+  .report .d{color:var(--faint)}
+
+  .outcome{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:12px;margin:14px 0}
+  .oc{border:1px solid var(--line);border-radius:11px;padding:13px 14px;background:var(--sunk)}
+  .oc .k{font-family:var(--mono);font-size:10px;letter-spacing:.09em;text-transform:uppercase;
+    color:var(--faint);margin-bottom:5px}
+  .oc .v{font-size:13.8px;line-height:1.45}
+
+  footer{margin-top:34px;padding-top:20px;border-top:1px solid var(--line);color:var(--faint);
+    font-family:var(--mono);font-size:12px;display:flex;flex-wrap:wrap;gap:8px 18px;justify-content:space-between}
+</style>
+
+<div class="shell">
+  <header>
+    <div class="eyebrow">OpenELIS Review Tooling</div>
+    <h1>Set up a review for a branch, PR, or ticket</h1>
+    <p class="lede">Write a checklist once, put it in front of reviewers on any deployment, and get
+      structured feedback back as issues. No frontend build, no fork, no redeploy.</p>
+    <div class="meta">
+      <span class="pill">~15 min end to end</span>
+      <span class="pill">5 steps</span>
+      <span class="pill">works on an existing deployment</span>
+    </div>
+  </header>
+
+  <div class="setup">
+    <p class="full"><b>Make this page yours.</b> Fill these in and every command and snippet below
+      updates to match.</p>
+    <div class="field">
+      <label for="slug">Instance slug</label>
+      <input id="slug" value="my-feature" spellcheck="false" autocomplete="off">
+    </div>
+    <div class="field">
+      <label for="label">Review label</label>
+      <input id="label" value="My Feature (OGC-1234)" spellcheck="false" autocomplete="off">
+    </div>
+    <div class="field">
+      <label for="host">Review service host</label>
+      <input id="host" value="grist.openelis-global.org" spellcheck="false" autocomplete="off">
+    </div>
+  </div>
+
+  <div class="cols">
+    <nav class="rail" aria-label="Steps">
+      <ol>
+        <li><a href="#s1" class="on"><span class="n">01</span><span>Author the checklist</span></a></li>
+        <li><a href="#s2"><span class="n">02</span><span>Check it's live</span></a></li>
+        <li><a href="#s3"><span class="n">03</span><span>Put it in front of reviewers</span></a></li>
+        <li><a href="#s4"><span class="n">04</span><span>Review</span></a></li>
+        <li><a href="#s5"><span class="n">05</span><span>Collect &amp; triage</span></a></li>
+      </ol>
+    </nav>
+
+    <main>
+      <!-- ---------------- STEP 1 ---------------- -->
+      <section class="step" id="s1">
+        <div class="step-hd">
+          <div class="step-n">01</div>
+          <div>
+            <h2>Author the checklist</h2>
+            <p class="sub">Do this first — reviewers need something to work through.</p>
+          </div>
+        </div>
+        <div class="step-body">
+          <p>Checklists live in one shared Grist document. Each review is a set of rows tagged with an
+            <b>instance slug</b> — that slug is what ties the checklist, the widget, and each reviewer's
+            saved answers together. Pick one per feature or ticket.</p>
+
+          <div class="tabs" role="tablist">
+            <button class="tab" role="tab" aria-selected="true" data-tab="t1a">In the spreadsheet</button>
+            <button class="tab" role="tab" aria-selected="false" data-tab="t1b">With an agent</button>
+          </div>
+
+          <div class="panel" id="t1a">
+            <p>Sign in to Grist, open <b>UAT Checklists</b>, and add rows to two tables:</p>
+            <div class="scroll"><table class="tbl">
+              <tr><th>Table</th><th>What you add</th></tr>
+              <tr><td>UAT_Meta</td><td>One row for the review: <code>instance</code>, <code>title</code>,
+                <code>intro</code>, <code>jira</code>.</td></tr>
+              <tr><td>UAT_Steps</td><td>One row per step: <code>instance</code>, <code>section</code>,
+                <code>section_order</code>, <code>step_order</code>, <code>do</code>, <code>expect</code>,
+                <code>route</code>.</td></tr>
+            </table></div>
+            <p class="hint">Reviewers see steps grouped by <code>section</code>, ordered by
+              <code>section_order</code> then <code>step_order</code>. <code>route</code> is the page a
+              reviewer should open for that step.</p>
+          </div>
+
+          <div class="panel" id="t1b" hidden>
+            <p>Connect the authoring MCP once, then just ask — “add a checklist for
+              <span class="v-label">My Feature (OGC-1234)</span> covering the new screens”.</p>
+            <div class="code">
+              <button class="copy" data-copy="c1">Copy</button>
+              <pre id="c1"><span class="cm"># Claude Code CLI</span>
+claude mcp add --transport http grist \
+  https://<span class="v-host tok">grist.openelis-global.org</span>/api/mcp \
+  --header "Authorization: Bearer &lt;grist-api-key&gt;"</pre>
+            </div>
+            <p>On <b>claude.ai</b>, add <code class="v-mcp">https://grist.openelis-global.org/api/mcp</code>
+              as a custom connector and sign in — there's no key to paste.</p>
+          </div>
+
+          <h3>What makes a step worth writing</h3>
+          <p>A <b>do</b> the reviewer performs and an <b>expect</b> they judge it against. Write the check
+            for the thing you're unsure about — a missing feature is a perfectly good step, because a
+            reviewer marking it <b>Fail</b> is exactly the signal you wanted.</p>
+          <p class="hint">From the real microbiology review: <i>“After entering AST results, check whether
+            the S/I/R interpretation is carried onto the patient's report.”</i> It came back <b>Fail</b> —
+            and became the top priority for the next iteration.</p>
+        </div>
+      </section>
+
+      <!-- ---------------- STEP 2 ---------------- -->
+      <section class="step" id="s2">
+        <div class="step-hd">
+          <div class="step-n">02</div>
+          <div>
+            <h2>Check it's live</h2>
+            <p class="sub">One request confirms reviewers will see it.</p>
+          </div>
+        </div>
+        <div class="step-body">
+          <div class="code">
+            <button class="copy" data-copy="c2">Copy</button>
+            <pre id="c2">curl https://<span class="v-host tok">grist.openelis-global.org</span>/uat/<span class="v-slug tok">my-feature</span>.json</pre>
+          </div>
+          <p>That is exactly what a reviewer's browser will fetch. You should get your checklist back as
+            JSON. Two responses worth knowing:</p>
+          <div class="scroll"><table class="tbl">
+            <tr><th>Response</th><th>Meaning</th></tr>
+            <tr><td>200</td><td>Live. Edits in Grist appear here within ~30 seconds.</td></tr>
+            <tr><td>404</td><td>No checklist for that slug — usually a typo, or rows not added yet.</td></tr>
+          </table></div>
+        </div>
+      </section>
+
+      <!-- ---------------- STEP 3 ---------------- -->
+      <section class="step" id="s3">
+        <div class="step-hd">
+          <div class="step-n">03</div>
+          <div>
+            <h2>Put it in front of reviewers</h2>
+            <p class="sub">Pick the row that matches what you control.</p>
+          </div>
+        </div>
+        <div class="step-body">
+          <div class="tabs" role="tablist">
+            <button class="tab" role="tab" aria-selected="true" data-tab="t3a">App already deployed</button>
+            <button class="tab" role="tab" aria-selected="false" data-tab="t3b">Only the proxy</button>
+            <button class="tab" role="tab" aria-selected="false" data-tab="t3c">Nothing deployed yet</button>
+          </div>
+
+          <div class="panel" id="t3a">
+            <p>Add one tag to the page template, before <code>&lt;/head&gt;</code>:</p>
+            <div class="code">
+              <button class="copy" data-copy="c3">Copy</button>
+              <pre id="c3">&lt;script src="https://<span class="v-host tok">grist.openelis-global.org</span>/oe-review-widget.js"
+        data-instance="<span class="v-slug tok">my-feature</span>"
+        data-label="<span class="v-label tok">My Feature (OGC-1234)</span>"
+        data-src="https://<span class="v-host tok">grist.openelis-global.org</span>/uat/<span class="v-slug tok">my-feature</span>.json"&gt;&lt;/script&gt;</pre>
+            </div>
+            <p class="hint">Nothing is bundled or vendored — the widget and the checklist are both fetched
+              from the review service, so checklist edits need no redeploy.</p>
+          </div>
+
+          <div class="panel" id="t3b" hidden>
+            <p>Can't touch the app, but you run the reverse proxy? Inject it there — the app is untouched.
+              Add to the <code>location</code> block that serves HTML:</p>
+            <div class="code">
+              <button class="copy" data-copy="c4">Copy</button>
+              <pre id="c4"><span class="cm"># inject the review overlay into HTML responses</span>
+proxy_set_header Accept-Encoding "";
+sub_filter_once on;
+sub_filter '&lt;/head&gt;' '&lt;script src="https://<span class="v-host tok">grist.openelis-global.org</span>/oe-review-widget.js" data-instance="<span class="v-slug tok">my-feature</span>" data-label="<span class="v-label tok">My Feature (OGC-1234)</span>" data-src="https://<span class="v-host tok">grist.openelis-global.org</span>/uat/<span class="v-slug tok">my-feature</span>.json"&gt;&lt;/script&gt;&lt;/head&gt;';</pre>
+            </div>
+            <p>Then <code>nginx -s reload</code>. That's the whole integration.</p>
+            <p class="warn">Needs the <code>sub_filter</code> module — check with
+              <code>nginx -V 2>&amp;1 | grep -o with-http_sub_module</code>. It's in the stock nginx image
+              and most distro builds. Apache equivalent (mod_substitute) is in the repo docs.</p>
+          </div>
+
+          <div class="panel" id="t3c" hidden>
+            <p>Stand up a demo stack for the branch under review, then the router injects the widget for
+              you:</p>
+            <div class="code">
+              <button class="copy" data-copy="c5">Copy</button>
+              <pre id="c5">cp .env.example .env      <span class="cm"># host, domains, branch to build</span>
+./deploy.sh configure     <span class="cm"># docker + cert renewal (idempotent)</span>
+./deploy.sh deploy --yes  <span class="cm"># build + bring up the stack (20-40 min)</span>
+<span class="cm"># point DNS at the host, then:</span>
+./deploy.sh certs         <span class="cm"># Let's Encrypt</span>
+./deploy.sh seed          <span class="cm"># demo data to review against</span></pre>
+            </div>
+            <p class="hint">Reviewing a different branch is a change to <code>.env</code>, not to code.</p>
+            <p>No deployment at all — reviewing a design or copy? The widget also runs standalone with the
+              checklist embedded in a single HTML file.</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- ---------------- STEP 4 ---------------- -->
+      <section class="step" id="s4">
+        <div class="step-hd">
+          <div class="step-n">04</div>
+          <div>
+            <h2>Review</h2>
+            <p class="sub">What your reviewer actually does. No account, no training.</p>
+          </div>
+        </div>
+        <div class="step-body">
+          <p>A <b>Review</b> tab appears in the corner of every page. Opening it shows the checklist;
+            each step gets <b>Pass</b>, <b>Fail</b> or <b>N/A</b> plus an optional note, and there's a
+            freeform box for anything the checklist didn't ask about.</p>
+
+          <div class="frame">
+            <div class="frame-bar"><i></i><i></i><i></i>
+              <span class="frame-url v-appurl">https://your-deployment.example/</span></div>
+            <div class="frame-body">
+              <div class="ghost w40"></div><div class="ghost w75"></div><div class="ghost w60"></div>
+              <div class="ghost w40"></div>
+              <div class="wp-tab">Review</div>
+            </div>
+          </div>
+          <p class="cap">Collapsed — the reviewer's entry point.</p>
+
+          <div class="frame">
+            <div class="frame-bar"><i></i><i></i><i></i>
+              <span class="frame-url v-appurl">https://your-deployment.example/</span></div>
+            <div class="frame-body" style="min-height:360px">
+              <div class="ghost w40"></div><div class="ghost w75"></div><div class="ghost w60"></div>
+              <div class="wp">
+                <div class="wp-hd">
+                  <div><b class="v-label">My Feature (OGC-1234)</b>
+                    <span><span class="v-slug">my-feature</span> · 2/4 checked · 1 note</span></div>
+                  <div style="opacity:.7">–</div>
+                </div>
+                <div class="wp-bd">
+                  <div class="wp-sec">Getting started</div>
+                  <div class="wp-step">
+                    <div class="wp-do">Open the worklist and confirm the seeded case is listed.</div>
+                    <div class="wp-ex">Expected: the case appears with patient context.</div>
+                    <div class="wp-marks">
+                      <div class="wp-m pass">Pass</div><div class="wp-m">Fail</div><div class="wp-m">N/A</div>
+                    </div>
+                  </div>
+                  <div class="wp-step">
+                    <div class="wp-do">Check the result reaches the patient report.</div>
+                    <div class="wp-ex">Expected: the interpretation appears on the report.</div>
+                    <div class="wp-marks">
+                      <div class="wp-m">Pass</div><div class="wp-m fail">Fail</div><div class="wp-m">N/A</div>
+                    </div>
+                    <div class="wp-note">Saves fine, but never shows up on any report.</div>
+                  </div>
+                  <div class="wp-cta">Download review report</div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <p class="cap">Open, mid-review — UI preview using the widget's own styles.</p>
+
+          <p class="hint">Answers are saved in the reviewer's own browser, keyed by the instance slug, so
+            they can stop and come back. Nothing leaves their machine until they export.</p>
+        </div>
+      </section>
+
+      <!-- ---------------- STEP 5 ---------------- -->
+      <section class="step" id="s5">
+        <div class="step-hd">
+          <div class="step-n">05</div>
+          <div>
+            <h2>Collect &amp; triage</h2>
+            <p class="sub">Reviewer feedback becomes issues without anyone writing issue text.</p>
+          </div>
+        </div>
+        <div class="step-body">
+          <p><b>Download review report</b> produces two files: a readable Markdown summary and a
+            structured JSON twin. The reviewer sends you the Markdown — or pastes it into Claude
+            themselves and asks for triage.</p>
+
+          <div class="report">
+<span class="h"># OpenELIS review report — <span class="v-label">My Feature (OGC-1234)</span></span>
+<span class="d">- Instance: `<span class="v-slug">my-feature</span>` · Reviewer: Beth Dunbar</span>
+
+<span class="h">## Checklist</span>
+<span class="p">- [PASS] Open the worklist and confirm the seeded case is listed.</span>
+<span class="f">- [FAIL] Check the result reaches the patient report.</span>
+<span class="d">    - note: Saves fine, but never shows up on any report.</span>
+
+<span class="h">**Summary:** 3 pass · 1 fail · 0 n/a · 0 untested (of 4)</span>
+          </div>
+
+          <p>Claude reads the marks and notes, groups failures by severity, and drafts issues under the
+            ticket. A real 8-step review produced:</p>
+          <div class="outcome">
+            <div class="oc"><div class="k">Story</div><div class="v">Carry the AST interpretation through
+              to the patient report.</div></div>
+            <div class="oc"><div class="k">Task</div><div class="v">Add the microbiology worklist to the
+              sidenav.</div></div>
+            <div class="oc"><div class="k">Confirmed working</div><div class="v">Seven steps across
+              sign-in, case handling and result entry.</div></div>
+          </div>
+
+          <h3>Then iterate</h3>
+          <p>Checklists are live. Add or reword steps in Grist (or ask an agent) and reviewers pick up the
+            change in about 30 seconds — no redeploy, no re-integration. Send the same link again.</p>
+        </div>
+      </section>
+
+      <section class="step">
+        <div class="step-hd">
+          <div class="step-n">✓</div>
+          <div><h2>The two URLs you actually need</h2>
+            <p class="sub">Everything above is built from these.</p></div>
+        </div>
+        <div class="step-body">
+          <div class="scroll"><table class="tbl">
+            <tr><th>What</th><th>URL</th></tr>
+            <tr><td>widget</td><td class="mono v-widgeturl">https://grist.openelis-global.org/oe-review-widget.js</td></tr>
+            <tr><td>checklist</td><td class="mono v-checkurl">https://grist.openelis-global.org/uat/my-feature.json</td></tr>
+            <tr><td>authoring</td><td class="mono v-mcp">https://grist.openelis-global.org/api/mcp</td></tr>
+          </table></div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <footer>
+    <span>OpenELIS Review Tooling · tutorial</span>
+    <span>github.com/DIGI-UW/openelis-review-tooling</span>
+  </footer>
+</div>
+
+<script>
+  (function () {
+    var slug = document.getElementById("slug"),
+        label = document.getElementById("label"),
+        host = document.getElementById("host");
+
+    function apply() {
+      var s = slug.value.trim() || "my-feature",
+          l = label.value.trim() || s,
+          h = host.value.trim().replace(/^https?:\/\//, "").replace(/\/$/, "") || "grist.openelis-global.org";
+      set(".v-slug", s); set(".v-label", l); set(".v-host", h);
+      set(".v-mcp", "https://" + h + "/api/mcp");
+      set(".v-widgeturl", "https://" + h + "/oe-review-widget.js");
+      set(".v-checkurl", "https://" + h + "/uat/" + s + ".json");
+    }
+    function set(sel, val) {
+      document.querySelectorAll(sel).forEach(function (n) { n.textContent = val; });
+    }
+    [slug, label, host].forEach(function (i) { i.addEventListener("input", apply); });
+    apply();
+
+    // copy buttons — copy the rendered (personalised) text
+    document.querySelectorAll(".copy").forEach(function (b) {
+      b.addEventListener("click", function () {
+        var pre = document.getElementById(b.dataset.copy);
+        navigator.clipboard.writeText(pre.innerText).then(function () {
+          b.textContent = "Copied"; b.classList.add("done");
+          setTimeout(function () { b.textContent = "Copy"; b.classList.remove("done"); }, 1600);
+        });
+      });
+    });
+
+    // tabs
+    document.querySelectorAll(".tabs").forEach(function (group) {
+      var tabs = group.querySelectorAll(".tab");
+      tabs.forEach(function (t) {
+        t.addEventListener("click", function () {
+          tabs.forEach(function (o) {
+            o.setAttribute("aria-selected", String(o === t));
+            var p = document.getElementById(o.dataset.tab);
+            if (p) p.hidden = o !== t;
+          });
+        });
+      });
+    });
+
+    // scroll-spy: highlight the rail entry for the step in view
+    var links = [].slice.call(document.querySelectorAll(".rail a"));
+    var steps = links.map(function (a) { return document.querySelector(a.getAttribute("href")); });
+    if ("IntersectionObserver" in window) {
+      var spy = new IntersectionObserver(function (entries) {
+        entries.forEach(function (e) {
+          if (!e.isIntersecting) return;
+          var i = steps.indexOf(e.target);
+          if (i < 0) return;
+          links.forEach(function (a, j) { a.classList.toggle("on", i === j); });
+        });
+      }, { rootMargin: "-15% 0px -70% 0px" });
+      steps.forEach(function (s) { if (s) spy.observe(s); });
+    }
+  })();
+</script>

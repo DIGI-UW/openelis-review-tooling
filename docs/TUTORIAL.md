@@ -1,5 +1,8 @@
 # Tutorial — set up a review for a branch, PR, or ticket
 
+> **Prefer the visual version?** [`tutorial.html`](tutorial.html) is the same walkthrough as an
+> interactive page — fill in your instance slug once and every snippet on the page personalises.
+
 End to end: write a checklist, put it in front of reviewers, collect feedback, turn
 it into issues. The worked example is the real `amr` review (Microbiology MVP,
 OGC-782) running on this project's demo box.
