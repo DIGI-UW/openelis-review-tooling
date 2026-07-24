@@ -4,6 +4,8 @@
   var INSTANCE = (self && self.getAttribute("data-instance")) || "unknown";
   var LABEL = (self && self.getAttribute("data-label")) || INSTANCE;
   var STORE_KEY = "oe-review:" + INSTANCE;
+  var BUILD_SRC =
+    (self && self.getAttribute("data-build-src")) || "/__review/build.json";
   // Checklist source, in priority order: an inline checklist (fully backend-free)
   // via window.OE_REVIEW_CHECKLIST or a <script type="application/json"
   // id="oe-review-checklist"> block; else the data-src URL; else a same-origin
@@ -44,14 +46,18 @@
   // Assigned in boot(), which runs once the body exists: the injected script
   // executes during <head> parsing, so document.body is null at top level.
   var host, root, wrap;
-  var uat = { title: LABEL + " review", sections: [] };
+  var uat = { schemaVersion: 2, title: LABEL + " review", sections: [] };
+  var build = null;
+  var loading = true;
+  var loadError = "";
+  var buildWarning = "";
 
   function boot() {
     host = document.createElement("div");
     host.id = "oe-review-host";
     host.style.cssText = "all:initial";
     document.body.appendChild(host);
-    root = host.attachShadow({ mode: "closed" });
+    root = host.attachShadow({ mode: "open" });
 
     var style = document.createElement("style");
     style.textContent = CSS();
@@ -62,19 +68,16 @@
 
     var inline = inlineChecklist();
     if (inline) {
-      uat = inline;
+      try {
+        applyChecklist(inline);
+      } catch (e) {
+        loadError = e.message || String(e);
+      }
+      loading = false;
       render();
       return;
     }
-    fetch(SRC, { cache: "no-store" })
-      .then(function (r) {
-        return r.ok ? r.json() : null;
-      })
-      .then(function (j) {
-        if (j) uat = j;
-      })
-      .catch(function () {})
-      .finally(render);
+    refreshChecklist();
   }
 
   if (document.readyState === "loading") {
@@ -86,6 +89,107 @@
   function render() {
     wrap.innerHTML = "";
     wrap.appendChild(state.minimized ? tab() : panel());
+    if (
+      (location.hostname === "127.0.0.1" || location.hostname === "localhost") &&
+      !window.__OE_REVIEW_TEST__
+    ) {
+      window.__OE_REVIEW_TEST__ = {
+        buildReport: buildReport,
+        refreshChecklist: refreshChecklist,
+      };
+    }
+  }
+
+  function validateChecklist(value) {
+    if (!value || value.schemaVersion !== 2) {
+      throw new Error("Checklist schemaVersion 2 is required.");
+    }
+    if (!value.checklistRevision) {
+      throw new Error("Checklist revision is missing.");
+    }
+    var keys = {};
+    (value.sections || []).forEach(function (section) {
+      (section.steps || []).forEach(function (step) {
+        if (!step.key) throw new Error("A checklist step is missing its stable key.");
+        if (keys[step.key]) throw new Error("Duplicate checklist step key: " + step.key);
+        keys[step.key] = true;
+        if (
+          step.route &&
+          (!step.route.startsWith("/") || step.route.startsWith("//"))
+        ) {
+          throw new Error("Checklist route must be same-origin: " + step.key);
+        }
+      });
+    });
+    return value;
+  }
+
+  function stepSignature(step) {
+    return JSON.stringify({
+      required: step.required !== false,
+      do: step.do || step.text || "",
+      expect: step.expect || "",
+      route: step.route || "",
+    });
+  }
+
+  function applyChecklist(next) {
+    next = validateChecklist(next);
+    (next.sections || []).forEach(function (section, si) {
+      (section.steps || []).forEach(function (step, ti) {
+        var key = step.key;
+        var legacyKey = si + "." + ti;
+        if (!state.steps[key] && state.steps[legacyKey]) {
+          state.steps[key] = state.steps[legacyKey];
+          delete state.steps[legacyKey];
+        }
+        var saved = state.steps[key];
+        var signature = stepSignature(step);
+        if (saved && saved.signature && saved.signature !== signature) {
+          saved.stale = true;
+        }
+        if (saved && !saved.signature) saved.signature = signature;
+      });
+    });
+    uat = next;
+    state.checklistRevision = next.checklistRevision;
+    save();
+  }
+
+  function refreshChecklist() {
+    loading = true;
+    loadError = "";
+    buildWarning = "";
+    render();
+    return Promise.all([
+      fetch(SRC, { cache: "no-store" }).then(function (response) {
+        if (!response.ok) {
+          throw new Error("Could not load checklist (" + response.status + ").");
+        }
+        return response.json();
+      }),
+      fetch(BUILD_SRC, { cache: "no-store" }).then(function (response) {
+        if (!response.ok) {
+          buildWarning = "Build information is unavailable.";
+          return null;
+        }
+        return response.json();
+      }).catch(function () {
+        buildWarning = "Build information is unavailable.";
+        return null;
+      }),
+    ])
+      .then(function (values) {
+        applyChecklist(values[0]);
+        build = values[1];
+      })
+      .catch(function (error) {
+        loadError = error.message || String(error);
+      })
+      .finally(function () {
+        loading = false;
+        render();
+      });
   }
 
   // ---- minimized tab --------------------------------------------------------
@@ -96,7 +200,7 @@
     b.onclick = function () {
       state.minimized = false;
       save();
-      render();
+      refreshChecklist();
     };
     return b;
   }
@@ -114,6 +218,9 @@
     titleBox.appendChild(h);
     titleBox.appendChild(sub);
     head.appendChild(titleBox);
+    var refresh = iconBtn("↻", "Refresh checklist");
+    refresh.onclick = refreshChecklist;
+    head.appendChild(refresh);
     var min = iconBtn("–", "Minimize");
     min.onclick = function () {
       state.minimized = true;
@@ -122,6 +229,30 @@
     };
     head.appendChild(min);
     p.appendChild(head);
+
+    if (loading) {
+      var loadingMessage = el("div", "status");
+      loadingMessage.setAttribute("role", "status");
+      loadingMessage.textContent = "Refreshing checklist…";
+      p.appendChild(loadingMessage);
+    }
+    if (loadError) {
+      var errorMessage = el("div", "status error");
+      errorMessage.setAttribute("role", "alert");
+      errorMessage.textContent = loadError;
+      p.appendChild(errorMessage);
+    }
+    if (buildWarning && !loadError) {
+      var warningMessage = el("div", "status warning");
+      warningMessage.setAttribute("role", "status");
+      warningMessage.textContent = buildWarning;
+      p.appendChild(warningMessage);
+    }
+    if (uat.intro) {
+      var intro = el("div", "intro");
+      intro.textContent = uat.intro;
+      p.appendChild(intro);
+    }
 
     var who = el("div", "who");
     var wl = el("label", "");
@@ -217,7 +348,7 @@
   }
 
   function stepRow(si, ti, step) {
-    var key = si + "." + ti;
+    var key = step.key;
     var st = state.steps[key] || {};
     var row = el("div", "step");
     var top = el("div", "steptop");
@@ -229,6 +360,16 @@
       var ex = el("div", "expect");
       ex.textContent = "Expected: " + step.expect;
       row.appendChild(ex);
+    }
+    if (step.required === false) {
+      var optional = el("span", "optional");
+      optional.textContent = "Optional";
+      top.appendChild(optional);
+    }
+    if (st.stale) {
+      var stale = el("div", "stale");
+      stale.textContent = "Review again";
+      row.appendChild(stale);
     }
     if (step.route) {
       var go = el("a", "go");
@@ -246,6 +387,10 @@
       b.textContent = m[1];
       b.onclick = function () {
         st.mark = st.mark === m[0] ? null : m[0];
+        st.markedAt = st.mark ? nowISO() : null;
+        st.actualUrl = st.mark ? location.href : null;
+        st.signature = stepSignature(step);
+        st.stale = false;
         state.steps[key] = st;
         save();
         render();
@@ -283,35 +428,72 @@
     var total = 0,
       pass = 0,
       fail = 0,
-      na = 0;
+      na = 0,
+      stale = 0,
+      requiredOpen = 0;
+    var generated = nowISO();
     var lines = [];
     lines.push("# OpenELIS review report — " + LABEL);
     lines.push("");
     lines.push("- Instance: `" + INSTANCE + "` (" + location.origin + ")");
     lines.push("- Reviewer: " + (state.reviewer || "_unnamed_"));
-    lines.push("- Generated: " + nowISO());
+    lines.push("- Generated: " + generated);
+    lines.push("- Checklist revision: `" + (uat.checklistRevision || "unknown") + "`");
+    if (build) {
+      lines.push(
+        "- Application: `" +
+          (build.appRepo || "unknown") +
+          "` `" +
+          (build.appBranch || "unknown") +
+          "` @ `" +
+          (build.appSha || "unknown") +
+          "`",
+      );
+      lines.push(
+        "- Review tooling: `" +
+          (build.harnessSha || "unknown") +
+          "` (deployed " +
+          (build.deployedAt || "unknown") +
+          ")",
+      );
+    }
     lines.push("");
     lines.push("## Checklist");
-    (uat.sections || []).forEach(function (sec, si) {
+    (uat.sections || []).forEach(function (sec) {
       lines.push("");
       lines.push("### " + sec.title);
-      (sec.steps || []).forEach(function (step, ti) {
-        var st = state.steps[si + "." + ti] || {};
+      (sec.steps || []).forEach(function (step) {
+        var st = state.steps[step.key] || {};
         total++;
-        if (st.mark === "pass") pass++;
+        if (st.stale) stale++;
+        else if (st.mark === "pass") pass++;
         else if (st.mark === "fail") fail++;
         else if (st.mark === "na") na++;
+        if (step.required !== false && (!st.mark || st.stale)) requiredOpen++;
         var box =
-          st.mark === "pass"
+          st.stale
+            ? "STALE"
+            : st.mark === "pass"
             ? "PASS"
             : st.mark === "fail"
               ? "FAIL"
               : st.mark === "na"
                 ? "N/A "
                 : "----";
-        lines.push("- [" + box + "] " + (step.do || step.text || ""));
+        lines.push(
+          "- [" +
+            box +
+            "] `" +
+            step.key +
+            "` " +
+            (step.do || step.text || "") +
+            (step.required === false ? " _(optional)_" : ""),
+        );
         if (step.expect) lines.push("    - expected: " + step.expect);
+        if (step.route) lines.push("    - route: " + step.route);
         if (st.note) lines.push("    - note: " + st.note);
+        if (st.markedAt) lines.push("    - marked: " + st.markedAt);
+        if (st.actualUrl) lines.push("    - page: " + st.actualUrl);
       });
     });
     lines.push("");
@@ -323,10 +505,14 @@
         " fail · " +
         na +
         " n/a · " +
-        (total - pass - fail - na) +
+        stale +
+        " stale · " +
+        (total - pass - fail - na - stale) +
         " untested (of " +
         total +
-        ")",
+        ") · " +
+        requiredOpen +
+        " required open",
     );
     if (state.notes.length) {
       lines.push("");
@@ -345,23 +531,38 @@
       md: lines.join("\n"),
       json: JSON.stringify(
         {
+          schemaVersion: 2,
           instance: INSTANCE,
           label: LABEL,
           origin: location.origin,
           reviewer: state.reviewer,
-          generated: nowISO(),
-          summary: { total: total, pass: pass, fail: fail, na: na },
-          checklist: (uat.sections || []).map(function (sec, si) {
+          generated: generated,
+          checklistRevision: uat.checklistRevision || null,
+          build: build,
+          summary: {
+            total: total,
+            pass: pass,
+            fail: fail,
+            na: na,
+            stale: stale,
+            requiredOpen: requiredOpen,
+          },
+          checklist: (uat.sections || []).map(function (sec) {
             return {
               section: sec.title,
-              steps: (sec.steps || []).map(function (step, ti) {
-                var st = state.steps[si + "." + ti] || {};
+              steps: (sec.steps || []).map(function (step) {
+                var st = state.steps[step.key] || {};
                 return {
+                  key: step.key,
+                  required: step.required !== false,
                   do: step.do || step.text || "",
                   expect: step.expect || null,
                   route: step.route || null,
                   mark: st.mark || null,
                   note: st.note || null,
+                  markedAt: st.markedAt || null,
+                  actualUrl: st.actualUrl || null,
+                  stale: Boolean(st.stale),
                 };
               }),
             };
@@ -378,10 +579,11 @@
   function progressText() {
     var total = 0,
       done = 0;
-    (uat.sections || []).forEach(function (sec, si) {
-      (sec.steps || []).forEach(function (step, ti) {
+    (uat.sections || []).forEach(function (sec) {
+      (sec.steps || []).forEach(function (step) {
         total++;
-        if ((state.steps[si + "." + ti] || {}).mark) done++;
+        var saved = state.steps[step.key] || {};
+        if (saved.mark && !saved.stale) done++;
       });
     });
     return done + "/" + total + " checked · " + state.notes.length + " notes";
@@ -389,13 +591,13 @@
   function badge() {
     var total = 0,
       done = 0;
-    (uat.sections || []).forEach(function (sec, si) {
-      (sec.steps || []).forEach(function (_, ti) {
+    (uat.sections || []).forEach(function (sec) {
+      (sec.steps || []).forEach(function (step) {
         total++;
-        if ((state.steps[si + "." + ti] || {}).mark) done++;
+        var saved = state.steps[step.key] || {};
+        if (saved.mark && !saved.stale) done++;
       });
     });
-    var n = state.notes.length + (total - done > 0 ? 0 : 0);
     return state.notes.length
       ? '<span class="dot">' + state.notes.length + "</span>"
       : "";
@@ -420,6 +622,7 @@
     var b = el("button", "icon");
     b.textContent = txt;
     b.title = title;
+    b.setAttribute("aria-label", title);
     return b;
   }
   function trigger(name, type, data) {
@@ -445,6 +648,7 @@
       ".head{display:flex;align-items:flex-start;gap:8px;padding:12px 14px;background:#161616;color:#fff;}",
       ".titlebox{flex:1;}.title{font-weight:700;}.sub{font-size:11px;opacity:.7;margin-top:2px;font-variant-numeric:tabular-nums;}",
       ".icon{background:transparent;border:none;color:inherit;font-size:16px;line-height:1;cursor:pointer;padding:2px 6px;border-radius:4px;}.icon:hover{background:rgba(255,255,255,.15);}",
+      ".status,.intro{padding:9px 14px;border-bottom:1px solid #eef0f3;color:#5b6673;}.status.error{background:#fff1f1;color:#a2191f;font-weight:600;}.status.warning{background:#fff8e1;color:#684e00;}",
       ".who{padding:10px 14px;border-bottom:1px solid #eef0f3;display:flex;flex-direction:column;gap:4px;}",
       ".who label{font-size:11px;color:#5b6673;font-weight:600;}",
       "input[type=text],textarea{width:100%;box-sizing:border-box;border:1px solid #d0d5dd;border-radius:6px;padding:7px 9px;font:inherit;color:inherit;}",
@@ -453,7 +657,9 @@
       ".sec{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:#8b95a3;font-weight:700;margin:14px 0 6px;}",
       ".step{border:1px solid #eef0f3;border-radius:8px;padding:9px 10px;margin-bottom:8px;background:#fafbfc;}",
       ".steplabel{font-weight:600;line-height:1.35;}",
+      ".optional{display:inline-block;margin:5px 0 0 6px;font-size:10px;color:#697077;text-transform:uppercase;}",
       ".expect{font-size:12px;color:#5b6673;margin-top:3px;}",
+      ".stale{display:inline-block;margin-top:6px;background:#fff8e1;color:#684e00;border:1px solid #f1c21b;border-radius:4px;padding:2px 6px;font-size:11px;font-weight:700;}",
       ".go{display:inline-block;font-size:12px;color:#0f62fe;text-decoration:none;margin-top:5px;}.go:hover{text-decoration:underline;}",
       ".marks{display:flex;gap:6px;margin-top:8px;}",
       ".mark{flex:1;border:1px solid #d0d5dd;background:#fff;border-radius:6px;padding:5px 0;font-size:12px;font-weight:600;cursor:pointer;color:#5b6673;}",

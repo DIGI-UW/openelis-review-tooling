@@ -19,7 +19,7 @@ services:
     environment:
       # Public URL the human UI is served under (set even before DNS resolves;
       # the REST API used by seed/generate works over the internal net regardless).
-      - APP_HOME_URL=https://grist.openelis-global.org
+      - APP_HOME_URL=https://${GRIST_DOMAIN:-grist.openelis-global.org}
       # Light: no gVisor/pynbox sandbox. Acceptable for an internal, single-tenant
       # authoring instance behind basic-auth; do NOT expose formula editing to
       # untrusted users in this mode.
@@ -29,7 +29,7 @@ services:
       # OIDC login against the Dex IdP (simple static users + OAuth2 connectors).
       # Replaces the login-less boot-key: Grist redirects to Dex, the user signs
       # in, and lands in the doc UI as that email. Client secret is box-side env.
-      - GRIST_OIDC_IDP_ISSUER=https://grist.openelis-global.org/dex
+      - GRIST_OIDC_IDP_ISSUER=https://${GRIST_DOMAIN:-grist.openelis-global.org}/dex
       - GRIST_OIDC_IDP_CLIENT_ID=grist
       - GRIST_OIDC_IDP_CLIENT_SECRET=${DEX_GRIST_CLIENT_SECRET:-}
       - GRIST_OIDC_IDP_SCOPES=openid email profile
@@ -85,30 +85,26 @@ services:
       edge:
         aliases: [redis]
 
-  # Authoring + read bridge for the UAT checklists. Two surfaces on one process:
-  #   POST /mcp        MCP tools (bearer-gated) — the LLM authoring interface
-  #   GET  /uat/:file  public read — what the router points the reviewer widget at
-  # Holds the Grist API key server-side (mounted read-only from the box state dir);
-  # callers never see it. Bearer tokens live in that same dir (mcp-tokens.json).
-  mcp:
+  # Public Grist-to-widget read transformer. Authoring is exclusively through
+  # Grist's native OAuth/API-key MCP endpoint at /api/mcp.
+  uat-read:
     build:
       context: ./mcp
       dockerfile: Dockerfile
-    image: oe-edge-grist-mcp
-    container_name: oe-edge-grist-mcp
+    image: oe-edge-grist-uat-read
+    container_name: oe-edge-grist-uat-read
     restart: unless-stopped
     environment:
       - GRIST_URL=http://grist:8484
       - GRIST_ORG=openelis
       - GRIST_DOC_NAME=UAT Checklists
       - GRIST_KEY_FILE=/run/grist-state/.api-key
-      - TOKEN_FILE=/run/grist-state/mcp-tokens.json
       - PORT=8585
     volumes:
       - ${GRIST_STATE_DIR:-/home/ubuntu/oe-grist}:/run/grist-state:ro
     networks:
       edge:
-        aliases: [mcp]
+        aliases: [uat-read]
     depends_on:
       - grist
 

@@ -1,21 +1,24 @@
-// Grist <-> uat-*.json sync. Two modes:
-//   seed      review/uat-*.json  ->  Grist (authoring source of truth)
-//   generate  Grist              ->  review/uat-*.json (what the overlay serves)
+// Grist UAT lifecycle:
+//   migrate   add missing schema columns and stable keys without clearing rows
+//   seed      add checklist instances that do not exist yet (use --force to replace)
+//   generate  export Grist checklists as schema-v2 JSON
 //
 // Env: GRIST_URL, GRIST_KEY, GRIST_ORG (default "openelis"),
-//      GRIST_DOC_NAME (default "UAT Checklists"), REVIEW_DIR (default ../review).
-// Schema: UAT_Meta(instance,title,intro,jira), UAT_Steps(instance,section,
-// section_order,step_order,do,expect,route), UAT_Results(reviewer,instance,
+//      GRIST_DOC_NAME (default "UAT Checklists"), REVIEW_DIR (default ../widget/examples).
+// Schema: UAT_Meta(instance,title,intro,jira), UAT_Steps(instance,step_key,
+// required,section,section_order,step_order,do,expect,route), UAT_Results(reviewer,instance,
 // step_key,mark,note,page_url,at) — Results is created now, filled later.
 
 import { readFileSync, writeFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
+import { buildUatDocument } from "./mcp/uat-document.mjs";
 
 const URL = process.env.GRIST_URL || "http://grist:8484";
 const KEY = process.env.GRIST_KEY;
 const ORG = process.env.GRIST_ORG || "openelis";
 const DOC_NAME = process.env.GRIST_DOC_NAME || "UAT Checklists";
-const REVIEW_DIR = process.env.REVIEW_DIR || join(import.meta.dirname, "..", "review");
+const REVIEW_DIR =
+  process.env.REVIEW_DIR || join(import.meta.dirname, "..", "widget", "examples");
 if (!KEY) throw new Error("GRIST_KEY is required");
 
 const TABLES = {
@@ -27,6 +30,8 @@ const TABLES = {
   ],
   UAT_Steps: [
     ["instance", "Text"],
+    ["step_key", "Text"],
+    ["required", "Bool"],
     ["section", "Text"],
     ["section_order", "Int"],
     ["step_order", "Int"],
@@ -73,31 +78,47 @@ async function resolveDoc() {
 }
 
 async function ensureTables(doc) {
-  const existing = new Set((await api(`/api/docs/${doc}/tables`)).tables.map((t) => t.id));
+  const existing = new Set(
+    (await api(`/api/docs/${doc}/tables`)).tables.map((t) => t.id),
+  );
   for (const [id, cols] of Object.entries(TABLES)) {
-    if (existing.has(id)) continue;
-    await api(`/api/docs/${doc}/tables`, {
-      method: "POST",
-      body: JSON.stringify({
-        tables: [
-          {
-            id,
-            columns: cols.map(([c, type]) => ({ id: c, fields: { label: c, type } })),
-          },
-        ],
-      }),
-    });
-    console.log(`  created table ${id}`);
+    if (!existing.has(id)) {
+      await api(`/api/docs/${doc}/tables`, {
+        method: "POST",
+        body: JSON.stringify({
+          tables: [
+            {
+              id,
+              columns: cols.map(([c, type]) => ({
+                id: c,
+                fields: { label: c, type },
+              })),
+            },
+          ],
+        }),
+      });
+      console.log(`  created table ${id}`);
+      continue;
+    }
+    const current = new Set(
+      (await api(`/api/docs/${doc}/tables/${id}/columns`)).columns.map(
+        (column) => column.id,
+      ),
+    );
+    const missing = cols.filter(([column]) => !current.has(column));
+    if (missing.length) {
+      await api(`/api/docs/${doc}/tables/${id}/columns`, {
+        method: "POST",
+        body: JSON.stringify({
+          columns: missing.map(([column, type]) => ({
+            id: column,
+            fields: { label: column, type },
+          })),
+        }),
+      });
+      console.log(`  added ${missing.map(([column]) => column).join(", ")} to ${id}`);
+    }
   }
-}
-
-async function clearTable(doc, table) {
-  const recs = (await api(`/api/docs/${doc}/tables/${table}/records`)).records;
-  if (recs.length)
-    await api(`/api/docs/${doc}/tables/${table}/data/delete`, {
-      method: "POST",
-      body: JSON.stringify(recs.map((r) => r.id)),
-    });
 }
 
 async function addRecords(doc, table, rows) {
@@ -108,29 +129,100 @@ async function addRecords(doc, table, rows) {
   });
 }
 
+async function patchRecords(doc, table, records) {
+  if (!records.length) return;
+  await api(`/api/docs/${doc}/tables/${table}/records`, {
+    method: "PATCH",
+    body: JSON.stringify({ records }),
+  });
+}
+
+async function deleteInstance(doc, table, instance) {
+  const records = (
+    await api(
+      `/api/docs/${doc}/tables/${table}/records?filter=${encodeURIComponent(
+        JSON.stringify({ instance: [instance] }),
+      )}`,
+    )
+  ).records;
+  if (records.length) {
+    await api(`/api/docs/${doc}/tables/${table}/data/delete`, {
+      method: "POST",
+      body: JSON.stringify(records.map((record) => record.id)),
+    });
+  }
+}
+
 function instancesFromReviewDir() {
   return readdirSync(REVIEW_DIR)
     .filter((f) => /^uat-.*\.json$/.test(f))
     .map((f) => f.replace(/^uat-|\.json$/g, ""));
 }
 
-async function seed() {
+async function migrate() {
   const doc = await resolveDoc();
   await ensureTables(doc);
-  const metaRows = [];
-  const stepRows = [];
+  const steps = (await api(`/api/docs/${doc}/tables/UAT_Steps/records`)).records;
+  const patches = steps
+    .filter((record) => !record.fields.step_key || record.fields.required == null)
+    .map((record) => ({
+      id: record.id,
+      fields: {
+        step_key:
+          record.fields.step_key ||
+          `${String(record.fields.instance || "uat").toUpperCase()}-${record.id}`,
+        required:
+          record.fields.required == null ? true : Boolean(record.fields.required),
+      },
+    }));
+  await patchRecords(doc, "UAT_Steps", patches);
+  console.log(`migrated doc ${doc}: ${patches.length} step rows updated`);
+  return doc;
+}
+
+async function seed(force) {
+  const doc = await migrate();
   for (const inst of instancesFromReviewDir()) {
     const j = JSON.parse(readFileSync(join(REVIEW_DIR, `uat-${inst}.json`), "utf8"));
-    metaRows.push({
+    const existingMeta = (
+      await api(
+        `/api/docs/${doc}/tables/UAT_Meta/records?filter=${encodeURIComponent(
+          JSON.stringify({ instance: [inst] }),
+        )}`,
+      )
+    ).records;
+    const existingSteps = (
+      await api(
+        `/api/docs/${doc}/tables/UAT_Steps/records?filter=${encodeURIComponent(
+          JSON.stringify({ instance: [inst] }),
+        )}`,
+      )
+    ).records;
+    if ((existingMeta.length || existingSteps.length) && !force) {
+      console.log(`  skipped ${inst}: already authored in Grist`);
+      continue;
+    }
+    if (force) {
+      await deleteInstance(doc, "UAT_Meta", inst);
+      await deleteInstance(doc, "UAT_Steps", inst);
+    }
+    const metaRow = {
       instance: inst,
       title: j.title || "",
       intro: j.intro || "",
       jira: j.jira || "",
-    });
+    };
+    const stepRows = [];
     (j.sections || []).forEach((sec, si) => {
       (sec.steps || []).forEach((step, ti) => {
         stepRows.push({
           instance: inst,
+          step_key:
+            step.key ||
+            `${inst.toUpperCase()}-${String(si + 1).padStart(2, "0")}-${String(
+              ti + 1,
+            ).padStart(2, "0")}`,
+          required: step.required !== false,
           section: sec.title,
           section_order: si,
           step_order: ti,
@@ -140,12 +232,10 @@ async function seed() {
         });
       });
     });
+    await addRecords(doc, "UAT_Meta", [metaRow]);
+    await addRecords(doc, "UAT_Steps", stepRows);
+    console.log(`  seeded ${inst}: ${stepRows.length} steps`);
   }
-  await clearTable(doc, "UAT_Meta");
-  await clearTable(doc, "UAT_Steps");
-  await addRecords(doc, "UAT_Meta", metaRows);
-  await addRecords(doc, "UAT_Steps", stepRows);
-  console.log(`seeded doc ${doc}: ${metaRows.length} meta, ${stepRows.length} steps`);
   console.log(doc);
 }
 
@@ -154,42 +244,26 @@ async function generate() {
   const meta = {};
   for (const r of (await api(`/api/docs/${doc}/tables/UAT_Meta/records`)).records)
     meta[r.fields.instance] = r.fields;
-  const steps = (await api(`/api/docs/${doc}/tables/UAT_Steps/records`)).records.map((r) => r.fields);
+  const steps = (await api(`/api/docs/${doc}/tables/UAT_Steps/records`)).records;
   const byInstance = {};
-  for (const s of steps) (byInstance[s.instance] ||= []).push(s);
+  for (const record of steps)
+    (byInstance[record.fields.instance] ||= []).push(record);
   for (const [inst, rows] of Object.entries(byInstance)) {
-    rows.sort((a, b) => a.section_order - b.section_order || a.step_order - b.step_order);
-    const sections = [];
-    for (const s of rows) {
-      let sec = sections.find((x) => x._order === s.section_order);
-      if (!sec) {
-        sec = { title: s.section, steps: [], _order: s.section_order };
-        sections.push(sec);
-      }
-      const step = { do: s.do };
-      if (s.expect) step.expect = s.expect;
-      if (s.route) step.route = s.route;
-      sec.steps.push(step);
-    }
-    sections.forEach((s) => delete s._order);
     const m = meta[inst] || {};
-    const out = {
-      title: m.title || `${inst} review`,
-      instance: inst,
-      jira: m.jira || "",
-      intro: m.intro || "",
-      sections,
-    };
+    const out = buildUatDocument(inst, m, rows);
     const path = join(REVIEW_DIR, `uat-${inst}.json`);
     writeFileSync(path, JSON.stringify(out, null, 2) + "\n");
-    console.log(`wrote ${path}: ${sections.length} sections, ${rows.length} steps`);
+    console.log(
+      `wrote ${path}: ${out.sections.length} sections, ${rows.length} steps`,
+    );
   }
 }
 
 const mode = process.argv[2];
-if (mode === "seed") await seed();
+if (mode === "migrate") await migrate();
+else if (mode === "seed") await seed(process.argv.includes("--force"));
 else if (mode === "generate") await generate();
 else {
-  console.error("usage: grist-sync.mjs seed|generate");
+  console.error("usage: grist-sync.mjs migrate|seed [--force]|generate");
   process.exit(1);
 }

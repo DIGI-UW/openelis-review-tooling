@@ -33,7 +33,7 @@ Two URLs, no build, no redeploy — a script tag or one nginx line:
 |---|---|
 | [`widget/`](widget/) | The reviewer overlay as a **standalone, backend-free drop-in plugin**. Grab-and-go — no OE2, no build, no server needed. |
 | [`integration/`](integration/) | Copy-paste ways to attach the overlay to an **existing** deployment (config, not code). |
-| `grist/` | The authoring backend: Grist as source of truth + native MCP, plus the slim `/uat` read service (`mcp/server.mjs`) and `mcp/mcp-token.sh`. |
+| `grist/` | The authoring backend: Grist as source of truth + native MCP, plus the slim read-only `/uat` transformer. |
 | `router/`, `amr/`, `analyzers/`, `scripts/`, `deploy.sh` | The demo deployment: an umbrella nginx router splitting subdomains, additive Compose overlays on the OE2 app builds, and Let's Encrypt certs. |
 | `docs/` | [`AGENTS.md`](docs/AGENTS.md) (context for agents) and `overview.html` (a collaborator overview page). |
 
@@ -77,6 +77,8 @@ host values and all secrets stay out of the repo (this repo is public).
 ### Repos it orchestrates
 `deploy.sh` clones **this** repo (`HARNESS_REPO`) for the orchestration and the OE2
 app repo (`APP_REPO`) for the stacks it builds — two separate checkouts on the host.
+Each app exposes `/__review/build.json`; downloaded reports pair that build
+provenance with the live checklist revision.
 
 ### Seed data
 Fresh instances come up with zero demo data. `./deploy.sh seed`:

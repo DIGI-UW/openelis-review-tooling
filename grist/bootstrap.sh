@@ -1,15 +1,16 @@
 #!/usr/bin/env bash
 set -euo pipefail
 # Reproducible Grist bootstrap — run on the box (as the ubuntu owner).
-# Brings Grist up, mints a headless API key (self-hosted Grist has no env-var
-# path to one), and seeds the UAT doc from the committed review/uat-*.json.
-# Idempotent: re-running reuses the existing key + doc.
+# Brings Grist up, mints a headless API key, migrates the UAT schema, and seeds
+# only instances that do not already exist. Routine runs never clear authored
+# rows. Use `seed-force` only for an intentional replacement.
 #
-#   bash bootstrap.sh          # up + key + seed
-#   bash bootstrap.sh generate # Grist -> review/uat-*.json (after authoring edits)
+#   bash bootstrap.sh             # up + migrate + seed missing instances
+#   bash bootstrap.sh generate    # Grist -> widget/examples/uat-*.json
+#   bash bootstrap.sh seed-force  # explicitly replace committed instances
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REVIEW_DIR="${REVIEW_DIR:-$HERE/../review}"
+REVIEW_DIR="${REVIEW_DIR:-$HERE/../widget/examples}"
 STATE_DIR="${STATE_DIR:-/home/ubuntu/oe-grist}"
 GRIST_VOL="${GRIST_VOL:-oe-grist_grist-data}"
 GRIST_ADMIN_EMAIL="${GRIST_ADMIN_EMAIL:-admin@openelis-global.org}"
@@ -17,16 +18,18 @@ NODE_IMG=node:22-alpine
 KEYFILE="$STATE_DIR/.api-key"
 mkdir -p "$STATE_DIR"
 
-run_node() { # mode
+run_node() {
   docker run --rm --network oe-edge --user "$(id -u):$(id -g)" \
     -v "$STATE_DIR":/work -v "$REVIEW_DIR":/review \
     -e GRIST_KEY="$(cat "$KEYFILE")" -e GRIST_URL=http://grist:8484 -e REVIEW_DIR=/review \
-    "$NODE_IMG" node /work/grist-sync.mjs "$1"
+    "$NODE_IMG" node /work/grist-sync.mjs "$@"
 }
 sqlite() { docker run --rm -v "$GRIST_VOL":/persist alpine sh -c "apk add -q sqlite; sqlite3 /persist/home.sqlite3 \"$1\""; }
 
 # copy the sync script into the state dir (node container mounts it)
 cp "$HERE/grist-sync.mjs" "$STATE_DIR/grist-sync.mjs"
+mkdir -p "$STATE_DIR/mcp"
+cp "$HERE/mcp/uat-document.mjs" "$STATE_DIR/mcp/uat-document.mjs"
 
 echo ">> grist up"
 docker compose -p oe-grist -f "$HERE/docker-compose.grist.yml" up -d >/dev/null
@@ -48,6 +51,12 @@ if [ ! -s "$KEYFILE" ]; then
   echo ">> minted API key for $GRIST_ADMIN_EMAIL"
 fi
 
-echo ">> seed UAT doc from $REVIEW_DIR"
-run_node seed
-echo ">> done. Author in the Grist UI, then: bash bootstrap.sh generate"
+echo ">> migrate UAT schema without clearing authored rows"
+run_node migrate
+echo ">> seed missing UAT instances from $REVIEW_DIR"
+if [ "${1:-bootstrap}" = "seed-force" ]; then
+  run_node seed --force
+else
+  run_node seed
+fi
+echo ">> done. Author via Grist UI or native /api/mcp"

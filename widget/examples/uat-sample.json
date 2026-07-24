@@ -1,4 +1,6 @@
 {
+  "schemaVersion": 2,
+  "checklistRevision": "seed-demo-v2",
   "title": "Widget demo review",
   "instance": "demo",
   "jira": "",
@@ -8,10 +10,14 @@
       "title": "Getting started",
       "steps": [
         {
+          "key": "DEMO-001",
+          "required": true,
           "do": "Open the Review panel (bottom-right) and enter your name.",
           "expect": "The panel expands and remembers your name on reload."
         },
         {
+          "key": "DEMO-002",
+          "required": true,
           "do": "Mark this step Pass.",
           "expect": "The mark sticks and the progress count updates."
         }
@@ -21,10 +27,14 @@
       "title": "Feedback",
       "steps": [
         {
+          "key": "DEMO-003",
+          "required": true,
           "do": "Add a freeform note for this page.",
           "expect": "It appears in the notes list and in the downloaded report."
         },
         {
+          "key": "DEMO-004",
+          "required": true,
           "do": "Click \"Download review report\".",
           "expect": "You get an .md and a .json file carrying your marks and notes."
         }

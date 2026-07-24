@@ -1,0 +1,8 @@
+{
+  "instance": "analyzers",
+  "appRepo": "DIGI-UW/OpenELIS-Global-2",
+  "appBranch": "codex/ogc-1054-analyzer-qc-mvp",
+  "appSha": "abc123",
+  "harnessSha": "def456",
+  "deployedAt": "2026-07-24T12:00:00Z"
+}

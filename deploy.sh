@@ -19,7 +19,7 @@
 # the one exception (a human wanting an interactive shell) and still uses SSH.
 #
 # USAGE
-#   ./deploy.sh status              # AWS + instance + both HTTPS + container states (read-only)
+#   ./deploy.sh status              # AWS + all HTTPS endpoints + container states (read-only)
 #   ./deploy.sh connect [cmd…]      # SSH shell — interactive only, needs your IP in the SG (see below)
 #   ./deploy.sh configure           # install Docker/git, install renew cron (idempotent)
 #   ./deploy.sh deploy [--yes]      # build + bring up router + both stacks on self-signed (detached + polled)
@@ -33,8 +33,10 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 [ -f "$HERE/.env" ] && . "$HERE/.env" || { echo "!! $HERE/.env missing — copy .env.example to .env and fill it in" >&2; exit 1; }
 
 : "${REGION:?}" "${INSTANCE_ID:?}" "${EIP:?}" "${SG_ID:?}" "${OS_USER:?}" "${SSH_KEY:?}"
-: "${AMR_DOMAIN:?}" "${ANALYZERS_DOMAIN:?}" "${AMR_BRANCH:?}" "${ANALYZERS_BRANCH:?}"
+: "${AMR_DOMAIN:?}" "${ANALYZERS_DOMAIN:?}" "${GRIST_DOMAIN:?}"
+: "${AMR_BRANCH:?}" "${ANALYZERS_BRANCH:?}"
 : "${EDGE_DIR:?}" "${AMR_DIR:?}" "${ANALYZERS_DIR:?}" "${LETSENCRYPT_EMAIL:?}"
+: "${GRIST_STATE_DIR:?}" "${DEX_GRIST_CLIENT_SECRET:?}" "${DEX_REVIEWER_PASSWORD_HASH:?}"
 SSH_KEY_EXPANDED="${SSH_KEY/#\~/$HOME}"
 # Two repos: this harness (cloned into EDGE_DIR) and the OpenELIS app it builds
 # (cloned into AMR_DIR / ANALYZERS_DIR). They are separate checkouts on the host.
@@ -120,8 +122,13 @@ sync_checkout() { # dir branch repo
   local dir="\$1" br="\$2" repo="\$3"
   if [ -d "\$dir/.git" ]; then
     sudo chown -R "$OS_USER":"$OS_USER" "\$dir" 2>/dev/null || true
+    if ! git -C "\$dir" diff --quiet || ! git -C "\$dir" diff --cached --quiet; then
+      echo "[deploy] refusing to overwrite tracked changes in \$dir" >&2
+      git -C "\$dir" status --short >&2
+      exit 1
+    fi
     git -C "\$dir" fetch --depth 1 origin "\$br"
-    git -C "\$dir" checkout -f -B "\$br" FETCH_HEAD
+    git -C "\$dir" checkout -B "\$br" FETCH_HEAD
   else
     sudo mkdir -p "\$dir" && sudo chown "$OS_USER":"$OS_USER" "\$dir"
     git clone --depth 1 --single-branch --branch "\$br" "\$repo" "\$dir"
@@ -135,6 +142,25 @@ sync_checkout "$ANALYZERS_DIR" "$ANALYZERS_BRANCH" "$APP_REPO"
 
 docker network create oe-edge 2>/dev/null || true
 mkdir -p "$LE_DIR" "$WEBROOT_DIR"
+mkdir -p "$EDGE_DIR/runtime"
+
+harness_sha=\$(git -C "$EDGE_DIR" rev-parse HEAD)
+amr_sha=\$(git -C "$AMR_DIR" rev-parse HEAD)
+analyzers_sha=\$(git -C "$ANALYZERS_DIR" rev-parse HEAD)
+deployed_at=\$(date -u +%FT%TZ)
+cat > "$EDGE_DIR/runtime/build-amr.json" <<JSON
+{"instance":"amr","appRepo":"$APP_REPO","appBranch":"$AMR_BRANCH","appSha":"\$amr_sha","harnessSha":"\$harness_sha","deployedAt":"\$deployed_at"}
+JSON
+cat > "$EDGE_DIR/runtime/build-analyzers.json" <<JSON
+{"instance":"analyzers","appRepo":"$APP_REPO","appBranch":"$ANALYZERS_BRANCH","appSha":"\$analyzers_sha","harnessSha":"\$harness_sha","deployedAt":"\$deployed_at"}
+JSON
+
+echo "[deploy] Grist, Dex, Redis, and UAT read service up"
+cd "$EDGE_DIR/grist"
+GRIST_DOMAIN="$GRIST_DOMAIN" GRIST_STATE_DIR="$GRIST_STATE_DIR" \\
+DEX_GRIST_CLIENT_SECRET="$DEX_GRIST_CLIENT_SECRET" \\
+DEX_REVIEWER_PASSWORD_HASH="$DEX_REVIEWER_PASSWORD_HASH" \\
+REVIEW_DIR="$EDGE_DIR/widget/examples" bash bootstrap.sh
 
 echo "[deploy] router up (self-signed until certs issued)"
 cd "$EDGE_DIR/$ROUTER_SUBDIR"
@@ -224,12 +250,12 @@ chmod +x '$REMOTE_RUNNER'" >/dev/null || die "failed to write runner"
 
 cmd_certs() {
   require_aws
-  for d in "$AMR_DOMAIN" "$ANALYZERS_DOMAIN"; do
+  for d in "$AMR_DOMAIN" "$ANALYZERS_DOMAIN" "$GRIST_DOMAIN"; do
     got="$(dig +short "$d" | tail -1)"
     [ "$got" = "$EIP" ] || warn "DNS: $d -> ${got:-<none>} (expected $EIP) — ACME will fail until this resolves"
   done
-  log "issuing certs for both domains on the host"
-  ssm_run "AMR_DOMAIN=$AMR_DOMAIN ANALYZERS_DOMAIN=$ANALYZERS_DOMAIN LETSENCRYPT_EMAIL=$LETSENCRYPT_EMAIL LETSENCRYPT_STAGING=${LETSENCRYPT_STAGING:-false} LETSENCRYPT_DIR=$LE_DIR CERTBOT_WEBROOT=$WEBROOT_DIR bash $EDGE_DIR/scripts/generate-certs.sh" \
+  log "issuing certs for all demo domains on the host"
+  ssm_run "AMR_DOMAIN=$AMR_DOMAIN ANALYZERS_DOMAIN=$ANALYZERS_DOMAIN GRIST_DOMAIN=$GRIST_DOMAIN LETSENCRYPT_EMAIL=$LETSENCRYPT_EMAIL LETSENCRYPT_STAGING=${LETSENCRYPT_STAGING:-false} LETSENCRYPT_DIR=$LE_DIR CERTBOT_WEBROOT=$WEBROOT_DIR bash $EDGE_DIR/scripts/generate-certs.sh" \
     || die "cert issuance failed"
   cmd_status
 }
@@ -265,7 +291,7 @@ cmd_status() {
   require_aws
   log "instance"; aws ec2 describe-instances --region "$REGION" --instance-ids "$INSTANCE_ID" \
     --query "Reservations[0].Instances[0].[State.Name,PublicIpAddress,InstanceType]" --output text | sed 's/^/   /'
-  for d in "$AMR_DOMAIN" "$ANALYZERS_DOMAIN"; do
+  for d in "$AMR_DOMAIN" "$ANALYZERS_DOMAIN" "$GRIST_DOMAIN"; do
     printf '   https://%s/ -> HTTP %s\n' "$d" "$(curl -sk -o /dev/null -w '%{http_code}' --max-time 15 "https://$d/" 2>/dev/null || echo 000)"
   done
   echo "   containers:"

@@ -90,7 +90,7 @@ http {
         # it from Grist (via the MCP bridge) instead of the static file, so edits
         # in Grist/MCP appear immediately. Regex wins over the prefix above.
         location ~ ^/__review/uat-(?<uat_instance>[a-z0-9_-]+)\.json$ {
-            set $uat_up "mcp";
+            set $uat_up "uat-read";
             proxy_pass http://$uat_up:8585/uat/$uat_instance.json;
             proxy_ignore_headers Cache-Control Expires;
             proxy_cache uat_cache;
@@ -98,6 +98,12 @@ http {
             proxy_cache_use_stale error timeout updating http_502 http_503 http_504;
             add_header Cache-Control "no-store";
             add_header X-UAT-Source "grist-live" always;
+        }
+
+        location = /__review/build.json {
+            alias /etc/nginx/runtime/build-amr.json;
+            default_type application/json;
+            add_header Cache-Control "no-store";
         }
 
         # Frontend. Host is rewritten to "localhost" so a Vite dev server (if the
@@ -159,7 +165,7 @@ http {
 
         # Live UAT checklist (see the amr vhost for the rationale).
         location ~ ^/__review/uat-(?<uat_instance>[a-z0-9_-]+)\.json$ {
-            set $uat_up "mcp";
+            set $uat_up "uat-read";
             proxy_pass http://$uat_up:8585/uat/$uat_instance.json;
             proxy_ignore_headers Cache-Control Expires;
             proxy_cache uat_cache;
@@ -167,6 +173,12 @@ http {
             proxy_cache_use_stale error timeout updating http_502 http_503 http_504;
             add_header Cache-Control "no-store";
             add_header X-UAT-Source "grist-live" always;
+        }
+
+        location = /__review/build.json {
+            alias /etc/nginx/runtime/build-analyzers.json;
+            default_type application/json;
+            add_header Cache-Control "no-store";
         }
 
         location / {
@@ -227,7 +239,8 @@ http {
         # ---- central integration surface -------------------------------------
         # These two are what an EXISTING deployment points at to adopt the review
         # overlay: one script tag, no proxy, no frontend build on their side.
-        # Both are public and read-only (authoring still requires auth via /mcp).
+        # Both are public and read-only (authoring still requires auth via
+        # Grist's native /api/mcp).
 
         # The reviewer widget itself, served from this central host so integrators
         # reference a URL instead of vendoring a copy of the file.
@@ -242,7 +255,7 @@ http {
         # a widget running on any other site can read it directly.
         location ~ ^/uat/(?<uat_instance>[a-z0-9_-]+)\.json$ {
             if ($request_method = OPTIONS) { return 204; }
-            set $uat_up "mcp";
+            set $uat_up "uat-read";
             proxy_pass http://$uat_up:8585/uat/$uat_instance.json;
             proxy_ignore_headers Cache-Control Expires;
             proxy_cache uat_cache;
@@ -255,22 +268,9 @@ http {
             add_header X-UAT-Source "grist-live" always;
         }
 
-        # Public MCP endpoint. The MCP service does its own bearer check, so no
-        # gate here; the Authorization header passes through untouched and the
-        # POST body is proxied as-is. More specific than "location /" below.
-        location /mcp {
-            set $mcp_up "mcp";
-            proxy_pass http://$mcp_up:8585$request_uri;
-            proxy_http_version 1.1;
-            proxy_set_header Host $host;
-            proxy_set_header X-Real-IP $remote_addr;
-            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-            proxy_set_header X-Forwarded-Proto $scheme;
-            proxy_read_timeout 60s;
-        }
-
         # Grist. Login is Grist's own OIDC flow against Dex — no basic-auth gate;
-        # Grist redirects unauthenticated users to Dex and back to /oauth2/callback.
+        # Grist redirects unauthenticated users to Dex and exposes native MCP at
+        # /api/mcp through this same upstream.
         location / {
             set $grist_up "grist";
             proxy_pass http://$grist_up:8484;

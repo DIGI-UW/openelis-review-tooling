@@ -1,0 +1,36 @@
+name: Review tooling CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:widget
+      - name: Validate shell
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y shellcheck
+          shellcheck deploy.sh grist/bootstrap.sh scripts/*.sh
+      - name: Validate Compose configuration
+        env:
+          AMR_DOMAIN: amr.example.org
+          ANALYZERS_DOMAIN: analyzers.example.org
+          GRIST_DOMAIN: grist.example.org
+          DEX_GRIST_CLIENT_SECRET: test-secret
+          DEX_REVIEWER_PASSWORD_HASH: test-hash
+          GRIST_STATE_DIR: /tmp/oe-grist
+        run: |
+          docker compose -f router/docker-compose.router.yml config -q
+          docker compose -f grist/docker-compose.grist.yml config -q
