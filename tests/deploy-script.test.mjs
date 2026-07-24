@@ -15,6 +15,26 @@ test("remote repository operations run as the checkout owner", () => {
   assert.match(deployScript, /repo_git "\$ANALYZERS_DIR" rev-parse HEAD/);
 });
 
+test("tracked runtime markers are normalized before the dirty-worktree guard", () => {
+  const normalizeMarker = deployScript.indexOf(
+    'normalize_runtime_markers "\\$dir"',
+  );
+  const dirtyCheck = deployScript.indexOf(
+    'if ! repo_git "\\$dir" diff --quiet',
+  );
+
+  assert.match(
+    deployScript,
+    /chmod 0644 "\\\$marker"/,
+    "the tracked plugin marker must retain its repository file mode",
+  );
+  assert.ok(normalizeMarker > -1, "checkout sync must normalize runtime markers");
+  assert.ok(
+    dirtyCheck > normalizeMarker,
+    "normalization must happen before checking for tracked changes",
+  );
+});
+
 test("analyzer deployment prepares only the generic runtime plugins", () => {
   assert.match(
     deployScript,

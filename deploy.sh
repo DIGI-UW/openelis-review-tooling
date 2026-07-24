@@ -128,10 +128,18 @@ repo_git() {
   shift
   sudo -u "\$REMOTE_USER" git -c safe.directory="\$dir" -C "\$dir" "\$@"
 }
+normalize_runtime_markers() {
+  local dir="\$1" marker
+  marker="\$dir/volume/plugins/.gitignore"
+  if [ -f "\$marker" ]; then
+    chmod 0644 "\$marker"
+  fi
+}
 sync_checkout() { # dir branch repo
   local dir="\$1" br="\$2" repo="\$3"
   if [ -d "\$dir/.git" ]; then
     sudo chown -R "$OS_USER":"$OS_USER" "\$dir" 2>/dev/null || true
+    normalize_runtime_markers "\$dir"
     if ! repo_git "\$dir" diff --quiet || ! repo_git "\$dir" diff --cached --quiet; then
       echo "[deploy] refusing to overwrite tracked changes in \$dir" >&2
       repo_git "\$dir" status --short >&2
