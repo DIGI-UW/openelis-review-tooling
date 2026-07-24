@@ -203,10 +203,13 @@
           <li><b>As an agent (Claude Code):</b> connect the native Grist MCP once, then ask in plain language
             (“add a step to the amr checklist covering X”).</li>
         </ol>
-<pre><span class="cm"># connect the authoring MCP (CLI)</span>
+<pre><span class="cm"># CLI — connect with a Grist API key</span>
 claude mcp add --transport http grist \
   https://grist.openelis-global.org/api/mcp \
   --header "Authorization: Bearer &lt;grist-api-key&gt;"</pre>
+        <p style="color:var(--muted);font-size:13.5px;margin:12px 0 0"><b>On claude.ai (web):</b> add
+          <span class="mono">grist.openelis-global.org/api/mcp</span> as a custom connector and sign in — the OAuth
+          handshake registers the client for you, no key to paste.</p>
       </div>
 
       <div class="card">
@@ -261,7 +264,7 @@ claude mcp add --transport http grist \
       <div><div class="lbl">analyzers</div><div class="val">Analyzer Types &amp; Mapping + harness + overlay</div></div>
       <div><div class="lbl">grist</div><div class="val">Grist full edition · native MCP at <code>/api/mcp</code></div></div>
       <div><div class="lbl">Live read</div><div class="val">Slim service reshapes Grist rows → widget JSON (30s cache)</div></div>
-      <div><div class="lbl">Author auth</div><div class="val">Grist API key (CLI) · web SSO is a planned follow-up</div></div>
+      <div><div class="lbl">Author auth</div><div class="val">Grist API key (CLI) or OAuth sign-in (claude.ai web)</div></div>
       <div><div class="lbl">Human login</div><div class="val">Dex today → Google OIDC planned</div></div>
     </div>
   </section>
@@ -269,9 +272,11 @@ claude mcp add --transport http grist \
   <section class="reveal">
     <h2>Where this lives</h2>
     <div class="card">
-      <p style="margin:0">The harness is a self-contained ~two-dozen-file unit (router · Grist + MCP · review overlay ·
-        deploy scripts). It <b>orchestrates</b> OpenELIS builds at deploy time but is not application code — the plan is
-        to lift it into its own repository so it can iterate independently of the OpenELIS-Global-2 codebase and its CI.</p>
+      <p style="margin:0 0 10px"><b>Its own repo:</b> <code>github.com/DIGI-UW/openelis-review-tooling</code> —
+        independent of OpenELIS-Global-2, so it iterates without the product repo's CI or review gates.</p>
+      <p style="margin:0">Inside it, the reviewer widget is a <b>standalone, backend-free plugin</b>: one framework-free
+        file you drop onto any page with a <code>&lt;script&gt;</code> tag. Grist + native MCP is one optional way to
+        author its checklists; the deploy scripts stand up the demo.</p>
     </div>
   </section>
 

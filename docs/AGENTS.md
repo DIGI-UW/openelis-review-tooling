@@ -31,8 +31,10 @@ Types & Mapping, OGC-1054).
   claude mcp add --transport http grist https://grist.openelis-global.org/api/mcp \
     --header "Authorization: Bearer <grist-api-key>"
   ```
-  (claude.ai web auto-connect via Grist's OIDC server + CIMD is not enabled yet —
-  see "Phase B" in the harness README.)
+- **Connect (claude.ai web):** add `https://grist.openelis-global.org/api/mcp` as a
+  custom connector and sign in — no key to paste. Grist runs its own OIDC server
+  with dynamic client registration + PKCE, so the client auto-registers; the flow is
+  connector → Grist → Dex sign-in → consent → token.
 
 ### The data model
 
