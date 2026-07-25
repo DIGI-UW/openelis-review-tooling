@@ -576,6 +576,10 @@ cmd_data_seed() {
     esac
   done
   validate_instance "$instance"
+  # The only fixture is the AMR microbiology MVP, and the body below targets the
+  # amr database and domain unconditionally. Without this guard, asking for
+  # 'analyzers' would quietly seed amr instead.
+  [ "$instance" = amr ] || die "data seed supports only instance 'amr' (fixture microbiology-mvp)"
   [ "$fixture" = microbiology-mvp ] || die "AMR fixture must be 'microbiology-mvp'"
   require_aws
   log "seeding AMR microbiology MVP fixture only"

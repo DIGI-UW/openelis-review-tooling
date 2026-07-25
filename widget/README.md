@@ -20,8 +20,9 @@ Open `index.html` for a live, backend-free demo.
 - `data-label` — human title shown in the panel and the report.
 - `data-src` — URL of the checklist JSON (see schema below). **Optional.**
 - `data-build-src` — URL of verified deployment metadata. Defaults to
-  `/__review/target.json`; the historical attribute name is retained for
-  compatibility.
+  `/__review/target.json`. Deployments that predate the target contract are still
+  served at `/__review/build.json`, which the router keeps as an alias for the
+  same document — point this attribute there if you need that URL.
 
 ### Where the checklist comes from (priority order)
 1. **Inline** (fully backend-free): a `window.OE_REVIEW_CHECKLIST` object, or

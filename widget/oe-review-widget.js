@@ -255,7 +255,11 @@
       }),
     ])
       .then(function (values) {
-        build = values[1];
+        // A failed target fetch must not change the deployment identity: that
+        // identity is part of the storage key, so replacing it with null would
+        // re-key the panel and hide answers the reviewer already gave. Keep the
+        // last known target and surface buildWarning instead.
+        if (values[1]) build = values[1];
         applyChecklist(values[0], build);
       })
       .catch(function (error) {
@@ -531,14 +535,14 @@
           (build.appBranch || "unknown") +
           "` @ `" +
           (build.appSha || "unknown") +
-          "`",
+          "`"
       );
       lines.push(
         "- Review tooling: `" +
           (build.harnessSha || "unknown") +
           "` (deployed " +
           (build.deployedAt || "unknown") +
-          ")",
+          ")"
       );
     }
     lines.push("");
@@ -571,7 +575,7 @@
             step.key +
             "` " +
             (step.do || step.text || "") +
-            (step.required === false ? " _(optional)_" : ""),
+            (step.required === false ? " _(optional)_" : "")
         );
         if (step.expect) lines.push("    - expected: " + step.expect);
         if (step.route) lines.push("    - route: " + step.route);
@@ -596,7 +600,7 @@
         total +
         ") · " +
         requiredOpen +
-        " required open",
+        " required open"
     );
     if (state.notes.length) {
       lines.push("");
@@ -609,7 +613,7 @@
     }
     lines.push("");
     lines.push(
-      "_Paste this into Claude to triage into Jira/GitHub. The JSON sibling file carries the same data structured._",
+      "_Paste this into Claude to triage into Jira/GitHub. The JSON sibling file carries the same data structured._"
     );
     return {
       md: lines.join("\n"),
@@ -655,7 +659,7 @@
           feedback: state.notes,
         },
         null,
-        2,
+        2
       ),
     };
   }
