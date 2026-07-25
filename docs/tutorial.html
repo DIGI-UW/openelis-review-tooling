@@ -251,13 +251,22 @@
               <tr><th>Table</th><th>What you add</th></tr>
               <tr><td>UAT_Meta</td><td>One row for the review: <code>instance</code>, <code>title</code>,
                 <code>intro</code>, <code>jira</code>.</td></tr>
-              <tr><td>UAT_Steps</td><td>One row per step: <code>instance</code>, <code>section</code>,
+              <tr><td>UAT_Steps</td><td>One row per step: <code>instance</code>, <b><code>step_key</code></b>,
+                <b><code>required</code></b>, <code>section</code>,
                 <code>section_order</code>, <code>step_order</code>, <code>do</code>, <code>expect</code>,
                 <code>route</code>.</td></tr>
             </table></div>
             <p class="hint">Reviewers see steps grouped by <code>section</code>, ordered by
               <code>section_order</code> then <code>step_order</code>. <code>route</code> is the page a
               reviewer should open for that step.</p>
+            <p class="hint"><b><code>step_key</code> is required</b> — a short stable id, unique in the
+              instance (<code>AMR-001</code>). It ties a reviewer's answer to the step, so never change it
+              once reviewers have seen it; reorder rows freely instead. <code>required</code> marks a step
+              that must pass for the review to count.</p>
+            <p class="warn">⚠️ A row with an empty <code>step_key</code> breaks the <em>entire</em>
+              checklist, not just that row — reviewers get an error for every step. That's deliberate: a
+              silently dropped step could let a report claim everything passed. Run the check in step 02
+              after every edit.</p>
           </div>
 
           <div class="panel" id="t1b" hidden>
@@ -299,12 +308,17 @@ claude mcp add --transport http grist \
             <pre id="c2">curl https://<span class="v-host tok">grist.openelis-global.org</span>/uat/<span class="v-slug tok">my-feature</span>.json</pre>
           </div>
           <p>That is exactly what a reviewer's browser will fetch. You should get your checklist back as
-            JSON. Two responses worth knowing:</p>
+            JSON. Three responses worth knowing:</p>
           <div class="scroll"><table class="tbl">
             <tr><th>Response</th><th>Meaning</th></tr>
             <tr><td>200</td><td>Live. Edits in Grist appear here within ~30 seconds.</td></tr>
             <tr><td>404</td><td>No checklist for that slug — usually a typo, or rows not added yet.</td></tr>
+            <tr><td>502</td><td>A row is malformed and the whole checklist is unusable. The body names the
+              culprit, e.g. <code>{"error":"step row 35 is missing step_key"}</code> — fix that row and
+              re-run this check.</td></tr>
           </table></div>
+          <p class="hint">Re-run this after every edit. Because a bad row takes down the whole checklist,
+            this one request is the difference between reviewers working and reviewers stuck.</p>
         </div>
       </section>
 

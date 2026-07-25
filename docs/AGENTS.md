@@ -41,10 +41,14 @@ Types & Mapping, OGC-1054).
 - Document **"UAT Checklists"**, id `hvZ4rzsyGJuqggkZBko8gc`.
 - Table **`UAT_Meta`** — one row per instance: `instance, title, intro, jira`.
 - Table **`UAT_Steps`** — one row per step:
-  `instance, section, section_order (int), step_order (int), do, expect, route`.
+  `instance, step_key, required, section, section_order (int), step_order (int),
+  do, expect, route`.
 - Reviewers see steps grouped by `section` and ordered by
   `section_order` then `step_order`. `route` is the app path a reviewer opens
-  for that step (e.g. `/MicrobiologyWorklist`).
+  for that step (e.g. `/Microbiology/worklist`).
+- `step_key` is immutable and unique within an instance. Reordering a row must
+  not change it. Changing `do`, `expect`, `route`, or `required` invalidates a
+  prior reviewer mark until the reviewer confirms that step again.
 
 ### Tools you'll use (of 38 `grist_*` tools)
 
@@ -65,10 +69,11 @@ Add a step (append to a section = reuse its `section_order`, next `step_order`):
 ```
 grist_add_records(doc_id, "UAT_Steps", [{
   instance: "amr", section: "Drive the workflow (reviewer-performed)",
+  step_key: "AMR-008", required: true,
   section_order: 2, step_order: 2,
   do: "…the action the reviewer performs…",
   expect: "…the expected result / what to flag if wrong…",
-  route: "/MicrobiologyWorklist"
+  route: "/Microbiology/worklist"
 }])
 ```
 
@@ -83,14 +88,16 @@ The reviewer overlay on each demo site fetches
 box-side read service that reshapes live Grist rows into the widget's JSON
 (30-second serve-stale cache). So an edit in Grist or via MCP shows up in the
 overlay within ~30s — no publish step.
+The panel also refreshes whenever it opens and has an explicit refresh action.
 
 ## Feedback — the report
 
 The reviewer marks each step (pass/fail/na) + optional notes, then downloads
 `oe-review-<instance>-<timestamp>.md` and `.json`. The Markdown carries a
 per-section checklist with `[PASS]/[FAIL]/[N/A]/[----]` boxes, a summary line,
-and freeform feedback; the JSON is the same data structured
-(`{instance, summary, checklist:[{section, steps:[{do, expect, route, mark, note}]}], feedback}`).
+and freeform feedback. Both formats include the checklist revision, verified
+deployment ID, application and harness SHAs, stable step keys, marked
+timestamps, and actual page URLs.
 The footer instructs the reviewer to paste it into Claude to triage into
 Jira/GitHub.
 
@@ -107,5 +114,12 @@ issues; don't file them unless asked.
 - Grist runs the **full edition**, activated by `/persist/config.json`
   (`{"version":"1","edition":"enterprise"}`) + `GRIST_MCP_ENABLED=true`. Removing
   that file reverts to community (rollback-safe; data untouched).
-- Don't `git checkout -f` the deploy checkout on the box — it reverts box-side
-  secrets (the Dex login hash) and breaks Grist login.
+- Runtime secrets live in the untracked `${EDGE_DIR}/.env`; never put their
+  values in Git or an SSM command body.
+- `bootstrap.sh up` migrates schema and seeds only missing instances. Never use
+  `seed-examples --replace-all` unless replacement is the explicit intent.
+- The widget never reuses old position-based answers. Review state is keyed by
+  deployment, checklist revision, and immutable `step_key`; changed step
+  instructions require review again.
+- `/__review/target.json` is published only after health verification. A failed
+  candidate must not replace the last ready target.

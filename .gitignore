@@ -4,6 +4,7 @@
 *.api-key
 mcp-tokens.json
 grist.htpasswd
+runtime/
 
 # TLS material + ACME state (box-side)
 letsencrypt/
@@ -13,6 +14,8 @@ selfsigned/
 # build / deps
 node_modules/
 npm-debug.log*
+test-results/
+playwright-report/
 
 # editor / OS / backups
 *.bak*

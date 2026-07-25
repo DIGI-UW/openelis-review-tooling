@@ -76,6 +76,7 @@ and it runs fully standalone. See [`../widget/README.md`](../widget/README.md).
 
 - The checklist endpoint is **public and read-only** (`Access-Control-Allow-Origin: *`);
   authoring requires auth. Don't put anything sensitive in a checklist.
-- Reviewer answers live in the reviewer's own `localStorage`, keyed by
-  `data-instance` — nothing is sent anywhere until they download their report.
+- Reviewer answers live in the reviewer's own `localStorage`, isolated by
+  `data-instance`, verified deployment identity, and checklist revision. Nothing
+  is sent anywhere until they download their report.
 - Use a distinct `data-instance` per feature/ticket so answers and reports don't mix.

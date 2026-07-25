@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 2,
+  "checklistRevision": "revision-one",
+  "title": "Analyzer QC review",
+  "instance": "analyzers",
+  "jira": "OGC-1054",
+  "intro": "Review the analyzer flow.",
+  "sections": [
+    {
+      "title": "Profiles",
+      "steps": [
+        {
+          "key": "AN-QC-001",
+          "required": true,
+          "do": "Find a shipped profile",
+          "expect": "Protocol and readiness are visible",
+          "route": "/analyzers/types"
+        },
+        {
+          "key": "AN-QC-002",
+          "required": true,
+          "do": "Create an analyzer",
+          "expect": "Setup opens inline",
+          "route": "/analyzers?add=1"
+        }
+      ]
+    }
+  ]
+}

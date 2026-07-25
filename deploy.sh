@@ -19,21 +19,34 @@
 # the one exception (a human wanting an interactive shell) and still uses SSH.
 #
 # USAGE
-#   ./deploy.sh status              # AWS + instance + both HTTPS + container states (read-only)
+#   ./deploy.sh status              # AWS + all HTTPS endpoints + container states (read-only)
 #   ./deploy.sh connect [cmd…]      # SSH shell — interactive only, needs your IP in the SG (see below)
 #   ./deploy.sh configure           # install Docker/git, install renew cron (idempotent)
 #   ./deploy.sh deploy [--yes]      # build + bring up router + both stacks on self-signed (detached + polled)
 #   ./deploy.sh certs               # issue LE certs for both domains (run AFTER DNS resolves to the host)
 #   ./deploy.sh seed                # seed reviewable demo data: analyzers (9-device fleet) + a microbiology case
+#   ./deploy.sh app deploy amr --ref <sha> --scope frontend|backend|app
+#   ./deploy.sh app deploy analyzers --ref <sha> --scope frontend|backend|app
+#   ./deploy.sh app status <instance> [--deployment <id>]
+#   ./deploy.sh app verify <instance>
+#   ./deploy.sh app rollback <instance>
+#   ./deploy.sh review deploy --ref <sha> --scope widget
+#   ./deploy.sh data seed amr --fixture microbiology-mvp
 #   ./deploy.sh up-to-certs --yes   # configure -> deploy -> certs -> seed
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# shellcheck disable=SC1091
-[ -f "$HERE/.env" ] && . "$HERE/.env" || { echo "!! $HERE/.env missing — copy .env.example to .env and fill it in" >&2; exit 1; }
+if [ -f "$HERE/.env" ]; then
+  # shellcheck disable=SC1091
+  . "$HERE/.env"
+else
+  echo "!! $HERE/.env missing — copy .env.example to .env and fill it in" >&2
+  exit 1
+fi
 
 : "${REGION:?}" "${INSTANCE_ID:?}" "${EIP:?}" "${SG_ID:?}" "${OS_USER:?}" "${SSH_KEY:?}"
-: "${AMR_DOMAIN:?}" "${ANALYZERS_DOMAIN:?}" "${AMR_BRANCH:?}" "${ANALYZERS_BRANCH:?}"
+: "${AMR_DOMAIN:?}" "${ANALYZERS_DOMAIN:?}" "${GRIST_DOMAIN:?}"
+: "${AMR_BRANCH:?}" "${ANALYZERS_BRANCH:?}"
 : "${EDGE_DIR:?}" "${AMR_DIR:?}" "${ANALYZERS_DIR:?}" "${LETSENCRYPT_EMAIL:?}"
 SSH_KEY_EXPANDED="${SSH_KEY/#\~/$HOME}"
 # Two repos: this harness (cloned into EDGE_DIR) and the OpenELIS app it builds
@@ -69,7 +82,7 @@ ssm_run() {
   b64="$(printf '%s' "$script" | base64 | tr -d '\n')"
   cmdid="$(aws ssm send-command --region "$REGION" --instance-ids "$INSTANCE_ID" \
     --document-name "AWS-RunShellScript" \
-    --parameters "commands=[\"echo $b64 | base64 -d > /tmp/deploy-cmd.sh && bash /tmp/deploy-cmd.sh\"]" \
+    --parameters "commands=[\"tmp=\$(mktemp /tmp/deploy-cmd.XXXXXX) || exit 1; echo $b64 | base64 -d > \$tmp && bash \$tmp; status=\$?; rm -f \$tmp; exit \$status\"]" \
     --query "Command.CommandId" --output text 2>&1)" || { warn "ssm send-command failed: $cmdid"; return 1; }
   deadline=$(( $(date +%s) + SSM_POLL_TIMEOUT ))
   status=InProgress
@@ -92,7 +105,7 @@ ssm_fire() {
   b64="$(printf '%s' "$script" | base64 | tr -d '\n')"
   aws ssm send-command --region "$REGION" --instance-ids "$INSTANCE_ID" \
     --document-name "AWS-RunShellScript" \
-    --parameters "commands=[\"echo $b64 | base64 -d > /tmp/deploy-cmd.sh && bash /tmp/deploy-cmd.sh\"]" \
+    --parameters "commands=[\"tmp=\$(mktemp /tmp/deploy-cmd.XXXXXX) || exit 1; echo $b64 | base64 -d > \$tmp && bash \$tmp; status=\$?; rm -f \$tmp; exit \$status\"]" \
     --query "Command.CommandId" --output text 2>&1
 }
 
@@ -115,26 +128,73 @@ _runner_script() {
   cat <<RUNNER
 #!/usr/bin/env bash
 set -euo pipefail
+exec 9>/var/lock/openelis-review-deploy.lock
+flock -n 9 || {
+  echo "[deploy] another review-host deployment is already running" >&2
+  exit 1
+}
 echo "[deploy] start \$(date -u)"
+REMOTE_USER="$OS_USER"
+repo_git() {
+  local dir="\$1"
+  shift
+  sudo -u "\$REMOTE_USER" git -c safe.directory="\$dir" -C "\$dir" "\$@"
+}
+normalize_runtime_markers() {
+  local dir="\$1" marker
+  marker="\$dir/volume/plugins/.gitignore"
+  if [ -f "\$marker" ]; then
+    chmod 0644 "\$marker"
+  fi
+}
 sync_checkout() { # dir branch repo
   local dir="\$1" br="\$2" repo="\$3"
   if [ -d "\$dir/.git" ]; then
     sudo chown -R "$OS_USER":"$OS_USER" "\$dir" 2>/dev/null || true
-    git -C "\$dir" fetch --depth 1 origin "\$br"
-    git -C "\$dir" checkout -f -B "\$br" FETCH_HEAD
+    normalize_runtime_markers "\$dir"
+    if ! repo_git "\$dir" diff --quiet || ! repo_git "\$dir" diff --cached --quiet; then
+      echo "[deploy] refusing to overwrite tracked changes in \$dir" >&2
+      repo_git "\$dir" status --short >&2
+      exit 1
+    fi
+    repo_git "\$dir" fetch --depth 1 origin "\$br"
+    repo_git "\$dir" checkout -B "\$br" FETCH_HEAD
   else
     sudo mkdir -p "\$dir" && sudo chown "$OS_USER":"$OS_USER" "\$dir"
-    git clone --depth 1 --single-branch --branch "\$br" "\$repo" "\$dir"
+    sudo -u "\$REMOTE_USER" git clone --depth 1 --single-branch --branch "\$br" "\$repo" "\$dir"
   fi
-  git -C "\$dir" submodule update --init --depth 1 dataexport tools/openelis-analyzer-bridge tools/analyzer-mock-server 2>/dev/null || true
-  echo "[deploy] \$dir -> \$br @\$(git -C "\$dir" rev-parse --short HEAD)"
+  repo_git "\$dir" submodule update --init --depth 1 dataexport plugins tools/openelis-analyzer-bridge tools/analyzer-mock-server \\
+    || die "submodule init failed in \$dir (the plugin registry check depends on it)"
+  echo "[deploy] \$dir -> \$br @\$(repo_git "\$dir" rev-parse --short HEAD)"
+}
+prepare_analyzer_plugin_volume() {
+  local app_dir="\$1" destination
+  destination="\$app_dir/volume/plugins"
+  mkdir -p "\$destination"
+  find "\$destination" -maxdepth 1 -type f -name '*.jar' -delete
+  echo "[deploy] cleared analyzer runtime plugin volume; the app image will seed shipped generic handlers"
 }
 sync_checkout "$EDGE_DIR" "$HARNESS_BRANCH" "$HARNESS_REPO"
 sync_checkout "$AMR_DIR" "$AMR_BRANCH" "$APP_REPO"
 sync_checkout "$ANALYZERS_DIR" "$ANALYZERS_BRANCH" "$APP_REPO"
+prepare_analyzer_plugin_volume "$ANALYZERS_DIR"
+[ -f "$EDGE_DIR/.env" ] || {
+  echo "[deploy] $EDGE_DIR/.env is missing; provision box-side Grist/Dex secrets before deployment" >&2
+  exit 1
+}
 
 docker network create oe-edge 2>/dev/null || true
 mkdir -p "$LE_DIR" "$WEBROOT_DIR"
+mkdir -p "$EDGE_DIR/runtime"
+
+harness_sha=\$(repo_git "$EDGE_DIR" rev-parse HEAD)
+amr_sha=\$(repo_git "$AMR_DIR" rev-parse HEAD)
+analyzers_sha=\$(repo_git "$ANALYZERS_DIR" rev-parse HEAD)
+deployment_id=\$(date -u +%Y%m%dT%H%M%SZ)-\${harness_sha:0:12}
+
+echo "[deploy] Grist, Dex, Redis, and UAT read service up"
+ENV_FILE="$EDGE_DIR/.env" REVIEW_DIR="$EDGE_DIR/widget/examples" \\
+  bash "$EDGE_DIR/grist/bootstrap.sh" up
 
 echo "[deploy] router up (self-signed until certs issued)"
 cd "$EDGE_DIR/$ROUTER_SUBDIR"
@@ -164,13 +224,53 @@ docker compose -p analyzers \\
         astm-simulator openelis-analyzer-bridge
 
 echo "[deploy] waiting for both webapps healthy (up to 20 min)"
+healthy=false
 for i in \$(seq 1 120); do
   a=\$(docker inspect -f '{{.State.Health.Status}}' amr-openelisglobal-webapp 2>/dev/null || echo none)
   n=\$(docker inspect -f '{{.State.Health.Status}}' analyzers-openelisglobal-webapp 2>/dev/null || echo none)
   echo "[deploy]   amr=\$a analyzers=\$n (\$((i*10))s)"
-  [ "\$a" = healthy ] && [ "\$n" = healthy ] && break
+  if [ "\$a" = healthy ] && [ "\$n" = healthy ]; then
+    healthy=true
+    break
+  fi
   sleep 10
 done
+if [ "\$healthy" != true ]; then
+  echo "[deploy] health verification failed; ready deployment metadata was not changed" >&2
+  exit 1
+fi
+
+verify_analyzer_plugin_registry() {
+  local registry
+  registry=\$(docker exec analyzers-openelisglobal-database psql -U clinlims -d clinlims -t -A -c \
+    "SELECT count(*) || ':' || string_agg(protocol, ',' ORDER BY protocol)
+       FROM clinlims.analyzer_type
+      WHERE is_active IS TRUE
+        AND is_generic_plugin IS TRUE;")
+  if [ "\$registry" != "3:ASTM,FILE,HL7" ]; then
+    echo "[deploy] expected active generic analyzer registry 3:ASTM,FILE,HL7; found '\$registry'" >&2
+    exit 1
+  fi
+  echo "[deploy] verified active generic analyzer registry: \$registry"
+}
+verify_analyzer_plugin_registry
+
+publish_target() {
+  local instance branch app_sha deployed_at tmp
+  instance="\$1"
+  branch="\$2"
+  app_sha="\$3"
+  deployed_at=\$(date -u +%FT%TZ)
+  tmp=\$(mktemp "$EDGE_DIR/runtime/.target-\${instance}.XXXXXX")
+  cat > "\$tmp" <<TARGETJSON
+{"instance":"\$instance","deploymentId":"\$deployment_id","state":"ready","appRepo":"$APP_REPO","appBranch":"\$branch","appSha":"\$app_sha","harnessSha":"\$harness_sha","deployedAt":"\$deployed_at","scope":"full","verification":{"health":"passed"}}
+TARGETJSON
+  chmod 0644 "\$tmp"
+  mv "\$tmp" "$EDGE_DIR/runtime/target-\${instance}.json"
+}
+publish_target amr "$AMR_BRANCH" "\$amr_sha"
+publish_target analyzers "$ANALYZERS_BRANCH" "\$analyzers_sha"
+echo "[deploy] published ready target metadata for deployment \$deployment_id"
 echo "[deploy] container states:"; docker ps --format '   {{.Names}}: {{.Status}}'
 echo "$DONE_MARK \$(date -u)"
 RUNNER
@@ -224,12 +324,12 @@ chmod +x '$REMOTE_RUNNER'" >/dev/null || die "failed to write runner"
 
 cmd_certs() {
   require_aws
-  for d in "$AMR_DOMAIN" "$ANALYZERS_DOMAIN"; do
+  for d in "$AMR_DOMAIN" "$ANALYZERS_DOMAIN" "$GRIST_DOMAIN"; do
     got="$(dig +short "$d" | tail -1)"
     [ "$got" = "$EIP" ] || warn "DNS: $d -> ${got:-<none>} (expected $EIP) — ACME will fail until this resolves"
   done
-  log "issuing certs for both domains on the host"
-  ssm_run "AMR_DOMAIN=$AMR_DOMAIN ANALYZERS_DOMAIN=$ANALYZERS_DOMAIN LETSENCRYPT_EMAIL=$LETSENCRYPT_EMAIL LETSENCRYPT_STAGING=${LETSENCRYPT_STAGING:-false} LETSENCRYPT_DIR=$LE_DIR CERTBOT_WEBROOT=$WEBROOT_DIR bash $EDGE_DIR/scripts/generate-certs.sh" \
+  log "issuing certs for all demo domains on the host"
+  ssm_run "AMR_DOMAIN=$AMR_DOMAIN ANALYZERS_DOMAIN=$ANALYZERS_DOMAIN GRIST_DOMAIN=$GRIST_DOMAIN LETSENCRYPT_EMAIL=$LETSENCRYPT_EMAIL LETSENCRYPT_STAGING=${LETSENCRYPT_STAGING:-false} LETSENCRYPT_DIR=$LE_DIR CERTBOT_WEBROOT=$WEBROOT_DIR bash $EDGE_DIR/scripts/generate-certs.sh" \
     || die "cert issuance failed"
   cmd_status
 }
@@ -239,12 +339,8 @@ cmd_certs() {
 #   analyzers — the harness's own seed-analyzers.sh (9-device Madagascar fleet:
 #               ASTM + HL7/MLLP + FILE, mock networks wired to the bridge)
 #   amr       — scripts/seed-microbiology.sh (a bacteriology + sibling TB case,
-#               reusing the PR's own test-fixture SQL) so /MicrobiologyWorklist
-#               and /MicrobiologyCaseView/:caseId have something to review.
-# NOTE: neither /MicrobiologyWorklist nor /MicrobiologyCaseView has a sidenav
-# entry on this branch — they're real, working, unlinked routes. Reviewers need
-# the direct URL (printed below); this is a product gap upstream, not something
-# this deploy script should patch around by hand-editing the frontend nav.
+#               reusing the PR's own test-fixture SQL) so the configured
+#               /Microbiology/worklist and case routes have something to review.
 cmd_seed() {
   require_aws
   log "seeding analyzers.openelis-global.org (9-device fleet via the harness's own seed script)"
@@ -257,15 +353,258 @@ SEEDEOF
 chmod +x /tmp/seed-microbiology.sh
 DB_CONTAINER=amr-openelisglobal-database BASE_URL=https://$AMR_DOMAIN /tmp/seed-microbiology.sh" \
     || warn "microbiology seed failed — see output above"
-  log "seed complete. Microbiology worklist has NO sidenav entry — visit directly:"
-  log "  https://$AMR_DOMAIN/MicrobiologyWorklist"
+  log "seed complete. Microbiology worklist:"
+  log "  https://$AMR_DOMAIN/Microbiology/worklist"
+}
+
+validate_instance() {
+  case "$1" in
+    amr | analyzers) ;;
+    *) die "targeted app lifecycle supports instances 'amr' and 'analyzers'" ;;
+  esac
+}
+
+select_instance_config() {
+  validate_instance "$1"
+  case "$1" in
+    amr)
+      SELECTED_APP_DIR="$AMR_DIR"
+      SELECTED_APP_BRANCH="$AMR_BRANCH"
+      SELECTED_APP_DOMAIN="$AMR_DOMAIN"
+      SELECTED_APP_SMOKE_PATH="/Microbiology/worklist"
+      ;;
+    analyzers)
+      SELECTED_APP_DIR="$ANALYZERS_DIR"
+      SELECTED_APP_BRANCH="$ANALYZERS_BRANCH"
+      SELECTED_APP_DOMAIN="$ANALYZERS_DOMAIN"
+      SELECTED_APP_SMOKE_PATH="/analyzers"
+      ;;
+  esac
+}
+
+validate_sha() {
+  [[ "$1" =~ ^[0-9a-f]{40}$ ]] || die "--ref must be an exact 40-character lowercase Git SHA"
+}
+
+validate_scope() {
+  case "$1" in frontend|backend|app) ;; *) die "--scope must be frontend, backend, or app" ;; esac
+}
+
+cmd_app_deploy() {
+  local instance="${1:-}" ref="" scope="" deployment_id deployment_dir remote_runner remote_log
+  shift || true
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --ref) ref="${2:-}"; shift 2 ;;
+      --scope) scope="${2:-}"; shift 2 ;;
+      *) die "unknown app deploy argument '$1'" ;;
+    esac
+  done
+  select_instance_config "$instance"
+  validate_sha "$ref"
+  validate_scope "$scope"
+  require_aws
+
+  deployment_id="$(date -u +%Y%m%dT%H%M%SZ)-${ref:0:12}"
+  deployment_dir="$EDGE_DIR/runtime/deployments/$deployment_id"
+  remote_runner="/home/$OS_USER/oe-app-deploy-$deployment_id.sh"
+  remote_log="/home/$OS_USER/oe-app-deploy-$deployment_id.log"
+  log "launching targeted $instance $scope deploy at exact SHA $ref"
+  ssm_run "mkdir -p '$deployment_dir'
+cat > '$remote_runner' <<'RUNNEREOF'
+INSTANCE='$instance'
+APP_DIR='$SELECTED_APP_DIR'
+EDGE_DIR='$EDGE_DIR'
+APP_REPO='$APP_REPO'
+APP_BRANCH='$SELECTED_APP_BRANCH'
+APP_REF='$ref'
+APP_SCOPE='$scope'
+APP_DOMAIN='$SELECTED_APP_DOMAIN'
+APP_SMOKE_PATH='$SELECTED_APP_SMOKE_PATH'
+REMOTE_USER='$OS_USER'
+DEPLOYMENT_ID='$deployment_id'
+DEPLOYMENT_DIR='$deployment_dir'
+$(cat "$HERE/scripts/targeted-app-deploy.sh")
+RUNNEREOF
+chmod 0700 '$remote_runner'
+nohup bash '$remote_runner' > '$remote_log' 2>&1 </dev/null &
+echo '$deployment_id'" || die "failed to launch targeted deployment"
+  log "deployment launched: $deployment_id"
+  log "status: ./deploy.sh app status $instance --deployment $deployment_id"
+}
+
+cmd_app_status() {
+  local instance="${1:-}" deployment_id=""
+  shift || true
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --deployment) deployment_id="${2:-}"; shift 2 ;;
+      *) die "unknown app status argument '$1'" ;;
+    esac
+  done
+  select_instance_config "$instance"
+  require_aws
+  ssm_run "deployment_id='$deployment_id'
+instance='$instance'
+app_container='$instance-openelisglobal-webapp'
+running_configs=\$(docker inspect -f '{{index .Config.Labels \"com.docker.compose.project.config_files\"}}' \"\$app_container\" 2>/dev/null || true)
+running_override=\$(printf '%s' \"\$running_configs\" | tr ',' '\n' | awk -v instance=\"\$instance\" '\$0 ~ \"/\" instance \"/docker-compose\\\\.override\\\\.yml$\" { print; exit }')
+edge_dir='$EDGE_DIR'
+[ -z \"\$running_override\" ] || edge_dir=\${running_override%/\$instance/docker-compose.override.yml}
+if [ -z \"\$deployment_id\" ]; then
+  latest=\$(find \"\$edge_dir/runtime/deployments\" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sort | tail -1)
+  deployment_id=\${latest##*/}
+fi
+[ -n \"\$deployment_id\" ] || { echo 'no targeted deployments found'; exit 1; }
+status=\"\$edge_dir/runtime/deployments/\$deployment_id/status.json\"
+log='/home/$OS_USER/oe-app-deploy-'\"\$deployment_id\"'.log'
+echo \"deployment=\$deployment_id\"
+cat \"\$status\" 2>/dev/null || echo '{\"state\":\"launching\"}'
+echo
+tail -12 \"\$log\" 2>/dev/null || true"
+}
+
+cmd_app_verify() {
+  local instance="${1:-}"
+  select_instance_config "$instance"
+  require_aws
+  log "verified target metadata"
+  curl -fsSk "https://$SELECTED_APP_DOMAIN/__review/target.json"
+  echo
+  log "$instance application smoke"
+  printf '   / -> HTTP %s\n' "$(curl -sk -o /dev/null -w '%{http_code}' --max-time 15 "https://$SELECTED_APP_DOMAIN/")"
+  printf '   %s -> HTTP %s\n' "$SELECTED_APP_SMOKE_PATH" \
+    "$(curl -sk -o /dev/null -w '%{http_code}' --max-time 15 "https://$SELECTED_APP_DOMAIN$SELECTED_APP_SMOKE_PATH")"
+  ssm_run "docker inspect -f '{{.Name}}: running={{.State.Running}} health={{if .State.Health}}{{.State.Health.Status}}{{else}}n/a{{end}} image={{.Image}} started={{.State.StartedAt}}' \
+    '$instance-openelisglobal-webapp' '$instance-openelisglobal-front-end'"
+}
+
+cmd_app_rollback() {
+  local instance="${1:-}" deployment_id remote_runner
+  select_instance_config "$instance"
+  require_aws
+  deployment_id="$(curl -fsSk "https://$SELECTED_APP_DOMAIN/__review/target.json" |
+    sed -n 's/.*"deploymentId":"\([^"]*\)".*/\1/p')"
+  [ -n "$deployment_id" ] || die "could not determine current $instance deployment"
+  remote_runner="/home/$OS_USER/oe-app-rollback-$deployment_id.sh"
+  log "rolling back targeted deployment $deployment_id"
+  ssm_run "cat > '$remote_runner' <<'ROLLBACKEOF'
+INSTANCE='$instance'
+APP_DIR='$SELECTED_APP_DIR'
+EDGE_DIR='$EDGE_DIR'
+APP_DOMAIN='$SELECTED_APP_DOMAIN'
+APP_SMOKE_PATH='$SELECTED_APP_SMOKE_PATH'
+DEPLOYMENT_ID='$deployment_id'
+DEPLOYMENT_DIR='$EDGE_DIR/runtime/deployments/$deployment_id'
+$(cat "$HERE/scripts/targeted-app-rollback.sh")
+ROLLBACKEOF
+chmod 0700 '$remote_runner'
+bash '$remote_runner'" || die "rollback failed"
+  cmd_app_verify "$instance"
+}
+
+cmd_app() {
+  local action="${1:-}"
+  shift || true
+  case "$action" in
+    deploy) cmd_app_deploy "$@" ;;
+    status) cmd_app_status "$@" ;;
+    verify) cmd_app_verify "$@" ;;
+    rollback) cmd_app_rollback "$@" ;;
+    *) die "unknown app action '$action' (deploy|status|verify|rollback)" ;;
+  esac
+}
+
+cmd_review_deploy() {
+  local ref="" scope=""
+  shift || true
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --ref) ref="${2:-}"; shift 2 ;;
+      --scope) scope="${2:-}"; shift 2 ;;
+      *) die "unknown review deploy argument '$1'" ;;
+    esac
+  done
+  validate_sha "$ref"
+  [ "$scope" = widget ] || die "--scope must be widget"
+  require_aws
+  log "deploying review widget at exact harness SHA $ref"
+  ssm_run "set -euo pipefail
+exec 9>/var/lock/openelis-review-deploy.lock
+flock -n 9 || { echo 'another review-host deployment is already running' >&2; exit 1; }
+router_workdir=\$(docker inspect -f '{{index .Config.Labels \"com.docker.compose.project.working_dir\"}}' oe-edge-router)
+edge_dir=\${router_workdir%/router}
+repo_git() { sudo -u '$OS_USER' git -c safe.directory=\"\$edge_dir\" -C \"\$edge_dir\" \"\$@\"; }
+if ! repo_git diff --quiet || ! repo_git diff --cached --quiet; then
+  echo \"refusing to overwrite tracked changes in \$edge_dir\" >&2
+  repo_git status --short >&2
+  exit 1
+fi
+repo_git fetch --depth 1 origin '$ref'
+repo_git checkout --detach FETCH_HEAD
+[ \"\$(repo_git rev-parse HEAD)\" = '$ref' ]
+grep -q 'attachShadow({ mode: \"open\" })' \"\$edge_dir/widget/oe-review-widget.js\"
+for instance in amr analyzers; do
+  target=\"\$edge_dir/runtime/target-\$instance.json\"
+  [ -f \"\$target\" ] || continue
+  tmp=\$(mktemp \"\$edge_dir/runtime/.target-\$instance.XXXXXX\")
+  sed 's/\"harnessSha\":\"[^\"]*\"/\"harnessSha\":\"$ref\"/' \"\$target\" > \"\$tmp\"
+  chmod 0644 \"\$tmp\"
+  mv \"\$tmp\" \"\$target\"
+done
+widget_tmp=\$(mktemp)
+trap 'rm -f \"\$widget_tmp\"' EXIT
+curl -fsSk 'https://$AMR_DOMAIN/__review/oe-review-widget.js' -o \"\$widget_tmp\"
+grep -q 'attachShadow({ mode: \"open\" })' \"\$widget_tmp\"
+echo 'review widget ready at $ref'"
+}
+
+cmd_review() {
+  local action="${1:-}"
+  case "$action" in
+    deploy) cmd_review_deploy "$@" ;;
+    *) die "unknown review action '$action' (deploy)" ;;
+  esac
+}
+
+cmd_data_seed() {
+  local instance="${1:-}" fixture=""
+  shift || true
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --fixture) fixture="${2:-}"; shift 2 ;;
+      *) die "unknown data seed argument '$1'" ;;
+    esac
+  done
+  validate_instance "$instance"
+  # The only fixture is the AMR microbiology MVP, and the body below targets the
+  # amr database and domain unconditionally. Without this guard, asking for
+  # 'analyzers' would quietly seed amr instead.
+  [ "$instance" = amr ] || die "data seed supports only instance 'amr' (fixture microbiology-mvp)"
+  [ "$fixture" = microbiology-mvp ] || die "AMR fixture must be 'microbiology-mvp'"
+  require_aws
+  log "seeding AMR microbiology MVP fixture only"
+  ssm_run "cat > /tmp/seed-microbiology.sh <<'SEEDEOF'
+$(cat "$HERE/scripts/seed-microbiology.sh")
+SEEDEOF
+chmod +x /tmp/seed-microbiology.sh
+DB_CONTAINER=amr-openelisglobal-database BASE_URL=https://$AMR_DOMAIN /tmp/seed-microbiology.sh"
+}
+
+cmd_data() {
+  local action="${1:-}"
+  shift || true
+  case "$action" in
+    seed) cmd_data_seed "$@" ;;
+    *) die "unknown data action '$action' (seed)" ;;
+  esac
 }
 
 cmd_status() {
   require_aws
   log "instance"; aws ec2 describe-instances --region "$REGION" --instance-ids "$INSTANCE_ID" \
     --query "Reservations[0].Instances[0].[State.Name,PublicIpAddress,InstanceType]" --output text | sed 's/^/   /'
-  for d in "$AMR_DOMAIN" "$ANALYZERS_DOMAIN"; do
+  for d in "$AMR_DOMAIN" "$ANALYZERS_DOMAIN" "$GRIST_DOMAIN"; do
     printf '   https://%s/ -> HTTP %s\n' "$d" "$(curl -sk -o /dev/null -w '%{http_code}' --max-time 15 "https://$d/" 2>/dev/null || echo 000)"
   done
   echo "   containers:"
@@ -281,14 +620,19 @@ main() {
     status) cmd_status ;;
     connect)
       allow_ssh_ingress
+      # Arguments intentionally expand on the client before the remote command runs.
+      # shellcheck disable=SC2029
       if [ "$#" -gt 0 ]; then ssh "${SSH_OPTS[@]}" "$OS_USER@$EIP" "$@"; else ssh -t "${SSH_OPTS[@]}" "$OS_USER@$EIP"; fi ;;
     configure) cmd_configure ;;
     deploy) cmd_deploy "$@" ;;
     certs) cmd_certs ;;
     seed) cmd_seed ;;
+    app) cmd_app "$@" ;;
+    review) cmd_review "$@" ;;
+    data) cmd_data "$@" ;;
     up-to-certs) cmd_up_to_certs "$@" ;;
     help|-h|--help) sed -n '2,30p' "$0" | sed 's/^# \{0,1\}//' ;;
-    *) die "unknown subcommand '$sub' (status|connect|configure|deploy|certs|seed|up-to-certs|help)" ;;
+    *) die "unknown subcommand '$sub' (status|connect|configure|deploy|certs|seed|app|review|data|up-to-certs|help)" ;;
   esac
 }
 main "$@"

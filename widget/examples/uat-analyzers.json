@@ -1,70 +1,80 @@
 {
-  "title": "Analyzer Types & Mapping — review",
+  "schemaVersion": 2,
+  "title": "Analyzer QC & Configuration MVP — UAT",
   "instance": "analyzers",
   "jira": "OGC-1054",
-  "intro": "Task-based walkthrough of the Analyzer Types & Mapping work. Sign in as admin / adminADMIN! first. Mark each step Pass/Fail/N-A and leave a note where anything is confusing or wrong.",
+  "intro": "Review the lab-facing analyzer setup workflow. Mark each required step Pass or Fail and explain anything confusing or incorrect.",
   "sections": [
     {
-      "title": "Sign in & find the analyzers",
+      "title": "Profile and setup",
       "steps": [
         {
-          "do": "Sign in with admin / adminADMIN!, then open the Analyzers page.",
-          "expect": "The analyzers list loads with stat tiles (total / active / inactive) and 9 seeded analyzers (GeneXpert ASTM, Mindray BC-5380 & BS-200 HL7, and several FILE analyzers).",
-          "route": "/analyzers"
+          "key": "AN-QC-001",
+          "required": true,
+          "do": "Find a shipped analyzer profile and inspect its protocol, mapping count, and QC readiness.",
+          "expect": "The profile is searchable and its setup readiness is understandable without developer-only fields.",
+          "route": "/analyzers/types"
         },
         {
-          "do": "Use the search box and the status filter.",
-          "expect": "The table narrows to matching analyzers; clearing the filter restores the full list; the URL updates so a filtered view is shareable.",
-          "route": "/analyzers"
-        }
-      ]
-    },
-    {
-      "title": "Create & configure an analyzer type",
-      "steps": [
-        {
-          "do": "Click 'Add analyzer' and step through the setup form.",
-          "expect": "An inline setup form opens (not a dead-end route); required fields are validated; you can pick a type, connection details, and test units.",
+          "key": "AN-QC-002",
+          "required": true,
+          "do": "Start setup from that profile and create an analyzer in the inline workflow.",
+          "expect": "The selected profile carries into setup, required fields are clear, and the saved analyzer appears in the analyzer list.",
           "route": "/analyzers?add=1"
         },
         {
-          "do": "Save the new analyzer, then confirm it appears in the list.",
-          "expect": "A success confirmation shows and the new analyzer is in the table with the status you set."
-        }
-      ]
-    },
-    {
-      "title": "Map tests & results",
-      "steps": [
-        {
-          "do": "Open an analyzer's Field Mappings (row action → Field mappings) and review the result-value mapping table.",
-          "expect": "You can map an instrument code/target to a test and its result; a mapping can target a component of a test; resolution is by stable code, not a display string.",
+          "key": "AN-QC-003",
+          "required": true,
+          "do": "Review and confirm the profile-applied test mappings and QC mappings.",
+          "expect": "Every deterministic match is visible, exceptions are explicit, and the completed review records who confirmed it and when.",
           "route": "/analyzers"
         },
         {
-          "do": "Try the Copy mappings action from one analyzer to another of the same type.",
-          "expect": "Mappings copy across; the target analyzer shows the copied rows; no silent overwrite of unrelated config."
-        }
-      ]
-    },
-    {
-      "title": "QC rules",
-      "steps": [
-        {
-          "do": "Open an analyzer's QC rules page (row action → QC rules).",
-          "expect": "The QC rule builder loads for that analyzer and lets you define/verify rules.",
+          "key": "AN-QC-004",
+          "required": true,
+          "do": "Enter connection settings and run Test connection.",
+          "expect": "A visible success or failure result explains whether the configured analyzer endpoint can be reached.",
           "route": "/analyzers"
         }
       ]
     },
     {
-      "title": "Overall impression",
+      "title": "Result values and QC",
       "steps": [
         {
-          "do": "Reflect on the end-to-end flow: could a lab tech set up a new instrument and map its results without developer help?",
-          "expect": "The guided path (verify deterministic matches, edit only exceptions) feels achievable for a non-developer."
+          "key": "AN-QC-005",
+          "required": true,
+          "do": "Resolve a pending qualitative analyzer value using a result option from its mapped OpenELIS test.",
+          "expect": "Only valid catalog options are offered, the resolution remains after reload, and the pending item disappears.",
+          "route": "/analyzers"
+        },
+        {
+          "key": "AN-QC-006",
+          "required": true,
+          "do": "Add or select an active analyzer QC rule and control lot.",
+          "expect": "Both are visible from the analyzer workflow and QC readiness updates without a hidden second setup path.",
+          "route": "/analyzers"
+        },
+        {
+          "key": "AN-QC-007",
+          "required": true,
+          "do": "Observe readiness before and after mapping verification and QC setup are complete.",
+          "expect": "The analyzer cannot become Active while required setup is incomplete and clearly reports Ready when all blockers are resolved.",
+          "route": "/analyzers"
+        }
+      ]
+    },
+    {
+      "title": "Overall review",
+      "steps": [
+        {
+          "key": "AN-QC-008",
+          "required": true,
+          "do": "Review the completed analyzer configuration as a laboratory administrator.",
+          "expect": "The profile, mappings, connection, and QC state form one coherent lab-facing workflow without raw plugin configuration or duplicate editors."
         }
       ]
     }
-  ]
+  ],
+  "checklistRevision": "03311e69b8b01efd6abb67683919fa4181aa981076e36748184251d5dd59dac1"
 }

@@ -34,6 +34,10 @@ staticPasswords:
     username: reviewer
     userID: reviewer
     hashFromEnv: DEX_REVIEWER_PASSWORD_HASH
+  - email: admin@openelis-global.org
+    username: admin
+    userID: admin
+    hashFromEnv: DEX_ADMIN_PASSWORD_HASH
 
 # --- OAuth2 "on the side": add upstream connectors here when ready ---
 # Each needs a client id/secret you register with the provider. Example (Google):
