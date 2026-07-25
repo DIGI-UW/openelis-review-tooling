@@ -69,6 +69,7 @@ services:
     environment:
       - DEX_GRIST_CLIENT_SECRET=${DEX_GRIST_CLIENT_SECRET:-}
       - DEX_REVIEWER_PASSWORD_HASH=${DEX_REVIEWER_PASSWORD_HASH:-}
+      - DEX_ADMIN_PASSWORD_HASH=${DEX_ADMIN_PASSWORD_HASH:-}
     volumes:
       - ./dex/config.yaml:/etc/dex/config.yaml:ro
     networks:
