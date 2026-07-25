@@ -65,7 +65,7 @@ test("analyzer deployment prepares only the generic runtime plugins", () => {
     /expected active generic analyzer registry 3:ASTM,FILE,HL7/,
   );
 });
-test("targeted AMR deployment accepts only an exact SHA and explicit scope", () => {
+test("targeted app deployment accepts only an exact SHA and explicit scope", () => {
   assert.match(deployScript, /\^\[0-9a-f\]\{40\}\$/);
   assert.match(deployScript, /--scope must be frontend, backend, or app/);
   assert.match(deployScript, /app deploy amr --ref <sha>/);
@@ -73,7 +73,7 @@ test("targeted AMR deployment accepts only an exact SHA and explicit scope", () 
   assert.match(deployScript, /data seed amr --fixture microbiology-mvp/);
 });
 
-test("targeted AMR deployment preserves unrelated review infrastructure", () => {
+test("targeted app deployment preserves unrelated review infrastructure", () => {
   assert.match(
     appDeployScript,
     /compose build "\$\{services\[@\]\}"/,
@@ -88,13 +88,35 @@ test("targeted AMR deployment preserves unrelated review infrastructure", () => 
   assert.doesNotMatch(appDeployScript, /\bfhir\.openelis\.org\b/);
 });
 
+test("targeted analyzer deployment reuses its active Compose chain", () => {
+  assert.match(deployScript, /app deploy analyzers --ref <sha>/);
+  assert.match(
+    deployScript,
+    /case "\$1" in\s+amr \| analyzers\)/,
+  );
+  assert.doesNotMatch(
+    appDeployScript,
+    /targeted app deployment currently supports only the AMR stack/,
+  );
+  assert.match(
+    appDeployScript,
+    /APP_CONTAINER="\$\{INSTANCE\}-openelisglobal-webapp"/,
+  );
+  assert.match(appDeployScript, /com\.docker\.compose\.project\.config_files/);
+  assert.match(appDeployScript, /APP_SMOKE_PATH/);
+  assert.match(
+    appDeployScript,
+    /docker compose -p "\$INSTANCE" "\$\{COMPOSE_FILES\[@\]\}"/,
+  );
+});
+
 test("targeted lifecycle resolves the active Compose paths from the running app", () => {
   for (const script of [appDeployScript, appRollbackScript]) {
     assert.match(script, /com\.docker\.compose\.project\.working_dir/);
     assert.match(script, /com\.docker\.compose\.project\.config_files/);
     assert.match(
       script,
-      /EDGE_DIR="\$\{running_override%\/amr\/docker-compose\.override\.yml\}"/,
+      /EDGE_DIR="\$\{running_override%\/\$INSTANCE\/docker-compose\.override\.yml\}"/,
     );
   }
 });
@@ -128,7 +150,7 @@ test("ready metadata is published only after health and route smoke checks", () 
     ".State.Health.Status",
   );
   const routeSmoke = appDeployScript.indexOf(
-    "Microbiology/worklist",
+    "https://$APP_DOMAIN$APP_SMOKE_PATH",
   );
   const publishTarget = appDeployScript.indexOf(
     'mv "$target_tmp" "$TARGET_FILE"',

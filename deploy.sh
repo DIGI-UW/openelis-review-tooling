@@ -26,9 +26,10 @@
 #   ./deploy.sh certs               # issue LE certs for both domains (run AFTER DNS resolves to the host)
 #   ./deploy.sh seed                # seed reviewable demo data: analyzers (9-device fleet) + a microbiology case
 #   ./deploy.sh app deploy amr --ref <sha> --scope frontend|backend|app
-#   ./deploy.sh app status amr [--deployment <id>]
-#   ./deploy.sh app verify amr
-#   ./deploy.sh app rollback amr
+#   ./deploy.sh app deploy analyzers --ref <sha> --scope frontend|backend|app
+#   ./deploy.sh app status <instance> [--deployment <id>]
+#   ./deploy.sh app verify <instance>
+#   ./deploy.sh app rollback <instance>
 #   ./deploy.sh review deploy --ref <sha> --scope widget
 #   ./deploy.sh data seed amr --fixture microbiology-mvp
 #   ./deploy.sh up-to-certs --yes   # configure -> deploy -> certs -> seed
@@ -356,7 +357,28 @@ DB_CONTAINER=amr-openelisglobal-database BASE_URL=https://$AMR_DOMAIN /tmp/seed-
 }
 
 validate_instance() {
-  [ "$1" = amr ] || die "targeted app lifecycle currently supports instance 'amr'"
+  case "$1" in
+    amr | analyzers) ;;
+    *) die "targeted app lifecycle supports instances 'amr' and 'analyzers'" ;;
+  esac
+}
+
+select_instance_config() {
+  validate_instance "$1"
+  case "$1" in
+    amr)
+      SELECTED_APP_DIR="$AMR_DIR"
+      SELECTED_APP_BRANCH="$AMR_BRANCH"
+      SELECTED_APP_DOMAIN="$AMR_DOMAIN"
+      SELECTED_APP_SMOKE_PATH="/Microbiology/worklist"
+      ;;
+    analyzers)
+      SELECTED_APP_DIR="$ANALYZERS_DIR"
+      SELECTED_APP_BRANCH="$ANALYZERS_BRANCH"
+      SELECTED_APP_DOMAIN="$ANALYZERS_DOMAIN"
+      SELECTED_APP_SMOKE_PATH="/analyzers"
+      ;;
+  esac
 }
 
 validate_sha() {
@@ -377,7 +399,7 @@ cmd_app_deploy() {
       *) die "unknown app deploy argument '$1'" ;;
     esac
   done
-  validate_instance "$instance"
+  select_instance_config "$instance"
   validate_sha "$ref"
   validate_scope "$scope"
   require_aws
@@ -386,17 +408,18 @@ cmd_app_deploy() {
   deployment_dir="$EDGE_DIR/runtime/deployments/$deployment_id"
   remote_runner="/home/$OS_USER/oe-app-deploy-$deployment_id.sh"
   remote_log="/home/$OS_USER/oe-app-deploy-$deployment_id.log"
-  log "launching targeted AMR $scope deploy at exact SHA $ref"
+  log "launching targeted $instance $scope deploy at exact SHA $ref"
   ssm_run "mkdir -p '$deployment_dir'
 cat > '$remote_runner' <<'RUNNEREOF'
 INSTANCE='$instance'
-APP_DIR='$AMR_DIR'
+APP_DIR='$SELECTED_APP_DIR'
 EDGE_DIR='$EDGE_DIR'
 APP_REPO='$APP_REPO'
-APP_BRANCH='$AMR_BRANCH'
+APP_BRANCH='$SELECTED_APP_BRANCH'
 APP_REF='$ref'
 APP_SCOPE='$scope'
-APP_DOMAIN='$AMR_DOMAIN'
+APP_DOMAIN='$SELECTED_APP_DOMAIN'
+APP_SMOKE_PATH='$SELECTED_APP_SMOKE_PATH'
 REMOTE_USER='$OS_USER'
 DEPLOYMENT_ID='$deployment_id'
 DEPLOYMENT_DIR='$deployment_dir'
@@ -406,7 +429,7 @@ chmod 0700 '$remote_runner'
 nohup bash '$remote_runner' > '$remote_log' 2>&1 </dev/null &
 echo '$deployment_id'" || die "failed to launch targeted deployment"
   log "deployment launched: $deployment_id"
-  log "status: ./deploy.sh app status amr --deployment $deployment_id"
+  log "status: ./deploy.sh app status $instance --deployment $deployment_id"
 }
 
 cmd_app_status() {
@@ -418,13 +441,15 @@ cmd_app_status() {
       *) die "unknown app status argument '$1'" ;;
     esac
   done
-  validate_instance "$instance"
+  select_instance_config "$instance"
   require_aws
   ssm_run "deployment_id='$deployment_id'
-running_configs=\$(docker inspect -f '{{index .Config.Labels \"com.docker.compose.project.config_files\"}}' amr-openelisglobal-webapp 2>/dev/null || true)
-running_override=\$(printf '%s' \"\$running_configs\" | tr ',' '\n' | awk '/\\/amr\\/docker-compose\\.override\\.yml$/ { print; exit }')
+instance='$instance'
+app_container='$instance-openelisglobal-webapp'
+running_configs=\$(docker inspect -f '{{index .Config.Labels \"com.docker.compose.project.config_files\"}}' \"\$app_container\" 2>/dev/null || true)
+running_override=\$(printf '%s' \"\$running_configs\" | tr ',' '\n' | awk -v instance=\"\$instance\" '\$0 ~ \"/\" instance \"/docker-compose\\\\.override\\\\.yml$\" { print; exit }')
 edge_dir='$EDGE_DIR'
-[ -z \"\$running_override\" ] || edge_dir=\${running_override%/amr/docker-compose.override.yml}
+[ -z \"\$running_override\" ] || edge_dir=\${running_override%/\$instance/docker-compose.override.yml}
 if [ -z \"\$deployment_id\" ]; then
   latest=\$(find \"\$edge_dir/runtime/deployments\" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sort | tail -1)
   deployment_id=\${latest##*/}
@@ -440,33 +465,34 @@ tail -12 \"\$log\" 2>/dev/null || true"
 
 cmd_app_verify() {
   local instance="${1:-}"
-  validate_instance "$instance"
+  select_instance_config "$instance"
   require_aws
   log "verified target metadata"
-  curl -fsSk "https://$AMR_DOMAIN/__review/target.json"
+  curl -fsSk "https://$SELECTED_APP_DOMAIN/__review/target.json"
   echo
-  log "AMR application smoke"
-  printf '   / -> HTTP %s\n' "$(curl -sk -o /dev/null -w '%{http_code}' --max-time 15 "https://$AMR_DOMAIN/")"
-  printf '   /Microbiology/worklist -> HTTP %s\n' \
-    "$(curl -sk -o /dev/null -w '%{http_code}' --max-time 15 "https://$AMR_DOMAIN/Microbiology/worklist")"
+  log "$instance application smoke"
+  printf '   / -> HTTP %s\n' "$(curl -sk -o /dev/null -w '%{http_code}' --max-time 15 "https://$SELECTED_APP_DOMAIN/")"
+  printf '   %s -> HTTP %s\n' "$SELECTED_APP_SMOKE_PATH" \
+    "$(curl -sk -o /dev/null -w '%{http_code}' --max-time 15 "https://$SELECTED_APP_DOMAIN$SELECTED_APP_SMOKE_PATH")"
   ssm_run "docker inspect -f '{{.Name}}: running={{.State.Running}} health={{if .State.Health}}{{.State.Health.Status}}{{else}}n/a{{end}} image={{.Image}} started={{.State.StartedAt}}' \
-    amr-openelisglobal-webapp amr-openelisglobal-front-end"
+    '$instance-openelisglobal-webapp' '$instance-openelisglobal-front-end'"
 }
 
 cmd_app_rollback() {
   local instance="${1:-}" deployment_id remote_runner
-  validate_instance "$instance"
+  select_instance_config "$instance"
   require_aws
-  deployment_id="$(curl -fsSk "https://$AMR_DOMAIN/__review/target.json" |
+  deployment_id="$(curl -fsSk "https://$SELECTED_APP_DOMAIN/__review/target.json" |
     sed -n 's/.*"deploymentId":"\([^"]*\)".*/\1/p')"
-  [ -n "$deployment_id" ] || die "could not determine current AMR deployment"
+  [ -n "$deployment_id" ] || die "could not determine current $instance deployment"
   remote_runner="/home/$OS_USER/oe-app-rollback-$deployment_id.sh"
   log "rolling back targeted deployment $deployment_id"
   ssm_run "cat > '$remote_runner' <<'ROLLBACKEOF'
 INSTANCE='$instance'
-APP_DIR='$AMR_DIR'
+APP_DIR='$SELECTED_APP_DIR'
 EDGE_DIR='$EDGE_DIR'
-APP_DOMAIN='$AMR_DOMAIN'
+APP_DOMAIN='$SELECTED_APP_DOMAIN'
+APP_SMOKE_PATH='$SELECTED_APP_SMOKE_PATH'
 DEPLOYMENT_ID='$deployment_id'
 DEPLOYMENT_DIR='$EDGE_DIR/runtime/deployments/$deployment_id'
 $(cat "$HERE/scripts/targeted-app-rollback.sh")

@@ -11,27 +11,40 @@ flock -n 9 || {
 
 : "${INSTANCE:?}" "${APP_DIR:?}" "${EDGE_DIR:?}" "${APP_REPO:?}"
 : "${APP_BRANCH:?}" "${APP_REF:?}" "${APP_SCOPE:?}" "${APP_DOMAIN:?}"
-: "${REMOTE_USER:?}" "${DEPLOYMENT_ID:?}" "${DEPLOYMENT_DIR:?}"
+: "${APP_SMOKE_PATH:?}" "${REMOTE_USER:?}" "${DEPLOYMENT_ID:?}" "${DEPLOYMENT_DIR:?}"
 
+APP_CONTAINER="${INSTANCE}-openelisglobal-webapp"
+FRONTEND_CONTAINER="${INSTANCE}-openelisglobal-front-end"
 running_workdir="$(docker inspect -f '{{index .Config.Labels "com.docker.compose.project.working_dir"}}' \
-  amr-openelisglobal-webapp 2>/dev/null || true)"
+  "$APP_CONTAINER" 2>/dev/null || true)"
 running_configs="$(docker inspect -f '{{index .Config.Labels "com.docker.compose.project.config_files"}}' \
-  amr-openelisglobal-webapp 2>/dev/null || true)"
+  "$APP_CONTAINER" 2>/dev/null || true)"
 running_override="$(printf '%s' "$running_configs" | tr ',' '\n' |
-  awk '/\/amr\/docker-compose\.override\.yml$/ { print; exit }')"
+  awk -v instance="$INSTANCE" '$0 ~ "/" instance "/docker-compose\\.override\\.yml$" { print; exit }')"
 [ -z "$running_workdir" ] || APP_DIR="$running_workdir"
 if [ -n "$running_override" ]; then
-  EDGE_DIR="${running_override%/amr/docker-compose.override.yml}"
+  EDGE_DIR="${running_override%/$INSTANCE/docker-compose.override.yml}"
 fi
 DEPLOYMENT_DIR="$EDGE_DIR/runtime/deployments/$DEPLOYMENT_ID"
 STATUS_FILE="$DEPLOYMENT_DIR/status.json"
 TARGET_FILE="$EDGE_DIR/runtime/target-$INSTANCE.json"
 PREVIOUS_TARGET="$DEPLOYMENT_DIR/previous-target.json"
-COMPOSE_FILES=(-f "$APP_DIR/build.docker-compose.yml" -f "$EDGE_DIR/amr/docker-compose.override.yml")
-BACKEND_IMAGE="openelisglobal-webapp.amr"
-FRONTEND_IMAGE="frontend.amr"
-BACKEND_CONTAINER="amr-openelisglobal-webapp"
-FRONTEND_CONTAINER="amr-openelisglobal-front-end"
+COMPOSE_FILES=()
+IFS=',' read -r -a active_compose_files <<<"$running_configs"
+for compose_file in "${active_compose_files[@]}"; do
+  [ -f "$compose_file" ] || {
+    echo "active Compose file is missing: $compose_file" >&2
+    exit 1
+  }
+  COMPOSE_FILES+=(-f "$compose_file")
+done
+[ "${#COMPOSE_FILES[@]}" -gt 0 ] || {
+  echo "could not resolve the active Compose chain for $APP_CONTAINER" >&2
+  exit 1
+}
+BACKEND_IMAGE="openelisglobal-webapp.$INSTANCE"
+FRONTEND_IMAGE="frontend.$INSTANCE"
+BACKEND_CONTAINER="$APP_CONTAINER"
 candidate_started=false
 schema_affecting=false
 previous_app_sha=""
@@ -95,10 +108,13 @@ write_status preparing
 echo "[app-deploy] $INSTANCE $APP_SCOPE deployment $DEPLOYMENT_ID"
 echo "[app-deploy] app checkout: $APP_DIR; review tooling: $EDGE_DIR"
 
-[ "$INSTANCE" = amr ] || {
-  echo "targeted app deployment currently supports only the AMR stack" >&2
-  exit 1
-}
+case "$INSTANCE" in
+  amr | analyzers) ;;
+  *)
+    echo "unsupported targeted app instance: $INSTANCE" >&2
+    exit 1
+    ;;
+esac
 [ -d "$APP_DIR/.git" ] || {
   echo "application checkout is missing: $APP_DIR" >&2
   exit 1
@@ -166,7 +182,7 @@ fi
 
 [ "$(docker inspect -f '{{.State.Running}}' "$FRONTEND_CONTAINER" 2>/dev/null)" = true ]
 curl -fsSk --retry 12 --retry-delay 5 "https://$APP_DOMAIN/" >/dev/null
-curl -fsSk --retry 12 --retry-delay 5 "https://$APP_DOMAIN/Microbiology/worklist" >/dev/null
+curl -fsSk --retry 12 --retry-delay 5 "https://$APP_DOMAIN$APP_SMOKE_PATH" >/dev/null
 
 harness_sha="$(repo_git "$EDGE_DIR" rev-parse HEAD)"
 deployed_at="$(date -u +%FT%TZ)"

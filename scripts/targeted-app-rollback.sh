@@ -10,31 +10,48 @@ flock -n 9 || {
 }
 
 : "${INSTANCE:?}" "${APP_DIR:?}" "${EDGE_DIR:?}" "${DEPLOYMENT_ID:?}" "${DEPLOYMENT_DIR:?}"
-: "${APP_DOMAIN:?}"
+: "${APP_DOMAIN:?}" "${APP_SMOKE_PATH:?}"
 
+APP_CONTAINER="${INSTANCE}-openelisglobal-webapp"
+FRONTEND_CONTAINER="${INSTANCE}-openelisglobal-front-end"
 running_workdir="$(docker inspect -f '{{index .Config.Labels "com.docker.compose.project.working_dir"}}' \
-  amr-openelisglobal-webapp 2>/dev/null || true)"
+  "$APP_CONTAINER" 2>/dev/null || true)"
 running_configs="$(docker inspect -f '{{index .Config.Labels "com.docker.compose.project.config_files"}}' \
-  amr-openelisglobal-webapp 2>/dev/null || true)"
+  "$APP_CONTAINER" 2>/dev/null || true)"
 running_override="$(printf '%s' "$running_configs" | tr ',' '\n' |
-  awk '/\/amr\/docker-compose\.override\.yml$/ { print; exit }')"
+  awk -v instance="$INSTANCE" '$0 ~ "/" instance "/docker-compose\\.override\\.yml$" { print; exit }')"
 if [ -n "$running_workdir" ]; then
   APP_DIR="$running_workdir"
 fi
 if [ -n "$running_override" ]; then
-  EDGE_DIR="${running_override%/amr/docker-compose.override.yml}"
+  EDGE_DIR="${running_override%/$INSTANCE/docker-compose.override.yml}"
 fi
 DEPLOYMENT_DIR="$EDGE_DIR/runtime/deployments/$DEPLOYMENT_ID"
 STATUS_FILE="$DEPLOYMENT_DIR/status.json"
 PREVIOUS_TARGET="$DEPLOYMENT_DIR/previous-target.json"
-COMPOSE_FILES=(-f "$APP_DIR/build.docker-compose.yml" -f "$EDGE_DIR/amr/docker-compose.override.yml")
-BACKEND_IMAGE="openelisglobal-webapp.amr"
-FRONTEND_IMAGE="frontend.amr"
-
-[ "$INSTANCE" = amr ] || {
-  echo "targeted rollback currently supports only the AMR stack" >&2
+COMPOSE_FILES=()
+IFS=',' read -r -a active_compose_files <<<"$running_configs"
+for compose_file in "${active_compose_files[@]}"; do
+  [ -f "$compose_file" ] || {
+    echo "active Compose file is missing: $compose_file" >&2
+    exit 1
+  }
+  COMPOSE_FILES+=(-f "$compose_file")
+done
+[ "${#COMPOSE_FILES[@]}" -gt 0 ] || {
+  echo "could not resolve the active Compose chain for $APP_CONTAINER" >&2
   exit 1
 }
+BACKEND_IMAGE="openelisglobal-webapp.$INSTANCE"
+FRONTEND_IMAGE="frontend.$INSTANCE"
+
+case "$INSTANCE" in
+  amr | analyzers) ;;
+  *)
+    echo "unsupported targeted rollback instance: $INSTANCE" >&2
+    exit 1
+    ;;
+esac
 if [ ! -f "$STATUS_FILE" ] || [ ! -f "$PREVIOUS_TARGET" ]; then
   echo "rollback state is incomplete for deployment $DEPLOYMENT_ID" >&2
   exit 1
@@ -68,7 +85,7 @@ docker compose -p "$INSTANCE" "${COMPOSE_FILES[@]}" \
 if [ "$scope" = backend ] || [ "$scope" = app ]; then
   healthy=false
   for _ in $(seq 1 120); do
-    if [ "$(docker inspect -f '{{.State.Health.Status}}' amr-openelisglobal-webapp 2>/dev/null || true)" = healthy ]; then
+    if [ "$(docker inspect -f '{{.State.Health.Status}}' "$APP_CONTAINER" 2>/dev/null || true)" = healthy ]; then
       healthy=true
       break
     fi
@@ -76,7 +93,7 @@ if [ "$scope" = backend ] || [ "$scope" = app ]; then
   done
   [ "$healthy" = true ]
 fi
-curl -fsSk --retry 12 --retry-delay 5 "https://$APP_DOMAIN/Microbiology/worklist" >/dev/null
+curl -fsSk --retry 12 --retry-delay 5 "https://$APP_DOMAIN$APP_SMOKE_PATH" >/dev/null
 target_tmp="$(mktemp "$EDGE_DIR/runtime/.target-$INSTANCE.XXXXXX")"
 cp "$PREVIOUS_TARGET" "$target_tmp"
 chmod 0644 "$target_tmp"

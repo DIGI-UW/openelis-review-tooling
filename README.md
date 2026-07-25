@@ -71,6 +71,20 @@ Host-header curl); only `certs` needs DNS (ACME HTTP-01). Commands run over **SS
 session. `./deploy.sh connect` is the one SSH command (interactive shell), and adds
 your current IP to the security group automatically.
 
+After the initial environment exists, deploy either OpenELIS app independently
+at an exact pushed SHA:
+
+```bash
+./deploy.sh app deploy analyzers --ref <sha> --scope app
+./deploy.sh app status analyzers
+./deploy.sh app verify analyzers
+```
+
+The targeted path rebuilds and replaces only the selected app's frontend and/or
+backend services. It derives the live Compose chain from container labels, keeps
+the other app and shared review infrastructure running, and publishes
+`/__review/target.json` only after health and route smoke checks pass.
+
 Local deploy configuration comes from `.env.example` and lives in a git-ignored
 `.env`. Grist/Dex secrets use the separate `grist/.env.example` template and
 live only in `${EDGE_DIR}/.env` on the host; they are never embedded in an SSM

@@ -111,8 +111,9 @@ position-based answers are shown as unusable and never silently mapped.
 reconciles Grist and rebuilds both OpenELIS review targets plus the router. It
 must not be presented as a single-instance or low-risk application deployment.
 
-Targeted AMR application delivery uses an exact pushed SHA and leaves the
-analyzer stack, router, Grist, databases, and FHIR containers untouched:
+Targeted application delivery uses an exact pushed SHA and leaves the other
+OpenELIS stack, router, Grist, databases, FHIR, and analyzer harness services
+untouched:
 
 ```text
 ./deploy.sh infra bootstrap|status|upgrade
@@ -124,15 +125,16 @@ analyzer stack, router, Grist, databases, and FHIR containers untouched:
 ./deploy.sh data seed <instance> --fixture <name>
 ```
 
-The first targeted implementation supports `instance=amr`. It tags the current
-frontend/backend images before replacement, publishes target metadata only
-after health and route smoke checks pass, and automatically restores those
-images if candidate verification fails. Automatic rollback is intentionally
-disabled for schema-affecting deployments; those require a separate data
-rollback plan. The targeted runner resolves the active app and overlay paths
-from the running container's Compose labels, so a stale local checkout-path
-setting cannot redirect an in-place deployment. Full, targeted, and rollback
-runners share a host lock and refuse to start concurrently.
+Targeted delivery supports `instance=amr` and `instance=analyzers`. It tags the
+current frontend/backend images before replacement, publishes target metadata
+only after instance-specific health and route smoke checks pass, and
+automatically restores those images if candidate verification fails. Automatic
+rollback is intentionally disabled for schema-affecting deployments; those
+require a separate data rollback plan. The targeted runner resolves the active
+working directory and complete Compose file chain from the running container's
+labels, so a stale local checkout path cannot redirect an in-place deployment
+and analyzer-only delivery retains its harness overlays. Full, targeted, and
+rollback runners share a host lock and refuse to start concurrently.
 
 The review-widget scope checks out an exact harness SHA under the same lock.
 Because the widget is a read-only router bind mount, no application or router
