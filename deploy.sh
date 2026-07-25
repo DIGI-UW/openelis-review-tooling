@@ -19,7 +19,8 @@
 # the one exception (a human wanting an interactive shell) and still uses SSH.
 #
 # USAGE
-#   ./deploy.sh status              # AWS + all HTTPS endpoints + container states (read-only)
+#   ./deploy.sh status              # AWS + all HTTPS endpoints + container states + drift (read-only)
+#   ./deploy.sh drift               # is what's RUNNING what's in git? (read-only)
 #   ./deploy.sh connect [cmd…]      # SSH shell — interactive only, needs your IP in the SG (see below)
 #   ./deploy.sh configure           # install Docker/git, install renew cron (idempotent)
 #   ./deploy.sh deploy [--yes]      # build + bring up router + both stacks on self-signed (detached + polled)
@@ -610,6 +611,53 @@ cmd_status() {
   echo "   containers:"
   ssm_run "docker ps --format '{{.Names}}: {{.Status}}' | grep -E 'amr-|analyzers-|oe-edge' || true" | sed 's/^/     /' \
     || warn "remote status failed"
+  cmd_drift
+}
+
+# Compare what is RUNNING against what is in git. A deploy that reuses a cached
+# image, a hand edit on the box, or a checkout left behind a merge are all
+# invisible otherwise — the read service once served four-commit-old code while
+# every container reported healthy and every endpoint returned 200.
+cmd_drift() {
+  require_aws
+  echo "   drift:"
+  # Built with a quoted heredoc so nothing expands locally: every $ below is for
+  # the remote shell.
+  local script
+  script="$(cat <<'DRIFT'
+cd EDGE_DIR_PLACEHOLDER 2>/dev/null || { echo "checkout missing"; exit 0; }
+G="git -c safe.directory=*"
+$G fetch -q origin BRANCH_PLACEHOLDER 2>/dev/null || true
+head=$($G rev-parse --short HEAD)
+want=$($G rev-parse --short FETCH_HEAD 2>/dev/null || echo unknown)
+if [ "$head" = "$want" ]; then
+  echo "checkout: $head (matches origin/BRANCH_PLACEHOLDER)"
+else
+  echo "checkout: $head DRIFTED from origin/BRANCH_PLACEHOLDER ($want)"
+fi
+dirty=$($G status --porcelain | wc -l)
+if [ "$dirty" -eq 0 ]; then
+  echo "worktree: clean"
+else
+  echo "worktree: $dirty uncommitted file(s)"
+  $G status --porcelain | head -5
+fi
+# The read service bakes its source into the image, so a deploy that reused a
+# cached image looks healthy while serving old code. Compare the two.
+img=$(docker exec oe-edge-grist-uat-read md5sum /app/uat-document.mjs 2>/dev/null | cut -d" " -f1)
+src=$(md5sum grist/mcp/uat-document.mjs 2>/dev/null | cut -d" " -f1)
+if [ -n "$img" ]; then
+  if [ "$img" = "$src" ]; then
+    echo "uat-read image: matches checkout"
+  else
+    echo "uat-read image: STALE - rebuild it (compose up -d --build uat-read)"
+  fi
+fi
+DRIFT
+)"
+  script="${script//EDGE_DIR_PLACEHOLDER/$EDGE_DIR}"
+  script="${script//BRANCH_PLACEHOLDER/$HARNESS_BRANCH}"
+  ssm_run "$script" | sed 's/^/     /' || warn "drift check failed"
 }
 
 cmd_up_to_certs() { cmd_configure; cmd_deploy "${1:-}"; cmd_certs; cmd_seed; }
@@ -618,6 +666,7 @@ main() {
   local sub="${1:-help}"; shift || true
   case "$sub" in
     status) cmd_status ;;
+    drift) cmd_drift ;;
     connect)
       allow_ssh_ingress
       # Arguments intentionally expand on the client before the remote command runs.
