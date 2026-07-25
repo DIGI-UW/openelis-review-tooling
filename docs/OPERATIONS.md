@@ -128,4 +128,6 @@ frontend/backend images before replacement, publishes target metadata only
 after health and route smoke checks pass, and automatically restores those
 images if candidate verification fails. Automatic rollback is intentionally
 disabled for schema-affecting deployments; those require a separate data
-rollback plan.
+rollback plan. The targeted runner resolves the active app and overlay paths
+from the running container's Compose labels, so a stale local checkout-path
+setting cannot redirect an in-place deployment.

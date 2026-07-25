@@ -7,6 +7,17 @@ set -euo pipefail
 : "${INSTANCE:?}" "${APP_DIR:?}" "${EDGE_DIR:?}" "${DEPLOYMENT_ID:?}" "${DEPLOYMENT_DIR:?}"
 : "${APP_DOMAIN:?}"
 
+running_workdir="$(docker inspect -f '{{index .Config.Labels "com.docker.compose.project.working_dir"}}' \
+  amr-openelisglobal-webapp 2>/dev/null || true)"
+running_configs="$(docker inspect -f '{{index .Config.Labels "com.docker.compose.project.config_files"}}' \
+  amr-openelisglobal-webapp 2>/dev/null || true)"
+running_override="$(printf '%s' "$running_configs" | tr ',' '\n' |
+  awk '/\/amr\/docker-compose\.override\.yml$/ { print; exit }')"
+[ -z "$running_workdir" ] || APP_DIR="$running_workdir"
+if [ -n "$running_override" ]; then
+  EDGE_DIR="${running_override%/amr/docker-compose.override.yml}"
+fi
+DEPLOYMENT_DIR="$EDGE_DIR/runtime/deployments/$DEPLOYMENT_ID"
 STATUS_FILE="$DEPLOYMENT_DIR/status.json"
 PREVIOUS_TARGET="$DEPLOYMENT_DIR/previous-target.json"
 COMPOSE_FILES=(-f "$APP_DIR/build.docker-compose.yml" -f "$EDGE_DIR/amr/docker-compose.override.yml")

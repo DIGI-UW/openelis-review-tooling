@@ -8,6 +8,17 @@ set -euo pipefail
 : "${APP_BRANCH:?}" "${APP_REF:?}" "${APP_SCOPE:?}" "${APP_DOMAIN:?}"
 : "${REMOTE_USER:?}" "${DEPLOYMENT_ID:?}" "${DEPLOYMENT_DIR:?}"
 
+running_workdir="$(docker inspect -f '{{index .Config.Labels "com.docker.compose.project.working_dir"}}' \
+  amr-openelisglobal-webapp 2>/dev/null || true)"
+running_configs="$(docker inspect -f '{{index .Config.Labels "com.docker.compose.project.config_files"}}' \
+  amr-openelisglobal-webapp 2>/dev/null || true)"
+running_override="$(printf '%s' "$running_configs" | tr ',' '\n' |
+  awk '/\/amr\/docker-compose\.override\.yml$/ { print; exit }')"
+[ -z "$running_workdir" ] || APP_DIR="$running_workdir"
+if [ -n "$running_override" ]; then
+  EDGE_DIR="${running_override%/amr/docker-compose.override.yml}"
+fi
+DEPLOYMENT_DIR="$EDGE_DIR/runtime/deployments/$DEPLOYMENT_ID"
 STATUS_FILE="$DEPLOYMENT_DIR/status.json"
 TARGET_FILE="$EDGE_DIR/runtime/target-$INSTANCE.json"
 PREVIOUS_TARGET="$DEPLOYMENT_DIR/previous-target.json"
@@ -77,6 +88,7 @@ trap on_exit EXIT
 mkdir -p "$DEPLOYMENT_DIR" "$EDGE_DIR/runtime"
 write_status preparing
 echo "[app-deploy] $INSTANCE $APP_SCOPE deployment $DEPLOYMENT_ID"
+echo "[app-deploy] app checkout: $APP_DIR; review tooling: $EDGE_DIR"
 
 [ "$INSTANCE" = amr ] || {
   echo "targeted app deployment currently supports only the AMR stack" >&2

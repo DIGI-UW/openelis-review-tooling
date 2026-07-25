@@ -88,6 +88,17 @@ test("targeted AMR deployment preserves unrelated review infrastructure", () => 
   assert.doesNotMatch(appDeployScript, /\bfhir\.openelis\.org\b/);
 });
 
+test("targeted lifecycle resolves the active Compose paths from the running app", () => {
+  for (const script of [appDeployScript, appRollbackScript]) {
+    assert.match(script, /com\.docker\.compose\.project\.working_dir/);
+    assert.match(script, /com\.docker\.compose\.project\.config_files/);
+    assert.match(
+      script,
+      /EDGE_DIR="\$\{running_override%\/amr\/docker-compose\.override\.yml\}"/,
+    );
+  }
+});
+
 test("ready metadata is published only after health and route smoke checks", () => {
   const healthCheck = appDeployScript.indexOf(
     ".State.Health.Status",

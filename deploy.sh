@@ -415,12 +415,16 @@ cmd_app_status() {
   validate_instance "$instance"
   require_aws
   ssm_run "deployment_id='$deployment_id'
+running_configs=\$(docker inspect -f '{{index .Config.Labels \"com.docker.compose.project.config_files\"}}' amr-openelisglobal-webapp 2>/dev/null || true)
+running_override=\$(printf '%s' \"\$running_configs\" | tr ',' '\n' | awk '/\\/amr\\/docker-compose\\.override\\.yml$/ { print; exit }')
+edge_dir='$EDGE_DIR'
+[ -z \"\$running_override\" ] || edge_dir=\${running_override%/amr/docker-compose.override.yml}
 if [ -z \"\$deployment_id\" ]; then
-  latest=\$(find '$EDGE_DIR/runtime/deployments' -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sort | tail -1)
+  latest=\$(find \"\$edge_dir/runtime/deployments\" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sort | tail -1)
   deployment_id=\${latest##*/}
 fi
 [ -n \"\$deployment_id\" ] || { echo 'no targeted deployments found'; exit 1; }
-status='$EDGE_DIR/runtime/deployments/'\"\$deployment_id\"'/status.json'
+status=\"\$edge_dir/runtime/deployments/\$deployment_id/status.json\"
 log='/home/$OS_USER/oe-app-deploy-'\"\$deployment_id\"'.log'
 echo \"deployment=\$deployment_id\"
 cat \"\$status\" 2>/dev/null || echo '{\"state\":\"launching\"}'
