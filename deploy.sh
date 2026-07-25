@@ -163,7 +163,8 @@ sync_checkout() { # dir branch repo
     sudo mkdir -p "\$dir" && sudo chown "$OS_USER":"$OS_USER" "\$dir"
     sudo -u "\$REMOTE_USER" git clone --depth 1 --single-branch --branch "\$br" "\$repo" "\$dir"
   fi
-  repo_git "\$dir" submodule update --init --depth 1 dataexport plugins tools/openelis-analyzer-bridge tools/analyzer-mock-server 2>/dev/null || true
+  repo_git "\$dir" submodule update --init --depth 1 dataexport plugins tools/openelis-analyzer-bridge tools/analyzer-mock-server \\
+    || die "submodule init failed in \$dir (the plugin registry check depends on it)"
   echo "[deploy] \$dir -> \$br @\$(repo_git "\$dir" rev-parse --short HEAD)"
 }
 prepare_analyzer_plugin_volume() {

@@ -71,10 +71,15 @@
   // the target could not be read. Fall back to the last identity we saw for this
   // instance — including across reloads — so a transient outage never re-keys the
   // panel and hides answers the reviewer already gave.
+  // Pin answers to the app version under review. deploymentId is a wall-clock
+  // stamp, so keying on it discarded a reviewer's work whenever the same code was
+  // redeployed (a harness tweak, a config change, a retry). Both the remember and
+  // the lookup path go through here so they can never disagree.
+  function identityOf(target) {
+    return (target && (target.appSha || target.deploymentId)) || null;
+  }
   function deploymentIdentity(target) {
-    var id = target && (target.deploymentId || target.appSha);
-    if (id) return id;
-    return lastKnownIdentity() || "unbound";
+    return identityOf(target) || lastKnownIdentity() || "unbound";
   }
   function contextPrefix(target) {
     return STORE_PREFIX + encodeURIComponent(deploymentIdentity(target)) + ":";
@@ -84,17 +89,34 @@
   }
   function loadContext(target, checklist) {
     STORE_KEY = contextKey(target, checklist);
-    legacyStatePresent = Boolean(localStorage.getItem(LEGACY_STORE_KEY));
+    try {
+      legacyStatePresent = Boolean(localStorage.getItem(LEGACY_STORE_KEY));
+    } catch (e) {
+      // Storage can throw outright (cookies blocked, hardened privacy). Every
+      // other access here already degrades to in-memory state; without this the
+      // throw surfaced to the reviewer as a bogus "could not load checklist".
+      legacyStatePresent = false;
+    }
 
     var exact = loadStored(STORE_KEY);
     if (exact) return exact;
 
     var prefix = contextPrefix(target);
+    // target.json only publishes after health verification, so early in a rollout
+    // there is no identity and answers land under the unbound prefix. Adopt those
+    // once the real identity appears, or a reviewer working during a deploy loses
+    // everything the moment it finishes.
+    var unbound = STORE_PREFIX + "unbound:";
+    var prefixes = prefix === unbound ? [prefix] : [prefix, unbound];
     var latest = null;
     try {
       for (var i = 0; i < localStorage.length; i++) {
         var key = localStorage.key(i);
-        if (!key || key === STORE_KEY || !key.startsWith(prefix)) continue;
+        if (!key || key === STORE_KEY) continue;
+        var matches = prefixes.some(function (p) {
+          return key.startsWith(p);
+        });
+        if (!matches) continue;
         var candidate = loadStored(key);
         if (
           candidate &&
@@ -142,6 +164,7 @@
   var build = null;
   var loading = true;
   var inlineMode = false;
+  var panelToggled = false;
   var loadError = "";
   var buildWarning = "";
 
@@ -244,17 +267,23 @@
   function applyChecklist(next, target) {
     next = validateChecklist(next);
     var minimized = state.minimized;
-    var identity = target && (target.deploymentId || target.appSha);
+    var identity = identityOf(target);
     if (identity) rememberIdentity(identity);
     state = loadContext(target, next);
-    state.minimized = minimized;
+    // Honour the persisted panel state on first load; only preserve the in-session
+    // value once the reviewer has actually opened or closed it, so a background
+    // refresh cannot collapse a panel they are working in — and so the panel does
+    // not re-collapse on every "Go to /route" navigation.
+    if (panelToggled) state.minimized = minimized;
     (next.sections || []).forEach(function (section) {
       (section.steps || []).forEach(function (step) {
         var key = step.key;
         var saved = state.steps[key];
         var signature = stepSignature(step);
-        if (saved && saved.signature && saved.signature !== signature) {
-          saved.stale = true;
+        if (saved && saved.signature) {
+          // Two-way: a reverted checklist edit (or a revision rollback) should
+          // clear the badge, not leave the step flagged "Review again" forever.
+          saved.stale = saved.signature !== signature;
         }
         if (saved && saved.mark && !saved.signature) saved.stale = true;
       });
@@ -312,6 +341,7 @@
     b.title = "Open the " + LABEL + " review checklist";
     b.onclick = function () {
       state.minimized = false;
+      panelToggled = true;
       save();
       // An inline checklist has no URL to re-read; refreshing would fetch the
       // same-origin default and paint a 404 over a checklist that loaded fine.
@@ -340,6 +370,7 @@
     var min = iconBtn("–", "Minimize");
     min.onclick = function () {
       state.minimized = true;
+      panelToggled = true;
       save();
       render();
     };

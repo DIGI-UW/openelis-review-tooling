@@ -47,7 +47,7 @@ test("keys answers by stable step key and includes provenance in reports", async
 
   const stored = await savedState(page);
   expect(stored.key).toContain(
-    "oe-review:v2:analyzers:deploy-analyzers-001:revision-one",
+    "oe-review:v2:analyzers:abc123:revision-one",
   );
   expect(stored.value.steps["AN-QC-001"].mark).toBe("pass");
   expect(stored.value.steps["0.0"]).toBeUndefined();

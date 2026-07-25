@@ -203,4 +203,24 @@ mv "$target_tmp" "$TARGET_FILE"
 write_status ready passed
 deployment_complete=true
 trap - EXIT
+
+# Every deploy pins another rollback tag, and tagged images survive
+# `docker image prune -a`, so without this the demo box slowly fills its root
+# volume until the live stacks go down. Keep the most recent few and drop the
+# rest; the retained ones are what `app rollback` can actually restore to.
+ROLLBACK_KEEP="${ROLLBACK_KEEP:-3}"
+prune_rollback_tags() {
+  local image="$1" tag
+  docker image ls "$image" --format '{{.Tag}}' \
+    | grep '^rollback-' \
+    | sort -r \
+    | tail -n "+$((ROLLBACK_KEEP + 1))" \
+    | while read -r tag; do
+        echo "[app-deploy] pruning $image:$tag"
+        docker image rm "$image:$tag" >/dev/null 2>&1 || true
+      done
+}
+prune_rollback_tags "$BACKEND_IMAGE"
+prune_rollback_tags "$FRONTEND_IMAGE"
+
 echo "[app-deploy] ready: $INSTANCE $app_sha ($APP_SCOPE)"

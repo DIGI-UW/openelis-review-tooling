@@ -4,12 +4,13 @@
 //   generate  export Grist checklists as schema-v2 JSON
 //
 // Env: GRIST_URL, GRIST_KEY, GRIST_ORG (default "openelis"),
-//      GRIST_DOC_NAME (default "UAT Checklists"), REVIEW_DIR (default ../widget/examples).
+//      GRIST_DOC_NAME (default "UAT Checklists"), REVIEW_DIR (seed input,
+//      default ../widget/examples), EXPORT_DIR (generate output, default ../runtime/checklists).
 // Schema: UAT_Meta(instance,title,intro,jira), UAT_Steps(instance,step_key,
 // required,section,section_order,step_order,do,expect,route), UAT_Results(reviewer,instance,
 // step_key,mark,note,page_url,at) — Results is created now, filled later.
 
-import { readFileSync, writeFileSync, readdirSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { buildUatDocument } from "./mcp/uat-document.mjs";
 
@@ -19,6 +20,12 @@ const ORG = process.env.GRIST_ORG || "openelis";
 const DOC_NAME = process.env.GRIST_DOC_NAME || "UAT Checklists";
 const REVIEW_DIR =
   process.env.REVIEW_DIR || join(import.meta.dirname, "..", "widget", "examples");
+// seed READS the tracked fixtures in REVIEW_DIR; generate WRITES here. They must
+// differ: writing the export back over tracked files dirties the checkout, which
+// the deploy's dirty-worktree guard then treats as a reason to refuse every
+// subsequent deploy.
+const EXPORT_DIR =
+  process.env.EXPORT_DIR || join(import.meta.dirname, "..", "runtime", "checklists");
 if (!KEY) throw new Error("GRIST_KEY is required");
 
 const TABLES = {
@@ -248,10 +255,11 @@ async function generate() {
   const byInstance = {};
   for (const record of steps)
     (byInstance[record.fields.instance] ||= []).push(record);
+  mkdirSync(EXPORT_DIR, { recursive: true });
   for (const [inst, rows] of Object.entries(byInstance)) {
     const m = meta[inst] || {};
     const out = buildUatDocument(inst, m, rows);
-    const path = join(REVIEW_DIR, `uat-${inst}.json`);
+    const path = join(EXPORT_DIR, `uat-${inst}.json`);
     writeFileSync(path, JSON.stringify(out, null, 2) + "\n");
     console.log(
       `wrote ${path}: ${out.sections.length} sections, ${rows.length} steps`,
