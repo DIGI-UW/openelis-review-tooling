@@ -14,6 +14,27 @@ async function savedState(page) {
   });
 }
 
+test("keeps the minimized launcher clear of page actions", async ({ page }) => {
+  await page.goto("/");
+  const launcher = page
+    .locator("#oe-review-host")
+    .getByRole("button", { name: "Review" });
+  const pageAction = page.getByRole("button", { name: "Save" });
+  const [launcherBox, actionBox] = await Promise.all([
+    launcher.boundingBox(),
+    pageAction.boundingBox(),
+  ]);
+
+  expect(launcherBox).not.toBeNull();
+  expect(actionBox).not.toBeNull();
+  const overlaps =
+    launcherBox.x < actionBox.x + actionBox.width &&
+    launcherBox.x + launcherBox.width > actionBox.x &&
+    launcherBox.y < actionBox.y + actionBox.height &&
+    launcherBox.y + launcherBox.height > actionBox.y;
+  expect(overlaps).toBe(false);
+});
+
 test("keys answers by stable step key and includes provenance in reports", async ({
   page,
 }) => {
