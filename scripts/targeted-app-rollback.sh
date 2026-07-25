@@ -35,10 +35,10 @@ FRONTEND_IMAGE="frontend.amr"
   echo "targeted rollback currently supports only the AMR stack" >&2
   exit 1
 }
-[ -f "$STATUS_FILE" ] && [ -f "$PREVIOUS_TARGET" ] || {
+if [ ! -f "$STATUS_FILE" ] || [ ! -f "$PREVIOUS_TARGET" ]; then
   echo "rollback state is incomplete for deployment $DEPLOYMENT_ID" >&2
   exit 1
-}
+fi
 grep -q '"state":"ready"' "$STATUS_FILE" || {
   echo "deployment $DEPLOYMENT_ID is not a ready deployment" >&2
   exit 1
