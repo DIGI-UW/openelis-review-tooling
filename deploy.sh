@@ -29,6 +29,7 @@
 #   ./deploy.sh app status amr [--deployment <id>]
 #   ./deploy.sh app verify amr
 #   ./deploy.sh app rollback amr
+#   ./deploy.sh review deploy --ref <sha> --scope widget
 #   ./deploy.sh data seed amr --fixture microbiology-mvp
 #   ./deploy.sh up-to-certs --yes   # configure -> deploy -> certs -> seed
 set -euo pipefail
@@ -487,6 +488,55 @@ cmd_app() {
   esac
 }
 
+cmd_review_deploy() {
+  local ref="" scope=""
+  shift || true
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --ref) ref="${2:-}"; shift 2 ;;
+      --scope) scope="${2:-}"; shift 2 ;;
+      *) die "unknown review deploy argument '$1'" ;;
+    esac
+  done
+  validate_sha "$ref"
+  [ "$scope" = widget ] || die "--scope must be widget"
+  require_aws
+  log "deploying review widget at exact harness SHA $ref"
+  ssm_run "set -euo pipefail
+exec 9>/var/lock/openelis-review-deploy.lock
+flock -n 9 || { echo 'another review-host deployment is already running' >&2; exit 1; }
+router_workdir=\$(docker inspect -f '{{index .Config.Labels \"com.docker.compose.project.working_dir\"}}' oe-edge-router)
+edge_dir=\${router_workdir%/router}
+repo_git() { sudo -u '$OS_USER' git -c safe.directory=\"\$edge_dir\" -C \"\$edge_dir\" \"\$@\"; }
+if ! repo_git diff --quiet || ! repo_git diff --cached --quiet; then
+  echo \"refusing to overwrite tracked changes in \$edge_dir\" >&2
+  repo_git status --short >&2
+  exit 1
+fi
+repo_git fetch --depth 1 origin '$ref'
+repo_git checkout --detach FETCH_HEAD
+[ \"\$(repo_git rev-parse HEAD)\" = '$ref' ]
+grep -q 'attachShadow({ mode: \"open\" })' \"\$edge_dir/widget/oe-review-widget.js\"
+for instance in amr analyzers; do
+  target=\"\$edge_dir/runtime/target-\$instance.json\"
+  [ -f \"\$target\" ] || continue
+  tmp=\$(mktemp \"\$edge_dir/runtime/.target-\$instance.XXXXXX\")
+  sed 's/\"harnessSha\":\"[^\"]*\"/\"harnessSha\":\"$ref\"/' \"\$target\" > \"\$tmp\"
+  chmod 0644 \"\$tmp\"
+  mv \"\$tmp\" \"\$target\"
+done
+curl -fsSk 'https://$AMR_DOMAIN/__review/oe-review-widget.js' | grep -q 'attachShadow({ mode: \"open\" })'
+echo 'review widget ready at $ref'"
+}
+
+cmd_review() {
+  local action="${1:-}"
+  case "$action" in
+    deploy) cmd_review_deploy "$@" ;;
+    *) die "unknown review action '$action' (deploy)" ;;
+  esac
+}
+
 cmd_data_seed() {
   local instance="${1:-}" fixture=""
   shift || true
@@ -544,10 +594,11 @@ main() {
     certs) cmd_certs ;;
     seed) cmd_seed ;;
     app) cmd_app "$@" ;;
+    review) cmd_review "$@" ;;
     data) cmd_data "$@" ;;
     up-to-certs) cmd_up_to_certs "$@" ;;
     help|-h|--help) sed -n '2,30p' "$0" | sed 's/^# \{0,1\}//' ;;
-    *) die "unknown subcommand '$sub' (status|connect|configure|deploy|certs|seed|app|data|up-to-certs|help)" ;;
+    *) die "unknown subcommand '$sub' (status|connect|configure|deploy|certs|seed|app|review|data|up-to-certs|help)" ;;
   esac
 }
 main "$@"

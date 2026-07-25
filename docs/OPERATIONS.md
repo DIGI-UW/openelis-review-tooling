@@ -120,6 +120,7 @@ analyzer stack, router, Grist, databases, and FHIR containers untouched:
 ./deploy.sh app status <instance> [--deployment <id>]
 ./deploy.sh app verify <instance>
 ./deploy.sh app rollback <instance>
+./deploy.sh review deploy --ref <sha> --scope widget
 ./deploy.sh data seed <instance> --fixture <name>
 ```
 
@@ -132,3 +133,8 @@ rollback plan. The targeted runner resolves the active app and overlay paths
 from the running container's Compose labels, so a stale local checkout-path
 setting cannot redirect an in-place deployment. Full, targeted, and rollback
 runners share a host lock and refuse to start concurrently.
+
+The review-widget scope checks out an exact harness SHA under the same lock.
+Because the widget is a read-only router bind mount, no application or router
+container restart is required. The command verifies the live script before
+updating each ready target's `harnessSha`.

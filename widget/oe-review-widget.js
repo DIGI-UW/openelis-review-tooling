@@ -128,9 +128,9 @@
     host.id = "oe-review-host";
     host.style.cssText = "all:initial";
     document.body.appendChild(host);
-    root = host.attachShadow({
-      mode: window.__OE_REVIEW_TEST_OPEN_SHADOW__ ? "open" : "closed",
-    });
+    // Keep styles isolated while exposing the review surface to accessibility
+    // inspection and Playwright UAT on deployed targets.
+    root = host.attachShadow({ mode: "open" });
 
     var style = document.createElement("style");
     style.textContent = CSS();

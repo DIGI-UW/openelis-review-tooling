@@ -69,6 +69,7 @@ test("targeted AMR deployment accepts only an exact SHA and explicit scope", () 
   assert.match(deployScript, /\^\[0-9a-f\]\{40\}\$/);
   assert.match(deployScript, /--scope must be frontend, backend, or app/);
   assert.match(deployScript, /app deploy amr --ref <sha>/);
+  assert.match(deployScript, /review deploy --ref <sha> --scope widget/);
   assert.match(deployScript, /data seed amr --fixture microbiology-mvp/);
 });
 
@@ -103,6 +104,23 @@ test("full and targeted deployment runners share an exclusive host lock", () => 
     assert.match(script, /\/var\/lock\/openelis-review-deploy\.lock/);
     assert.match(script, /flock -n 9/);
   }
+});
+
+test("review widget deployment is exact-SHA, locked, and restart-free", () => {
+  assert.match(deployScript, /cmd_review_deploy/);
+  assert.match(deployScript, /repo_git fetch --depth 1 origin '\$ref'/);
+  assert.match(deployScript, /flock -n 9/);
+  assert.match(
+    deployScript,
+    /curl -fsSk 'https:\/\/\$AMR_DOMAIN\/__review\/oe-review-widget\.js'/,
+  );
+  assert.doesNotMatch(
+    deployScript.slice(
+      deployScript.indexOf("cmd_review_deploy()"),
+      deployScript.indexOf("cmd_review()", deployScript.indexOf("cmd_review_deploy()")),
+    ),
+    /docker compose|docker restart/,
+  );
 });
 
 test("ready metadata is published only after health and route smoke checks", () => {

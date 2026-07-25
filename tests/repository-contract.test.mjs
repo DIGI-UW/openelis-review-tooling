@@ -61,6 +61,15 @@ test("ready target metadata is published only after successful health verificati
   assert.match(router, /target-analyzers\.json/);
 });
 
+test("the deployed review surface remains inspectable by accessibility and UAT tools", async () => {
+  const widget = await readFile(
+    new URL("../widget/oe-review-widget.js", import.meta.url),
+    "utf8",
+  );
+  assert.match(widget, /attachShadow\(\{ mode: "open" \}\)/);
+  assert.doesNotMatch(widget, /__OE_REVIEW_TEST_OPEN_SHADOW__/);
+});
+
 test("Grist replacement requires an explicit destructive flag", async () => {
   const bootstrap = await read("grist/bootstrap.sh");
   const sync = await read("grist/grist-sync.mjs");
