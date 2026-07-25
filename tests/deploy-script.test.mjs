@@ -116,7 +116,7 @@ test("targeted lifecycle resolves the active Compose paths from the running app"
     assert.match(script, /com\.docker\.compose\.project\.config_files/);
     assert.match(
       script,
-      /EDGE_DIR="\$\{running_override%\/\$INSTANCE\/docker-compose\.override\.yml\}"/,
+      /EDGE_DIR="\$\{running_override%\/"\$INSTANCE"\/docker-compose\.override\.yml\}"/,
     );
   }
 });

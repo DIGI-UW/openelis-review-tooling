@@ -23,7 +23,7 @@ running_override="$(printf '%s' "$running_configs" | tr ',' '\n' |
   awk -v instance="$INSTANCE" '$0 ~ "/" instance "/docker-compose\\.override\\.yml$" { print; exit }')"
 [ -z "$running_workdir" ] || APP_DIR="$running_workdir"
 if [ -n "$running_override" ]; then
-  EDGE_DIR="${running_override%/$INSTANCE/docker-compose.override.yml}"
+  EDGE_DIR="${running_override%/"$INSTANCE"/docker-compose.override.yml}"
 fi
 DEPLOYMENT_DIR="$EDGE_DIR/runtime/deployments/$DEPLOYMENT_ID"
 STATUS_FILE="$DEPLOYMENT_DIR/status.json"

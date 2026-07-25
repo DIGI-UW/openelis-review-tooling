@@ -13,7 +13,6 @@ flock -n 9 || {
 : "${APP_DOMAIN:?}" "${APP_SMOKE_PATH:?}"
 
 APP_CONTAINER="${INSTANCE}-openelisglobal-webapp"
-FRONTEND_CONTAINER="${INSTANCE}-openelisglobal-front-end"
 running_workdir="$(docker inspect -f '{{index .Config.Labels "com.docker.compose.project.working_dir"}}' \
   "$APP_CONTAINER" 2>/dev/null || true)"
 running_configs="$(docker inspect -f '{{index .Config.Labels "com.docker.compose.project.config_files"}}' \
@@ -24,7 +23,7 @@ if [ -n "$running_workdir" ]; then
   APP_DIR="$running_workdir"
 fi
 if [ -n "$running_override" ]; then
-  EDGE_DIR="${running_override%/$INSTANCE/docker-compose.override.yml}"
+  EDGE_DIR="${running_override%/"$INSTANCE"/docker-compose.override.yml}"
 fi
 DEPLOYMENT_DIR="$EDGE_DIR/runtime/deployments/$DEPLOYMENT_ID"
 STATUS_FILE="$DEPLOYMENT_DIR/status.json"
