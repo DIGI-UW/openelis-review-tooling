@@ -87,3 +87,141 @@ test("rejects duplicate step ordering within a section", () => {
     /duplicate step order 0:0/,
   );
 });
+
+// ---------------------------------------------------------------------------
+// Behavioural coverage for the checklist builder.
+//
+// These exist because a mutation study found the previous suite green against
+// seven separate breakages — a pass-through route validator, a deleted sort, a
+// swapped field, a leaked internal key. Each test below fails against one of
+// those mutations rather than asserting on the shape of the source.
+// ---------------------------------------------------------------------------
+
+function row(id, fields) {
+  return {
+    id,
+    fields: {
+      instance: "analyzers",
+      section: "Setup",
+      section_order: 0,
+      step_order: 0,
+      do: "do it",
+      expect: "it happened",
+      ...fields,
+    },
+  };
+}
+const build = (rows, m = meta) => buildUatDocument("analyzers", m, rows);
+const allSteps = (doc) => doc.sections.flatMap((section) => section.steps);
+
+test("rejects routes that resolve off-origin", () => {
+  for (const route of [
+    "https://evil.example/x",
+    "//evil.example",
+    "/\\evil.example",
+    "/\\/evil.example",
+    "javascript:alert(1)",
+    "../escape",
+  ]) {
+    assert.throws(
+      () => build([row(1, { step_key: "K1", route })]),
+      /same-origin/,
+      `expected ${JSON.stringify(route)} to be rejected`,
+    );
+  }
+});
+
+test("accepts an ordinary same-origin path", () => {
+  const doc = build([row(1, { step_key: "K1", route: "/Microbiology/worklist" })]);
+  assert.equal(allSteps(doc)[0].route, "/Microbiology/worklist");
+});
+
+test("orders sections and steps by their order columns, not input order", () => {
+  const doc = build([
+    row(1, { step_key: "B2", section: "Later", section_order: 1, step_order: 1, do: "b2" }),
+    row(2, { step_key: "A2", section: "First", section_order: 0, step_order: 1, do: "a2" }),
+    row(3, { step_key: "B1", section: "Later", section_order: 1, step_order: 0, do: "b1" }),
+    row(4, { step_key: "A1", section: "First", section_order: 0, step_order: 0, do: "a1" }),
+  ]);
+  assert.deepEqual(
+    doc.sections.map((s) => s.title),
+    ["First", "Later"],
+  );
+  assert.deepEqual(
+    allSteps(doc).map((s) => s.key),
+    ["A1", "A2", "B1", "B2"],
+  );
+});
+
+test("maps each column to its own field", () => {
+  const doc = build([
+    row(1, {
+      step_key: "K1",
+      section: "The section",
+      do: "the action",
+      expect: "the expectation",
+      route: "/the/route",
+    }),
+  ]);
+  assert.equal(doc.sections[0].title, "The section");
+  const step = allSteps(doc)[0];
+  assert.equal(step.do, "the action");
+  assert.equal(step.expect, "the expectation");
+  assert.equal(step.route, "/the/route");
+  assert.equal(step.key, "K1");
+});
+
+test("a step is required unless it says otherwise", () => {
+  const cases = [
+    [undefined, true],
+    [null, true],
+    ["", true],
+    [true, true],
+    [1, true],
+    ["true", true],
+    ["TRUE", true],
+    ["yes", true],
+    [false, false],
+    [0, false],
+    ["false", false],
+    ["FALSE", false],
+    ["no", false],
+    ["0", false],
+  ];
+  for (const [value, expected] of cases) {
+    const doc = build([row(1, { step_key: "K1", required: value })]);
+    assert.equal(
+      allSteps(doc)[0].required,
+      expected,
+      `required=${JSON.stringify(value)} should be ${expected}`,
+    );
+  }
+});
+
+test("does not leak internal ordering keys into the document", () => {
+  const doc = build([row(1, { step_key: "K1" })]);
+  const serialized = JSON.stringify(doc);
+  assert.equal(serialized.includes("_order"), false);
+  assert.deepEqual(Object.keys(doc.sections[0]).sort(), ["steps", "title"]);
+});
+
+test("the revision is content identity: stable under reorder, changed by edits", () => {
+  const ordered = [
+    row(1, { step_key: "K1", section_order: 0, step_order: 0, do: "first" }),
+    row(2, { step_key: "K2", section_order: 0, step_order: 1, do: "second" }),
+  ];
+  const shuffled = [ordered[1], ordered[0]];
+  assert.equal(
+    build(ordered).checklistRevision,
+    build(shuffled).checklistRevision,
+    "reordering the same rows must not change the revision",
+  );
+
+  const edited = [ordered[0], row(2, { step_key: "K2", section_order: 0, step_order: 1, do: "changed" })];
+  assert.notEqual(
+    build(ordered).checklistRevision,
+    build(edited).checklistRevision,
+    "changing a step's instructions must change the revision",
+  );
+  assert.match(build(ordered).checklistRevision, /^[0-9a-f]{64}$/);
+});

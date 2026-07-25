@@ -1,6 +1,5 @@
 {
   "schemaVersion": 2,
-  "checklistRevision": "seed-demo-v2",
   "title": "Widget demo review",
   "instance": "demo",
   "jira": "",
@@ -40,5 +39,6 @@
         }
       ]
     }
-  ]
+  ],
+  "checklistRevision": "03de8e3ecb27ecfc6b9fb1d80d7623e21e6a7a891871472c22e1e421b636de8a"
 }

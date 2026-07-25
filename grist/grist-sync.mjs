@@ -12,7 +12,7 @@
 
 import { mkdirSync, readFileSync, writeFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
-import { buildUatDocument } from "./mcp/uat-document.mjs";
+import { buildUatDocument, parseRequired } from "./mcp/uat-document.mjs";
 
 const URL = process.env.GRIST_URL || "http://grist:8484";
 const KEY = process.env.GRIST_KEY;
@@ -178,8 +178,7 @@ async function migrate() {
         step_key:
           record.fields.step_key ||
           `${String(record.fields.instance || "uat").toUpperCase()}-${record.id}`,
-        required:
-          record.fields.required == null ? true : Boolean(record.fields.required),
+        required: parseRequired(record.fields.required),
       },
     }));
   await patchRecords(doc, "UAT_Steps", patches);

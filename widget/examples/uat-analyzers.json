@@ -1,6 +1,5 @@
 {
   "schemaVersion": 2,
-  "checklistRevision": "seed-analyzers-v2",
   "title": "Analyzer QC & Configuration MVP — UAT",
   "instance": "analyzers",
   "jira": "OGC-1054",
@@ -76,5 +75,6 @@
         }
       ]
     }
-  ]
+  ],
+  "checklistRevision": "03311e69b8b01efd6abb67683919fa4181aa981076e36748184251d5dd59dac1"
 }

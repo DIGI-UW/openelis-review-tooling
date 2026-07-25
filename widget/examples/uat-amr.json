@@ -1,6 +1,5 @@
 {
   "schemaVersion": 2,
-  "checklistRevision": "seed-amr-v3",
   "title": "Microbiology MVP — review",
   "instance": "amr",
   "jira": "OGC-782",
@@ -87,5 +86,6 @@
         }
       ]
     }
-  ]
+  ],
+  "checklistRevision": "388b6286be6b467bf13d73b9c5fc1f799ba0ca8157c96cbbbb5f2249f7771d4a"
 }

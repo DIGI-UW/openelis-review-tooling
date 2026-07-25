@@ -2,8 +2,20 @@ import { createHash } from "node:crypto";
 
 const SCHEMA_VERSION = 2;
 
-function requiredValue(value) {
-  return value === true || value === 1 || value === "1" || value === "true";
+// One canonical reading of `required`, shared with the migration and mirrored by
+// the widget. These had drifted into three different defaults: this module
+// treated an unset value as optional while the widget and the migration treated
+// it as required, so a blank cell meant opposite things either side of the wire.
+// A step is required unless it says otherwise — an acceptance report must not be
+// able to claim completeness because a step quietly defaulted to optional.
+export function parseRequired(value) {
+  if (value === undefined || value === null) return true;
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    if (normalized === "") return true;
+    return !["false", "0", "no", "n", "off"].includes(normalized);
+  }
+  return Boolean(value);
 }
 
 // A prefix test is not enough: "/\evil.com" starts with a single slash, but the
@@ -68,7 +80,7 @@ export function buildUatDocument(instance, meta, records) {
 
     const step = {
       key,
-      required: requiredValue(row.required),
+      required: parseRequired(row.required),
       do: String(row.do || "").trim(),
     };
     if (!step.do) throw new Error(`step ${key} is missing do`);

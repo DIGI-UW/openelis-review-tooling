@@ -234,6 +234,20 @@
     }
   }
 
+  // Mirrors parseRequired() in grist/mcp/uat-document.mjs — this file ships
+  // standalone so it cannot import it. A step is required unless it says
+  // otherwise; keep the two in step if either changes.
+  function isRequired(step) {
+    var value = step && step.required;
+    if (value === undefined || value === null) return true;
+    if (typeof value === "string") {
+      var normalized = value.trim().toLowerCase();
+      if (normalized === "") return true;
+      return ["false", "0", "no", "n", "off"].indexOf(normalized) === -1;
+    }
+    return Boolean(value);
+  }
+
   function validateChecklist(value) {
     if (!value || value.schemaVersion !== 2) {
       throw new Error("Checklist schemaVersion 2 is required.");
@@ -257,7 +271,7 @@
 
   function stepSignature(step) {
     return JSON.stringify({
-      required: step.required !== false,
+      required: isRequired(step),
       do: step.do || step.text || "",
       expect: step.expect || "",
       route: step.route || "",
@@ -516,7 +530,7 @@
       ex.textContent = "Expected: " + step.expect;
       row.appendChild(ex);
     }
-    if (step.required === false) {
+    if (!isRequired(step)) {
       var optional = el("span", "optional");
       optional.textContent = "Optional";
       top.appendChild(optional);
@@ -625,7 +639,7 @@
         else if (st.mark === "pass") pass++;
         else if (st.mark === "fail") fail++;
         else if (st.mark === "na") na++;
-        if (step.required !== false && (!st.mark || st.stale)) requiredOpen++;
+        if (isRequired(step) && (!st.mark || st.stale)) requiredOpen++;
         var box =
           st.stale
             ? "STALE"
@@ -643,7 +657,7 @@
             step.key +
             "` " +
             (step.do || step.text || "") +
-            (step.required === false ? " _(optional)_" : "")
+            (isRequired(step) ? "" : " _(optional)_")
         );
         if (step.expect) lines.push("    - expected: " + step.expect);
         if (step.route) lines.push("    - route: " + step.route);
@@ -711,7 +725,7 @@
                 var st = state.steps[step.key] || {};
                 return {
                   key: step.key,
-                  required: step.required !== false,
+                  required: isRequired(step),
                   do: step.do || step.text || "",
                   expect: step.expect || null,
                   route: step.route || null,
