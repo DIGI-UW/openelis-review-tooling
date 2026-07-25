@@ -202,3 +202,40 @@ test("does not carry answers into a different deployment", async ({ page }) => {
       .locator(".mark.pass"),
   ).not.toHaveClass(/on/);
 });
+
+test("keeps answers when the target fetch fails after a mark", async ({ page }) => {
+  let targetAvailable = true;
+  await page.route("**/tests/widget/target.json", (route) => {
+    if (!targetAvailable) return route.fulfill({ status: 503, body: "unavailable" });
+    return route.fulfill({
+      json: {
+        instance: "analyzers",
+        deploymentId: "deploy-analyzers-001",
+        state: "ready",
+        appSha: "abc123",
+        harnessSha: "def456",
+        verification: { health: "passed" },
+      },
+    });
+  });
+
+  let widget = await openPanel(page);
+  await widget
+    .locator(".step")
+    .filter({ hasText: "Find a shipped profile" })
+    .getByText("Pass", { exact: true })
+    .click();
+
+  // The deployment identity is part of the storage key. A transient target
+  // outage must not re-key the panel and hide answers already given.
+  targetAvailable = false;
+  await page.reload();
+  widget = page.locator("#oe-review-host");
+  await widget.getByRole("button", { name: "Review" }).click();
+  await expect(
+    widget
+      .locator(".step")
+      .filter({ hasText: "Find a shipped profile" })
+      .locator(".mark.pass"),
+  ).toHaveClass(/on/);
+});

@@ -52,8 +52,29 @@
       updatedAt: null,
     };
   }
+  var IDENTITY_KEY = STORE_PREFIX + "last-identity";
+  function rememberIdentity(id) {
+    try {
+      localStorage.setItem(IDENTITY_KEY, id);
+    } catch (e) {
+      /* storage unavailable — identity simply is not remembered */
+    }
+  }
+  function lastKnownIdentity() {
+    try {
+      return localStorage.getItem(IDENTITY_KEY) || null;
+    } catch (e) {
+      return null;
+    }
+  }
+  // The identity is part of the storage key, so it must not change just because
+  // the target could not be read. Fall back to the last identity we saw for this
+  // instance — including across reloads — so a transient outage never re-keys the
+  // panel and hides answers the reviewer already gave.
   function deploymentIdentity(target) {
-    return (target && (target.deploymentId || target.appSha)) || "unbound";
+    var id = target && (target.deploymentId || target.appSha);
+    if (id) return id;
+    return lastKnownIdentity() || "unbound";
   }
   function contextPrefix(target) {
     return STORE_PREFIX + encodeURIComponent(deploymentIdentity(target)) + ":";
@@ -212,6 +233,8 @@
   function applyChecklist(next, target) {
     next = validateChecklist(next);
     var minimized = state.minimized;
+    var identity = target && (target.deploymentId || target.appSha);
+    if (identity) rememberIdentity(identity);
     state = loadContext(target, next);
     state.minimized = minimized;
     (next.sections || []).forEach(function (section) {
