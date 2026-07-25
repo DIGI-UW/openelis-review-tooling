@@ -105,6 +105,21 @@ test("shows checklist load failures instead of an empty checklist", async ({ pag
   await expect(widget.getByRole("alert")).toContainText("Could not load");
 });
 
+test("keeps the panel open when an initial checklist refresh finishes late", async ({
+  page,
+}) => {
+  await page.route("**/tests/widget/uat.json", async (route) => {
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    await route.continue();
+  });
+
+  await page.goto("/");
+  const widget = page.locator("#oe-review-host");
+  await widget.getByRole("button", { name: "Review" }).click();
+  await expect(widget.getByText("Analyzer QC review")).toBeVisible();
+  await expect(widget.getByRole("button", { name: "Minimize" })).toBeVisible();
+});
+
 test("does not reuse position-based legacy answers", async ({ page }) => {
   await page.addInitScript(() => {
     localStorage.setItem(

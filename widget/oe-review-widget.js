@@ -211,7 +211,9 @@
 
   function applyChecklist(next, target) {
     next = validateChecklist(next);
+    var minimized = state.minimized;
     state = loadContext(target, next);
+    state.minimized = minimized;
     (next.sections || []).forEach(function (section) {
       (section.steps || []).forEach(function (step) {
         var key = step.key;
