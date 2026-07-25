@@ -153,6 +153,14 @@ if [ "$APP_SCOPE" = frontend ] || [ "$APP_SCOPE" = app ]; then
 fi
 
 mapfile -t services < <(selected_services)
+# mapfile returns 0 even when the process substitution fails, and an empty array
+# would expand to nothing — turning the targeted build/recreate below into an
+# every-service one that rebuilds the database, FHIR and harness containers this
+# script exists to preserve. The rollback script guards the same way.
+if [ "${#services[@]}" -eq 0 ]; then
+  echo "no services selected for scope '$APP_SCOPE'" >&2
+  exit 1
+fi
 compose build "${services[@]}"
 if [ "$APP_SCOPE" = backend ] || [ "$APP_SCOPE" = app ]; then
   docker image tag "$BACKEND_IMAGE:latest" "$BACKEND_IMAGE:$app_sha"

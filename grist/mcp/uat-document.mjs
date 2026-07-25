@@ -6,9 +6,23 @@ function requiredValue(value) {
   return value === true || value === 1 || value === "1" || value === "true";
 }
 
+// A prefix test is not enough: "/\evil.com" starts with a single slash, but the
+// URL parser treats the backslash as an authority separator and resolves it to
+// another origin. Anyone who can edit a checklist row could otherwise put an
+// off-site link into an overlay the reviewer has been told to trust. Resolve
+// against a sentinel origin and require the result to stay on it.
+const ROUTE_BASE = "https://route-check.invalid";
 function validateRoute(route, stepKey) {
   if (!route) return "";
-  if (!route.startsWith("/") || route.startsWith("//")) {
+  let sameOrigin = false;
+  if (route.startsWith("/")) {
+    try {
+      sameOrigin = new URL(route, ROUTE_BASE).origin === ROUTE_BASE;
+    } catch {
+      sameOrigin = false;
+    }
+  }
+  if (!sameOrigin) {
     throw new Error(`step ${stepKey} route must be a same-origin absolute path`);
   }
   return route;

@@ -141,6 +141,7 @@
   var uat = { schemaVersion: 2, title: LABEL + " review", sections: [] };
   var build = null;
   var loading = true;
+  var inlineMode = false;
   var loadError = "";
   var buildWarning = "";
 
@@ -162,6 +163,7 @@
 
     var inline = inlineChecklist();
     if (inline) {
+      inlineMode = true;
       try {
         applyChecklist(inline, null);
       } catch (e) {
@@ -197,6 +199,18 @@
     }
   }
 
+  // A prefix test is not enough: "/\evil.com" starts with a single slash but the
+  // URL parser treats the backslash as an authority separator, so it resolves to
+  // another origin. Resolve the route and compare origins instead.
+  function sameOriginPath(route) {
+    if (typeof route !== "string" || route.charAt(0) !== "/") return false;
+    try {
+      return new URL(route, location.origin).origin === location.origin;
+    } catch (e) {
+      return false;
+    }
+  }
+
   function validateChecklist(value) {
     if (!value || value.schemaVersion !== 2) {
       throw new Error("Checklist schemaVersion 2 is required.");
@@ -210,10 +224,7 @@
         if (!step.key) throw new Error("A checklist step is missing its stable key.");
         if (keys[step.key]) throw new Error("Duplicate checklist step key: " + step.key);
         keys[step.key] = true;
-        if (
-          step.route &&
-          (!step.route.startsWith("/") || step.route.startsWith("//"))
-        ) {
+        if (step.route && !sameOriginPath(step.route)) {
           throw new Error("Checklist route must be same-origin: " + step.key);
         }
       });
@@ -302,7 +313,10 @@
     b.onclick = function () {
       state.minimized = false;
       save();
-      refreshChecklist();
+      // An inline checklist has no URL to re-read; refreshing would fetch the
+      // same-origin default and paint a 404 over a checklist that loaded fine.
+      if (!inlineMode) refreshChecklist();
+      else render();
     };
     return b;
   }
