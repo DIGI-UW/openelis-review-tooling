@@ -130,4 +130,5 @@ images if candidate verification fails. Automatic rollback is intentionally
 disabled for schema-affecting deployments; those require a separate data
 rollback plan. The targeted runner resolves the active app and overlay paths
 from the running container's Compose labels, so a stale local checkout-path
-setting cannot redirect an in-place deployment.
+setting cannot redirect an in-place deployment. Full, targeted, and rollback
+runners share a host lock and refuse to start concurrently.

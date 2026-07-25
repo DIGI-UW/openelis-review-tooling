@@ -3,6 +3,11 @@
 # Restores the application images and target metadata saved by a successful
 # targeted deployment. Schema-affecting releases require a separate data plan.
 set -euo pipefail
+exec 9>/var/lock/openelis-review-deploy.lock
+flock -n 9 || {
+  echo "[app-rollback] another review-host deployment is already running" >&2
+  exit 1
+}
 
 : "${INSTANCE:?}" "${APP_DIR:?}" "${EDGE_DIR:?}" "${DEPLOYMENT_ID:?}" "${DEPLOYMENT_DIR:?}"
 : "${APP_DOMAIN:?}"

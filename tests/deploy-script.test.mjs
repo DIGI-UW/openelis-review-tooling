@@ -98,6 +98,13 @@ test("targeted lifecycle resolves the active Compose paths from the running app"
   }
 });
 
+test("full and targeted deployment runners share an exclusive host lock", () => {
+  for (const script of [deployScript, appDeployScript, appRollbackScript]) {
+    assert.match(script, /\/var\/lock\/openelis-review-deploy\.lock/);
+    assert.match(script, /flock -n 9/);
+  }
+});
+
 test("ready metadata is published only after health and route smoke checks", () => {
   const healthCheck = appDeployScript.indexOf(
     ".State.Health.Status",

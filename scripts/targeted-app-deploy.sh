@@ -3,6 +3,11 @@
 # Runs on the review host. deploy.sh supplies only validated, non-secret values.
 # The ready target is published only after the selected app services are healthy.
 set -euo pipefail
+exec 9>/var/lock/openelis-review-deploy.lock
+flock -n 9 || {
+  echo "[app-deploy] another review-host deployment is already running" >&2
+  exit 1
+}
 
 : "${INSTANCE:?}" "${APP_DIR:?}" "${EDGE_DIR:?}" "${APP_REPO:?}"
 : "${APP_BRANCH:?}" "${APP_REF:?}" "${APP_SCOPE:?}" "${APP_DOMAIN:?}"

@@ -126,6 +126,11 @@ _runner_script() {
   cat <<RUNNER
 #!/usr/bin/env bash
 set -euo pipefail
+exec 9>/var/lock/openelis-review-deploy.lock
+flock -n 9 || {
+  echo "[deploy] another review-host deployment is already running" >&2
+  exit 1
+}
 echo "[deploy] start \$(date -u)"
 REMOTE_USER="$OS_USER"
 repo_git() {
