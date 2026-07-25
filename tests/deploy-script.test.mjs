@@ -112,7 +112,7 @@ test("review widget deployment is exact-SHA, locked, and restart-free", () => {
   assert.match(deployScript, /flock -n 9/);
   assert.match(
     deployScript,
-    /curl -fsSk 'https:\/\/\$AMR_DOMAIN\/__review\/oe-review-widget\.js'/,
+    /curl -fsSk 'https:\/\/\$AMR_DOMAIN\/__review\/oe-review-widget\.js' -o/,
   );
   assert.doesNotMatch(
     deployScript.slice(

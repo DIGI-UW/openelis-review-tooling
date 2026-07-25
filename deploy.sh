@@ -525,7 +525,10 @@ for instance in amr analyzers; do
   chmod 0644 \"\$tmp\"
   mv \"\$tmp\" \"\$target\"
 done
-curl -fsSk 'https://$AMR_DOMAIN/__review/oe-review-widget.js' | grep -q 'attachShadow({ mode: \"open\" })'
+widget_tmp=\$(mktemp)
+trap 'rm -f \"\$widget_tmp\"' EXIT
+curl -fsSk 'https://$AMR_DOMAIN/__review/oe-review-widget.js' -o \"\$widget_tmp\"
+grep -q 'attachShadow({ mode: \"open\" })' \"\$widget_tmp\"
 echo 'review widget ready at $ref'"
 }
 
