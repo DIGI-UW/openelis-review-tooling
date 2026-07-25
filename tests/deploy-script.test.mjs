@@ -4,6 +4,14 @@ import test from "node:test";
 
 const repoRoot = new URL("..", import.meta.url).pathname;
 const deployScript = readFileSync(`${repoRoot}/deploy.sh`, "utf8");
+const appDeployScript = readFileSync(
+  `${repoRoot}/scripts/targeted-app-deploy.sh`,
+  "utf8",
+);
+const appRollbackScript = readFileSync(
+  `${repoRoot}/scripts/targeted-app-rollback.sh`,
+  "utf8",
+);
 
 test("remote repository operations run as the checkout owner", () => {
   assert.match(
@@ -56,4 +64,54 @@ test("analyzer deployment prepares only the generic runtime plugins", () => {
     deployScript,
     /expected active generic analyzer registry 3:ASTM,FILE,HL7/,
   );
+});
+
+test("targeted AMR deployment accepts only an exact SHA and explicit scope", () => {
+  assert.match(deployScript, /\^\[0-9a-f\]\{40\}\$/);
+  assert.match(deployScript, /--scope must be frontend, backend, or app/);
+  assert.match(deployScript, /app deploy amr --ref <sha>/);
+  assert.match(deployScript, /data seed amr --fixture microbiology-mvp/);
+});
+
+test("targeted AMR deployment preserves unrelated review infrastructure", () => {
+  assert.match(
+    appDeployScript,
+    /compose build "\$\{services\[@\]\}"/,
+  );
+  assert.match(
+    appDeployScript,
+    /compose up -d --no-deps --force-recreate "\$\{services\[@\]\}"/,
+  );
+  assert.doesNotMatch(appDeployScript, /grist\/bootstrap/);
+  assert.doesNotMatch(appDeployScript, /docker compose -p analyzers/);
+  assert.doesNotMatch(appDeployScript, /\bdb\.openelis\.org\b/);
+  assert.doesNotMatch(appDeployScript, /\bfhir\.openelis\.org\b/);
+});
+
+test("ready metadata is published only after health and route smoke checks", () => {
+  const healthCheck = appDeployScript.indexOf(
+    ".State.Health.Status",
+  );
+  const routeSmoke = appDeployScript.indexOf(
+    "Microbiology/worklist",
+  );
+  const publishTarget = appDeployScript.indexOf(
+    'mv "$target_tmp" "$TARGET_FILE"',
+  );
+
+  assert.ok(healthCheck > -1);
+  assert.ok(routeSmoke > healthCheck);
+  assert.ok(publishTarget > routeSmoke);
+  assert.match(appDeployScript, /"health":"passed","smoke":"passed"/);
+});
+
+test("failed candidates and explicit rollback restore saved images", () => {
+  assert.match(appDeployScript, /restore_previous_images/);
+  assert.match(appDeployScript, /rollback-\$DEPLOYMENT_ID/);
+  assert.match(appRollbackScript, /rollback-\$DEPLOYMENT_ID/);
+  assert.match(
+    appRollbackScript,
+    /automatic rollback is disabled for schema-affecting deployments/,
+  );
+  assert.match(appRollbackScript, /previous-target\.json/);
 });

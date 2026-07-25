@@ -25,6 +25,11 @@
 #   ./deploy.sh deploy [--yes]      # build + bring up router + both stacks on self-signed (detached + polled)
 #   ./deploy.sh certs               # issue LE certs for both domains (run AFTER DNS resolves to the host)
 #   ./deploy.sh seed                # seed reviewable demo data: analyzers (9-device fleet) + a microbiology case
+#   ./deploy.sh app deploy amr --ref <sha> --scope frontend|backend|app
+#   ./deploy.sh app status amr [--deployment <id>]
+#   ./deploy.sh app verify amr
+#   ./deploy.sh app rollback amr
+#   ./deploy.sh data seed amr --fixture microbiology-mvp
 #   ./deploy.sh up-to-certs --yes   # configure -> deploy -> certs -> seed
 set -euo pipefail
 
@@ -344,6 +349,164 @@ DB_CONTAINER=amr-openelisglobal-database BASE_URL=https://$AMR_DOMAIN /tmp/seed-
   log "  https://$AMR_DOMAIN/Microbiology/worklist"
 }
 
+validate_instance() {
+  [ "$1" = amr ] || die "targeted app lifecycle currently supports instance 'amr'"
+}
+
+validate_sha() {
+  [[ "$1" =~ ^[0-9a-f]{40}$ ]] || die "--ref must be an exact 40-character lowercase Git SHA"
+}
+
+validate_scope() {
+  case "$1" in frontend|backend|app) ;; *) die "--scope must be frontend, backend, or app" ;; esac
+}
+
+cmd_app_deploy() {
+  local instance="${1:-}" ref="" scope="" deployment_id deployment_dir remote_runner remote_log
+  shift || true
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --ref) ref="${2:-}"; shift 2 ;;
+      --scope) scope="${2:-}"; shift 2 ;;
+      *) die "unknown app deploy argument '$1'" ;;
+    esac
+  done
+  validate_instance "$instance"
+  validate_sha "$ref"
+  validate_scope "$scope"
+  require_aws
+
+  deployment_id="$(date -u +%Y%m%dT%H%M%SZ)-${ref:0:12}"
+  deployment_dir="$EDGE_DIR/runtime/deployments/$deployment_id"
+  remote_runner="/home/$OS_USER/oe-app-deploy-$deployment_id.sh"
+  remote_log="/home/$OS_USER/oe-app-deploy-$deployment_id.log"
+  log "launching targeted AMR $scope deploy at exact SHA $ref"
+  ssm_run "mkdir -p '$deployment_dir'
+cat > '$remote_runner' <<'RUNNEREOF'
+INSTANCE='$instance'
+APP_DIR='$AMR_DIR'
+EDGE_DIR='$EDGE_DIR'
+APP_REPO='$APP_REPO'
+APP_BRANCH='$AMR_BRANCH'
+APP_REF='$ref'
+APP_SCOPE='$scope'
+APP_DOMAIN='$AMR_DOMAIN'
+REMOTE_USER='$OS_USER'
+DEPLOYMENT_ID='$deployment_id'
+DEPLOYMENT_DIR='$deployment_dir'
+$(cat "$HERE/scripts/targeted-app-deploy.sh")
+RUNNEREOF
+chmod 0700 '$remote_runner'
+nohup bash '$remote_runner' > '$remote_log' 2>&1 </dev/null &
+echo '$deployment_id'" || die "failed to launch targeted deployment"
+  log "deployment launched: $deployment_id"
+  log "status: ./deploy.sh app status amr --deployment $deployment_id"
+}
+
+cmd_app_status() {
+  local instance="${1:-}" deployment_id=""
+  shift || true
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --deployment) deployment_id="${2:-}"; shift 2 ;;
+      *) die "unknown app status argument '$1'" ;;
+    esac
+  done
+  validate_instance "$instance"
+  require_aws
+  ssm_run "deployment_id='$deployment_id'
+if [ -z \"\$deployment_id\" ]; then
+  latest=\$(find '$EDGE_DIR/runtime/deployments' -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sort | tail -1)
+  deployment_id=\${latest##*/}
+fi
+[ -n \"\$deployment_id\" ] || { echo 'no targeted deployments found'; exit 1; }
+status='$EDGE_DIR/runtime/deployments/'\"\$deployment_id\"'/status.json'
+log='/home/$OS_USER/oe-app-deploy-'\"\$deployment_id\"'.log'
+echo \"deployment=\$deployment_id\"
+cat \"\$status\" 2>/dev/null || echo '{\"state\":\"launching\"}'
+echo
+tail -12 \"\$log\" 2>/dev/null || true"
+}
+
+cmd_app_verify() {
+  local instance="${1:-}"
+  validate_instance "$instance"
+  require_aws
+  log "verified target metadata"
+  curl -fsSk "https://$AMR_DOMAIN/__review/target.json"
+  echo
+  log "AMR application smoke"
+  printf '   / -> HTTP %s\n' "$(curl -sk -o /dev/null -w '%{http_code}' --max-time 15 "https://$AMR_DOMAIN/")"
+  printf '   /Microbiology/worklist -> HTTP %s\n' \
+    "$(curl -sk -o /dev/null -w '%{http_code}' --max-time 15 "https://$AMR_DOMAIN/Microbiology/worklist")"
+  ssm_run "docker inspect -f '{{.Name}}: running={{.State.Running}} health={{if .State.Health}}{{.State.Health.Status}}{{else}}n/a{{end}} image={{.Image}} started={{.State.StartedAt}}' \
+    amr-openelisglobal-webapp amr-openelisglobal-front-end"
+}
+
+cmd_app_rollback() {
+  local instance="${1:-}" deployment_id remote_runner
+  validate_instance "$instance"
+  require_aws
+  deployment_id="$(curl -fsSk "https://$AMR_DOMAIN/__review/target.json" |
+    sed -n 's/.*"deploymentId":"\([^"]*\)".*/\1/p')"
+  [ -n "$deployment_id" ] || die "could not determine current AMR deployment"
+  remote_runner="/home/$OS_USER/oe-app-rollback-$deployment_id.sh"
+  log "rolling back targeted deployment $deployment_id"
+  ssm_run "cat > '$remote_runner' <<'ROLLBACKEOF'
+INSTANCE='$instance'
+APP_DIR='$AMR_DIR'
+EDGE_DIR='$EDGE_DIR'
+APP_DOMAIN='$AMR_DOMAIN'
+DEPLOYMENT_ID='$deployment_id'
+DEPLOYMENT_DIR='$EDGE_DIR/runtime/deployments/$deployment_id'
+$(cat "$HERE/scripts/targeted-app-rollback.sh")
+ROLLBACKEOF
+chmod 0700 '$remote_runner'
+bash '$remote_runner'" || die "rollback failed"
+  cmd_app_verify "$instance"
+}
+
+cmd_app() {
+  local action="${1:-}"
+  shift || true
+  case "$action" in
+    deploy) cmd_app_deploy "$@" ;;
+    status) cmd_app_status "$@" ;;
+    verify) cmd_app_verify "$@" ;;
+    rollback) cmd_app_rollback "$@" ;;
+    *) die "unknown app action '$action' (deploy|status|verify|rollback)" ;;
+  esac
+}
+
+cmd_data_seed() {
+  local instance="${1:-}" fixture=""
+  shift || true
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --fixture) fixture="${2:-}"; shift 2 ;;
+      *) die "unknown data seed argument '$1'" ;;
+    esac
+  done
+  validate_instance "$instance"
+  [ "$fixture" = microbiology-mvp ] || die "AMR fixture must be 'microbiology-mvp'"
+  require_aws
+  log "seeding AMR microbiology MVP fixture only"
+  ssm_run "cat > /tmp/seed-microbiology.sh <<'SEEDEOF'
+$(cat "$HERE/scripts/seed-microbiology.sh")
+SEEDEOF
+chmod +x /tmp/seed-microbiology.sh
+DB_CONTAINER=amr-openelisglobal-database BASE_URL=https://$AMR_DOMAIN /tmp/seed-microbiology.sh"
+}
+
+cmd_data() {
+  local action="${1:-}"
+  shift || true
+  case "$action" in
+    seed) cmd_data_seed "$@" ;;
+    *) die "unknown data action '$action' (seed)" ;;
+  esac
+}
+
 cmd_status() {
   require_aws
   log "instance"; aws ec2 describe-instances --region "$REGION" --instance-ids "$INSTANCE_ID" \
@@ -371,9 +534,11 @@ main() {
     deploy) cmd_deploy "$@" ;;
     certs) cmd_certs ;;
     seed) cmd_seed ;;
+    app) cmd_app "$@" ;;
+    data) cmd_data "$@" ;;
     up-to-certs) cmd_up_to_certs "$@" ;;
     help|-h|--help) sed -n '2,30p' "$0" | sed 's/^# \{0,1\}//' ;;
-    *) die "unknown subcommand '$sub' (status|connect|configure|deploy|certs|seed|up-to-certs|help)" ;;
+    *) die "unknown subcommand '$sub' (status|connect|configure|deploy|certs|seed|app|data|up-to-certs|help)" ;;
   esac
 }
 main "$@"

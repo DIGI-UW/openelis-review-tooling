@@ -105,13 +105,14 @@ revision. Within the same deployment, a stable semantic `step_key` can carry an
 answer across reordering. Changed instructions are marked stale. Legacy
 position-based answers are shown as unusable and never silently mapped.
 
-## Current Deployment Boundary
+## Deployment Boundary
 
 `./deploy.sh deploy --yes` remains the current full-environment path: it
 reconciles Grist and rebuilds both OpenELIS review targets plus the router. It
 must not be presented as a single-instance or low-risk application deployment.
 
-The approved target interface for the next spike is:
+Targeted AMR application delivery uses an exact pushed SHA and leaves the
+analyzer stack, router, Grist, databases, and FHIR containers untouched:
 
 ```text
 ./deploy.sh infra bootstrap|status|upgrade
@@ -122,4 +123,9 @@ The approved target interface for the next spike is:
 ./deploy.sh data seed <instance> --fixture <name>
 ```
 
-Until those commands exist, use the commands printed by `./deploy.sh help`.
+The first targeted implementation supports `instance=amr`. It tags the current
+frontend/backend images before replacement, publishes target metadata only
+after health and route smoke checks pass, and automatically restores those
+images if candidate verification fails. Automatic rollback is intentionally
+disabled for schema-affecting deployments; those require a separate data
+rollback plan.
