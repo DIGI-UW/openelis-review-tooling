@@ -18,7 +18,9 @@ running_configs="$(docker inspect -f '{{index .Config.Labels "com.docker.compose
   amr-openelisglobal-webapp 2>/dev/null || true)"
 running_override="$(printf '%s' "$running_configs" | tr ',' '\n' |
   awk '/\/amr\/docker-compose\.override\.yml$/ { print; exit }')"
-[ -z "$running_workdir" ] || APP_DIR="$running_workdir"
+if [ -n "$running_workdir" ]; then
+  APP_DIR="$running_workdir"
+fi
 if [ -n "$running_override" ]; then
   EDGE_DIR="${running_override%/amr/docker-compose.override.yml}"
 fi
