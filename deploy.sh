@@ -80,7 +80,7 @@ ssm_run() {
   b64="$(printf '%s' "$script" | base64 | tr -d '\n')"
   cmdid="$(aws ssm send-command --region "$REGION" --instance-ids "$INSTANCE_ID" \
     --document-name "AWS-RunShellScript" \
-    --parameters "commands=[\"echo $b64 | base64 -d > /tmp/deploy-cmd.sh && bash /tmp/deploy-cmd.sh\"]" \
+    --parameters "commands=[\"tmp=\$(mktemp /tmp/deploy-cmd.XXXXXX) || exit 1; echo $b64 | base64 -d > \$tmp && bash \$tmp; status=\$?; rm -f \$tmp; exit \$status\"]" \
     --query "Command.CommandId" --output text 2>&1)" || { warn "ssm send-command failed: $cmdid"; return 1; }
   deadline=$(( $(date +%s) + SSM_POLL_TIMEOUT ))
   status=InProgress
@@ -103,7 +103,7 @@ ssm_fire() {
   b64="$(printf '%s' "$script" | base64 | tr -d '\n')"
   aws ssm send-command --region "$REGION" --instance-ids "$INSTANCE_ID" \
     --document-name "AWS-RunShellScript" \
-    --parameters "commands=[\"echo $b64 | base64 -d > /tmp/deploy-cmd.sh && bash /tmp/deploy-cmd.sh\"]" \
+    --parameters "commands=[\"tmp=\$(mktemp /tmp/deploy-cmd.XXXXXX) || exit 1; echo $b64 | base64 -d > \$tmp && bash \$tmp; status=\$?; rm -f \$tmp; exit \$status\"]" \
     --query "Command.CommandId" --output text 2>&1
 }
 

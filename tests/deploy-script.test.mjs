@@ -65,7 +65,6 @@ test("analyzer deployment prepares only the generic runtime plugins", () => {
     /expected active generic analyzer registry 3:ASTM,FILE,HL7/,
   );
 });
-
 test("targeted AMR deployment accepts only an exact SHA and explicit scope", () => {
   assert.match(deployScript, /\^\[0-9a-f\]\{40\}\$/);
   assert.match(deployScript, /--scope must be frontend, backend, or app/);
@@ -125,4 +124,18 @@ test("failed candidates and explicit rollback restore saved images", () => {
     /automatic rollback is disabled for schema-affecting deployments/,
   );
   assert.match(appRollbackScript, /previous-target\.json/);
+});
+
+test("concurrent SSM commands cannot overwrite each other's scripts", () => {
+  assert.doesNotMatch(deployScript, /\/tmp\/deploy-cmd\.sh/);
+  assert.equal(
+    deployScript.match(/mktemp \/tmp\/deploy-cmd\.XXXXXX/g)?.length,
+    2,
+    "both synchronous and fire-and-forget transports need unique scripts",
+  );
+  assert.equal(
+    deployScript.match(/rm -f \\\$tmp/g)?.length,
+    2,
+    "both transports must remove their unique scripts",
+  );
 });
