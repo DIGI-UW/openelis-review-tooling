@@ -22,11 +22,23 @@ ties the checklist, the widget, and the reviewer's saved answers together.
 Sign in at `https://grist.openelis-global.org`, open **UAT Checklists**, and add rows:
 
 - **`UAT_Meta`** — one row: `instance`, `title`, `intro`, `jira`.
-- **`UAT_Steps`** — one row per step: `instance`, `section`, `section_order`,
-  `step_order`, `do`, `expect`, `route`.
+- **`UAT_Steps`** — one row per step: `instance`, **`step_key`**, **`required`**,
+  `section`, `section_order`, `step_order`, `do`, `expect`, `route`.
 
 Reviewers see steps grouped by `section`, ordered by `section_order` then
 `step_order`.
+
+**`step_key` is mandatory** — a short, stable id for the step, unique within the
+instance (`AMR-001`, `AN-QC-004`). It is what ties a reviewer's answer to a step,
+so it must never change once reviewers have seen it: reorder rows freely, but
+leave `step_key` alone. `required` marks a step that must pass for the review to
+count (checkbox / `true`).
+
+> ⚠️ **A row with an empty `step_key` breaks the whole checklist** — the endpoint
+> returns an error for *every* step in that instance, not just the bad row. This is
+> deliberate: silently dropping a step could let a report claim "all required steps
+> passed" while a step had quietly vanished. Always run the check below after
+> editing.
 
 ### As an agent (Claude)
 Connect the authoring MCP once, then ask in plain language — *"add a checklist for
@@ -52,11 +64,20 @@ reviewer marking it **Fail** is exactly the signal you want.
 > S/I/R interpretation is carried onto the patient's result/report output."* It came
 > back **FAIL** — and became the highest-value gap for the next iteration.
 
-### Check it
+### Check it (do this after every edit)
 ```bash
-curl https://grist.openelis-global.org/uat/<instance>.json
+curl -sS -o /dev/null -w '%{http_code}\n' https://grist.openelis-global.org/uat/<instance>.json
 ```
-That is exactly what reviewers' browsers will load.
+`200` means reviewers will load exactly this checklist. Anything else means they'd
+see an error instead — the body says which row is at fault:
+
+```bash
+curl -sS https://grist.openelis-global.org/uat/<instance>.json
+# {"error":"step row 35 is missing step_key"}
+```
+
+Fix that row and re-check. (Answers already given by reviewers survive this — they
+are keyed by `step_key`, not by position.)
 
 ---
 
