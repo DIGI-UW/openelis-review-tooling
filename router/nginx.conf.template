@@ -96,7 +96,11 @@ http {
             proxy_cache uat_cache;
             proxy_cache_valid 200 30s;
             proxy_cache_use_stale error timeout updating http_502 http_503 http_504;
-            add_header Cache-Control "no-store";
+            add_header Cache-Control "no-store" always;
+            # $upstream_cache_status distinguishes a live read (MISS/HIT) from a
+            # stale one served because the upstream failed. Without it the response
+            # claims "grist-live" either way and a frozen checklist is invisible.
+            add_header X-UAT-Cache $upstream_cache_status always;
             add_header X-UAT-Source "grist-live" always;
         }
 
@@ -178,7 +182,11 @@ http {
             proxy_cache uat_cache;
             proxy_cache_valid 200 30s;
             proxy_cache_use_stale error timeout updating http_502 http_503 http_504;
-            add_header Cache-Control "no-store";
+            add_header Cache-Control "no-store" always;
+            # $upstream_cache_status distinguishes a live read (MISS/HIT) from a
+            # stale one served because the upstream failed. Without it the response
+            # claims "grist-live" either way and a frozen checklist is invisible.
+            add_header X-UAT-Cache $upstream_cache_status always;
             add_header X-UAT-Source "grist-live" always;
         }
 
@@ -276,6 +284,10 @@ http {
             add_header Access-Control-Allow-Methods "GET, OPTIONS" always;
             add_header Access-Control-Allow-Headers "Content-Type" always;
             add_header Cache-Control "no-store" always;
+            # $upstream_cache_status distinguishes a live read (MISS/HIT) from a
+            # stale one served because the upstream failed. Without it the response
+            # claims "grist-live" either way and a frozen checklist is invisible.
+            add_header X-UAT-Cache $upstream_cache_status always;
             add_header X-UAT-Source "grist-live" always;
         }
 
