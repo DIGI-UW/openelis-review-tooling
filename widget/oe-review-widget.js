@@ -1583,7 +1583,7 @@
       ".filter.on{background:#eef4ff;border-color:#0f62fe;color:#0f62fe;}",
       // Pinned to the top of the scroller: several steps into a section, the
       // heading that says which part of the review this is has scrolled away.
-      ".secrow{position:sticky;top:0;z-index:1;background:#fff;display:flex;align-items:baseline;justify-content:space-between;gap:8px;margin:0 -12px;padding:9px 12px 4px;}",
+      ".secrow{position:sticky;top:0;z-index:1;background:#fff;display:flex;align-items:baseline;justify-content:space-between;gap:8px;margin:0 -12px 4px;padding:9px 12px 4px;border-bottom:1px solid #eef0f3;}",
       ".secrow[hidden]{display:none;}",
       ".seccount{font-size:11px;color:#8b95a3;font-weight:700;font-variant-numeric:tabular-nums;}",
       ".step[hidden]{display:none;}",
