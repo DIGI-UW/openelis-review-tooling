@@ -19,9 +19,25 @@
   actually be sent.
 - `GET /healthz` provides liveness.
 
-Everything in the Grist document is served to anonymous callers, and the catalog
-lists it without being asked for a slug. There is no draft state: a row is public
-from the moment it is written.
+## What is public
+
+Checklists are served to anonymous callers — the widget has to load for a reviewer
+who is not signed in — so a slug is not a secret.
+
+The catalog is what makes slugs discoverable without one, so it lists only stories
+whose `UAT_Meta.published` is ticked. A new row is unlisted until someone says
+otherwise, and unlisted stories are omitted silently: naming them would put the
+slug and title of unreleased work into the very document the flag exists to keep
+them out of. Publish one with:
+
+```
+node grist-sync.mjs publish <instance>          # and --unlist to take it back
+```
+
+Note the boundary: this governs **discovery, not access**. Anyone who knows or
+guesses a slug can still read that checklist directly at `/uat/<slug>.json`, as
+they always could. Treat unlisted as "not advertised", not as "protected", and
+keep genuinely sensitive material out of the document.
 
 This service has no authoring endpoint and no caller tokens. Humans author in the
 Grist UI; agents author through Grist's native MCP endpoint:

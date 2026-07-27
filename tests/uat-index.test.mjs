@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { buildUatIndex } from "../grist/mcp/uat-document.mjs";
+import { buildUatIndex, parsePublished } from "../grist/mcp/uat-document.mjs";
 
 function step(instance, key, fields = {}) {
   return {
@@ -18,8 +18,8 @@ function step(instance, key, fields = {}) {
 }
 
 const metaRows = [
-  { id: 1, fields: { instance: "amr", title: "Microbiology MVP", jira: "OGC-782" } },
-  { id: 2, fields: { instance: "analyzers", title: "Analyzer QC", jira: "OGC-1054" } },
+  { id: 1, fields: { instance: "amr", title: "Microbiology MVP", jira: "OGC-782", published: true } },
+  { id: 2, fields: { instance: "analyzers", title: "Analyzer QC", jira: "OGC-1054", published: true } },
 ];
 
 test("lists every story that has steps", () => {
@@ -52,11 +52,32 @@ test("omits a story that has a meta row but nothing to review", () => {
   );
 });
 
-test("names a story that has steps but no meta row", () => {
-  const index = buildUatIndex([], [step("orphan", "OR-1")]);
+test("does not list a story that nobody has published", () => {
+  const draft = { id: 9, fields: { instance: "draft", title: "Unreleased thing", jira: "OGC-999" } };
+  const index = buildUatIndex([...metaRows, draft], [step("amr", "AMR-1"), step("draft", "DR-1")]);
 
-  assert.equal(index.stories[0].instance, "orphan");
-  assert.equal(index.stories[0].title, "orphan review");
+  // The catalog is readable by anyone, so a slug, title and Jira key reach the
+  // world the moment the row is saved unless the default is "not yet".
+  assert.deepEqual(index.stories.map((story) => story.instance), ["amr"]);
+  // …and it must not name what it withheld, which would defeat the point.
+  assert.equal(JSON.stringify(index).includes("draft"), false);
+  assert.equal(JSON.stringify(index).includes("OGC-999"), false);
+});
+
+test("steps with no meta row at all are not published by omission", () => {
+  const index = buildUatIndex([], [step("orphan", "OR-1")]);
+  assert.deepEqual(index.stories, []);
+});
+
+test("reads the published flag the way Grist can store it", () => {
+  for (const yes of [true, "true", "TRUE", " yes ", "1", "on"]) {
+    assert.equal(parsePublished(yes), true, `expected ${JSON.stringify(yes)} to publish`);
+  }
+  // Unset is the case that matters: Grist backfills a new Bool column with false,
+  // and a blank cell must never read as "go ahead".
+  for (const no of [undefined, null, false, "", "  ", "false", "no", "0", "off", "maybe"]) {
+    assert.equal(parsePublished(no), false, `expected ${JSON.stringify(no)} to stay private`);
+  }
 });
 
 test("publishes the pages a story touches, without duplicates or query strings", () => {

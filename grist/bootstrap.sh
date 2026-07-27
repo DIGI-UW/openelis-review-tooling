@@ -153,6 +153,16 @@ cmd_generate() {
   echo ">> diagnostic export complete; live delivery still reads directly from Grist"
 }
 
+# Listing a story in the public catalog is an act with a consequence, so it has
+# its own command rather than riding along with a migration.
+cmd_publish() {
+  require_runtime
+  [ -s "$KEYFILE" ] || die "$KEYFILE is missing; run up first"
+  [ "$#" -gt 0 ] || die "publish needs at least one instance (--unlist takes one back)"
+  copy_runtime_scripts
+  run_node publish "$@"
+}
+
 cmd_seed_examples() {
   [ "${1:-}" = "--replace-all" ] ||
     die "seed-examples replaces committed checklist instances; re-run with --replace-all"
@@ -166,6 +176,10 @@ main() {
     up) cmd_up ;;
     status) cmd_status ;;
     generate) cmd_generate ;;
+    publish)
+      shift
+      cmd_publish "$@"
+      ;;
     seed-examples)
       shift
       cmd_seed_examples "$@"
@@ -177,6 +191,7 @@ Usage:
   ./grist/bootstrap.sh up
   ./grist/bootstrap.sh status
   ./grist/bootstrap.sh generate
+  ./grist/bootstrap.sh publish <instance…> [--unlist]
   ./grist/bootstrap.sh seed-examples --replace-all
 USAGE
       ;;

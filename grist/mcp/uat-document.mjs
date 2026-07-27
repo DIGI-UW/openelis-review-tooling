@@ -18,6 +18,18 @@ export function parseRequired(value) {
   return Boolean(value);
 }
 
+// The mirror of parseRequired, with deliberately the opposite default. A story
+// is listed only once somebody has said it should be: the catalog is readable by
+// anyone, so an unset flag has to mean "not yet", not "sure". Grist backfills a
+// new Bool column with false, which lands on the safe side by itself.
+export function parsePublished(value) {
+  if (value === undefined || value === null) return false;
+  if (typeof value === "string") {
+    return ["true", "1", "yes", "y", "on"].includes(value.trim().toLowerCase());
+  }
+  return Boolean(value);
+}
+
 // A prefix test is not enough: "/\evil.com" starts with a single slash, but the
 // URL parser treats the backslash as an authority separator and resolves it to
 // another origin. Anyone who can edit a checklist row could otherwise put an
@@ -90,6 +102,10 @@ export function buildUatIndex(metaRecords, stepRecords) {
     // A story with a meta row but no steps is not reviewable; listing it would
     // offer the reviewer an empty checklist.
     stories: [...stories.values()]
+      // Unpublished stories are left out silently. Naming them here would put the
+      // slugs and titles of unreleased work into the very document this flag
+      // exists to keep them out of; grist/mcp/README.md says how to publish one.
+      .filter((story) => parsePublished((titles.get(story.instance) || {}).published))
       .sort((a, b) => a.instance.localeCompare(b.instance))
       .map((story) => {
         const meta = titles.get(story.instance) || {};
