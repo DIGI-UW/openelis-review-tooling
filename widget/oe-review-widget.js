@@ -746,22 +746,28 @@
 
     parts.body = el("div", "body");
     parts.sections = [];
+    var position = 0;
     (uat.sections || []).forEach(function (section) {
+      // Each section is its own block so its pinned heading is released when the
+      // section ends. Sharing one container makes every heading stick at the top
+      // at once and pile up on each other.
+      var block = el("section", "secblock");
       var row = el("div", "secrow");
       var heading = el("h3", "sec");
       heading.textContent = section.title;
       var count = el("span", "seccount");
       row.appendChild(heading);
       row.appendChild(count);
-      parts.body.appendChild(row);
+      block.appendChild(row);
       var keys = [];
       (section.steps || []).forEach(function (step) {
-        var stepRow = buildRow(step);
+        var stepRow = buildRow(step, ++position);
         parts.rows[step.key] = stepRow;
-        parts.body.appendChild(stepRow.row);
+        block.appendChild(stepRow.row);
         keys.push(step.key);
       });
-      parts.sections.push({ row: row, count: count, keys: keys });
+      parts.body.appendChild(block);
+      parts.sections.push({ row: row, block: block, count: count, keys: keys });
     });
     panel.appendChild(parts.body);
 
@@ -917,15 +923,21 @@
     return box;
   }
 
-  function buildRow(step) {
+  function buildRow(step, position) {
     var row = el("div", "step");
     var summary = el("button", "steptop");
     summary.setAttribute("aria-expanded", "false");
-    var chip = el("span", "chip");
+    // The number is the anchor for the whole tile: it gives the reviewer a way to
+    // name the step, a sense of where they are in the list, and — through its
+    // colour — the answer it already holds, without adding a word per row.
+    var num = el("span", "num");
+    num.textContent = String(position);
     var text = el("span", "steplabel");
     text.textContent = step.do || step.text || "";
-    summary.appendChild(chip);
+    var chip = el("span", "chip");
+    summary.appendChild(num);
     summary.appendChild(text);
+    summary.appendChild(chip);
     summary.onclick = function () {
       // Clicking any row is how a reviewer goes back to something, or skips
       // ahead. It never changes an answer.
@@ -937,27 +949,45 @@
     row.appendChild(summary);
     var detail = el("div", "detail");
     row.appendChild(detail);
-    return { row: row, chip: chip, summary: summary, detail: detail, step: step };
+    return {
+      row: row,
+      num: num,
+      chip: chip,
+      summary: summary,
+      detail: detail,
+      step: step,
+      position: position,
+    };
   }
 
   function buildDetail(step) {
     var detail = document.createDocumentFragment();
-    if (step.expect) {
-      var expect = el("div", "expect");
-      expect.textContent = "Expected: " + step.expect;
-      detail.appendChild(expect);
-    }
-    if (!isRequired(step)) {
-      var optional = el("div", "optional");
-      optional.textContent = "Optional";
-      detail.appendChild(optional);
-    }
+    // Where before what: a reviewer's first question about a step is which page
+    // it happens on, and the answer used to sit below the thing to check.
     if (step.route) {
       var go = el("a", "go");
       go.textContent = "Go to " + readableRoute(step.route);
       go.href = step.route;
       go.title = step.route;
       detail.appendChild(go);
+    }
+    if (step.expect) {
+      // Labelled and set apart rather than run into the instruction as
+      // "Expected: …": the reviewer performs one of these and checks the other,
+      // and one long sentence made them look the same.
+      var expect = el("div", "expect");
+      var expectLabel = el("span", "expectlabel");
+      expectLabel.textContent = "Expect";
+      var expectText = el("span", "expecttext");
+      expectText.textContent = step.expect;
+      expect.appendChild(expectLabel);
+      expect.appendChild(expectText);
+      detail.appendChild(expect);
+    }
+    if (!isRequired(step)) {
+      var optional = el("div", "optional");
+      optional.textContent = "Optional";
+      detail.appendChild(optional);
     }
     var saved = state.steps[step.key] || {};
     var marks = el("div", "marks");
@@ -1145,8 +1175,20 @@
       row.row.classList.toggle("current", key === current);
       row.row.classList.toggle("answered", Boolean(saved.mark && !saved.stale));
       row.row.classList.toggle("failed", saved.mark === "fail" && !saved.stale);
+      row.row.setAttribute("data-state", stateOf(saved));
       row.chip.textContent = chipText(row.step, saved);
-      row.chip.className = "chip " + (saved.stale ? "stale" : saved.mark || "open");
+      row.chip.hidden = !row.chip.textContent;
+      // The number carries the state visually; this is the same fact for anyone
+      // who cannot see the colour.
+      row.summary.setAttribute(
+        "aria-label",
+        "Step " +
+          row.position +
+          ", " +
+          stateWord(saved) +
+          ": " +
+          (row.step.do || row.step.text || ""),
+      );
     });
 
     // Expanded shows every step in full; compact shows only the one being worked.
@@ -1225,12 +1267,31 @@
     return node;
   }
 
+  function stateOf(saved) {
+    if (saved.stale) return "stale";
+    if (saved.mark === "pass" || saved.mark === "fail" || saved.mark === "na") {
+      return saved.mark;
+    }
+    return "todo";
+  }
+  // Nothing is written for the state every unanswered step is in: "To do"
+  // repeated nine times down a list is noise the eye has to read past to find
+  // the two rows that actually say something.
   function chipText(step, saved) {
-    if (saved.stale) return "Review again";
-    if (saved.mark === "pass") return "Pass";
-    if (saved.mark === "fail") return "Fail";
-    if (saved.mark === "na") return "N/A";
-    return isRequired(step) ? "To do" : "Optional";
+    var state = stateOf(saved);
+    if (state === "stale") return "Review again";
+    if (state === "pass") return "Pass";
+    if (state === "fail") return "Fail";
+    if (state === "na") return "N/A";
+    return isRequired(step) ? "" : "Optional";
+  }
+  function stateWord(saved) {
+    var state = stateOf(saved);
+    if (state === "stale") return "needs another look";
+    if (state === "pass") return "passed";
+    if (state === "fail") return "failed";
+    if (state === "na") return "not applicable";
+    return "not answered";
   }
 
   function provenanceText() {
@@ -1520,7 +1581,9 @@
       ".filters{display:flex;gap:6px;padding:8px 12px 0;}",
       ".filter{flex:1;border:1px solid #d0d5dd;background:#fff;border-radius:6px;padding:5px 0;font:inherit;font-size:12px;font-weight:600;color:#5b6673;cursor:pointer;min-height:24px;}",
       ".filter.on{background:#eef4ff;border-color:#0f62fe;color:#0f62fe;}",
-      ".secrow{display:flex;align-items:baseline;justify-content:space-between;gap:8px;margin:12px 0 4px;}",
+      // Pinned to the top of the scroller: several steps into a section, the
+      // heading that says which part of the review this is has scrolled away.
+      ".secrow{position:sticky;top:0;z-index:1;background:#fff;display:flex;align-items:baseline;justify-content:space-between;gap:8px;margin:0 -12px;padding:9px 12px 4px;}",
       ".secrow[hidden]{display:none;}",
       ".seccount{font-size:11px;color:#8b95a3;font-weight:700;font-variant-numeric:tabular-nums;}",
       ".step[hidden]{display:none;}",
@@ -1533,13 +1596,16 @@
       ".status{padding:8px 12px;border-bottom:1px solid #eef0f3;color:#5b6673;}",
       ".status.error{background:#fff1f1;color:#a2191f;font-weight:600;}",
       ".status.warning{background:#fff8e1;color:#684e00;}",
-      ".intro{padding:8px 12px;border-bottom:1px solid #eef0f3;color:#5b6673;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;}",
+      ".intro{padding:8px 12px;border-bottom:1px solid #eef0f3;color:#5b6673;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;}",
       ".intro[hidden],.who[hidden],.filters[hidden]{display:none;}",
       // Expanded gains width, so spend it: the expected result reads down the
       // left while the answer sits on the right, which roughly halves how tall
       // each step is and puts more of the checklist on screen at once.
       ".panel.expanded .detail{display:grid;grid-template-columns:1fr 280px;gap:4px 16px;align-items:start;}",
       ".panel.expanded .detail .expect,.panel.expanded .detail .go,.panel.expanded .detail .optional{grid-column:1;margin:0;}",
+      // A grid item fills its track by default, which stretched a route pill the
+      // width of the column and made it read as a banner rather than a link.
+      ".panel.expanded .detail .go{justify-self:start;}",
       ".panel.expanded .detail .marks{grid-column:2;grid-row:1;}",
       ".panel.expanded .detail .stepnote{grid-column:2;grid-row:2;margin-top:0;}",
       ".who{padding:8px 12px;border-bottom:1px solid #eef0f3;display:flex;align-items:center;gap:8px;}",
@@ -1547,30 +1613,47 @@
       "input[type=text],textarea{width:100%;box-sizing:border-box;border:1px solid #d0d5dd;border-radius:6px;padding:6px 8px;font:inherit;color:inherit;}",
       "input:focus-visible,textarea:focus-visible,button:focus-visible,a:focus-visible{outline:2px solid #0f62fe;outline-offset:1px;}",
       // Positioned so a row's offsetTop is measured against the scroller itself.
-      ".body{position:relative;flex:1;min-height:0;overflow-y:auto;padding:4px 12px 10px;}",
+      ".body{position:relative;flex:1;min-height:0;overflow-y:auto;padding:0 12px 10px;}",
       ".sec{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:#8b95a3;font-weight:700;margin:0;}",
       ".step{border:1px solid #eef0f3;border-radius:8px;margin-bottom:6px;background:#fafbfc;}",
       ".step.current{background:#fff;border-color:#c6d4ff;box-shadow:0 0 0 2px rgba(15,98,254,.12);}",
-      ".steptop{display:flex;gap:8px;align-items:flex-start;width:100%;text-align:left;background:none;border:none;padding:8px 10px;font:inherit;color:inherit;cursor:pointer;min-height:24px;}",
-      ".steplabel{flex:1;line-height:1.35;}",
-      ".step:not(.current) .steplabel{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;}",
+      ".steptop{display:flex;gap:9px;align-items:flex-start;width:100%;text-align:left;background:none;border:none;padding:6px 10px;font:inherit;color:inherit;cursor:pointer;min-height:24px;}",
+      ".num{flex:none;width:22px;height:22px;border-radius:50%;border:1.5px solid #c6cdd6;background:#fff;color:#5b6673;display:inline-flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;font-variant-numeric:tabular-nums;}",
+      ".step[data-state=pass] .num{background:#24a148;border-color:#24a148;color:#fff;}",
+      ".step[data-state=fail] .num{background:#da1e28;border-color:#da1e28;color:#fff;}",
+      ".step[data-state=na] .num{background:#8b95a3;border-color:#8b95a3;color:#fff;}",
+      ".step[data-state=stale] .num{background:#f1c21b;border-color:#f1c21b;color:#3d3000;}",
+      ".step.current .num{box-shadow:0 0 0 3px rgba(15,98,254,.18);}",
+      ".step.current[data-state=todo] .num{border-color:#0f62fe;color:#0f62fe;}",
+      ".steplabel{flex:1;line-height:1.4;padding-top:2px;}",
+      ".panel:not(.expanded) .step:not(.current) .steplabel{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;}",
       ".step.current .steplabel{font-weight:600;}",
       ".step.answered .steplabel{color:#697077;}",
-      ".chip{flex:none;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.03em;border-radius:4px;padding:2px 5px;margin-top:1px;background:#eef0f3;color:#5b6673;}",
+      ".chip{flex:none;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.03em;border-radius:4px;padding:2px 5px;margin-top:3px;background:#eef0f3;color:#5b6673;}",
+      ".chip[hidden]{display:none;}",
       ".chip.pass{background:#defbe6;color:#0e6027;}",
       ".chip.fail{background:#fff1f1;color:#a2191f;}",
       ".chip.stale{background:#fff8e1;color:#684e00;}",
       ".detail:empty{display:none;}",
-      ".detail{padding:0 10px 10px;}",
-      ".expect{font-size:12px;color:#5b6673;margin-bottom:4px;}",
+      // Flush in the compact panel, where 31px of indent costs a line of wrapping
+      // in a 360px column; aligned under the instruction once there is width for
+      // it to be worth the alignment.
+      ".detail{padding:0 10px 8px;}",
+      ".panel.expanded .detail{padding-left:41px;}",
+      // Set apart from the instruction, and labelled, so the thing to do and the
+      // thing to check stop reading as one long sentence.
+      ".expect{display:flex;gap:8px;align-items:baseline;background:#f4f7fb;border-left:3px solid #c6d4ff;border-radius:0 6px 6px 0;padding:5px 9px;margin:4px 0;}",
+      ".expectlabel{flex:none;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:#4b6ea9;}",
+      ".expecttext{font-size:12px;line-height:1.4;color:#40484f;}",
       ".optional{font-size:10px;color:#697077;text-transform:uppercase;margin-bottom:4px;}",
-      ".go{display:inline-block;font-size:12px;color:#0f62fe;text-decoration:none;margin-bottom:6px;}.go:hover{text-decoration:underline;}",
+      ".go{display:inline-flex;align-items:center;box-sizing:border-box;min-height:24px;font-size:12px;font-weight:600;color:#0f62fe;text-decoration:none;background:#eef4ff;border:1px solid #cfe0ff;border-radius:999px;padding:3px 10px;}",
+      ".go:hover{background:#dbe7ff;}",
       ".marks{display:flex;gap:6px;}",
-      ".mark{flex:1;border:1px solid #d0d5dd;background:#fff;border-radius:6px;padding:6px 0;font-size:12px;font-weight:600;cursor:pointer;color:#5b6673;min-height:24px;}",
+      ".mark{flex:1;border:1px solid #d0d5dd;background:#fff;border-radius:6px;padding:5px 0;font-size:12px;font-weight:600;cursor:pointer;color:#5b6673;min-height:24px;}",
       ".mark.pass.on{background:#defbe6;border-color:#24a148;color:#0e6027;}",
       ".mark.fail.on{background:#fff1f1;border-color:#da1e28;color:#a2191f;}",
       ".mark.na.on{background:#eef0f3;border-color:#8b95a3;color:#5b6673;}",
-      ".stepnote{margin-top:6px;font-size:12px;}",
+      ".stepnote{margin-top:5px;font-size:12px;}",
       ".fb{padding:6px 12px 8px;border-top:1px solid #eef0f3;}",
       ".notetoggle{background:none;border:none;color:#0f62fe;font:inherit;font-weight:600;cursor:pointer;padding:4px 0;min-height:24px;}",
       ".noteform{display:none;margin-top:6px;}",

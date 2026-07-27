@@ -127,6 +127,72 @@ test("can be moved off whatever it is covering, and remembers where", async ({
   expect(restored.x).toBeCloseTo(moved.x, 0);
 });
 
+test("numbers every step and says where each one stands", async ({ page }) => {
+  const widget = await openPanel(page);
+  const steps = widget.locator(".step");
+
+  // A reviewer reporting a problem needs to be able to name the step, and a
+  // reviewer scanning the list needs to see its state without reading it.
+  await expect(steps.nth(0).locator(".num")).toHaveText("1");
+  await expect(steps.nth(9).locator(".num")).toHaveText("10");
+  await expect(steps.nth(0)).toHaveAttribute("data-state", "todo");
+
+  await widget.locator(".step.current .detail").getByRole("button", { name: "Pass" }).click();
+  await expect(steps.nth(0)).toHaveAttribute("data-state", "pass");
+  await expect(steps.nth(1)).toHaveAttribute("data-state", "todo");
+
+  // Colour alone must not be the answer for a screen reader.
+  await expect(steps.nth(0).locator(".steptop")).toHaveAttribute(
+    "aria-label",
+    /^Step 1, passed: Sign in/,
+  );
+  await expect(steps.nth(1).locator(".steptop")).toHaveAttribute(
+    "aria-label",
+    /^Step 2, not answered: /,
+  );
+});
+
+test("tells the action and the expected result apart", async ({ page }) => {
+  const widget = await openPanel(page);
+  const detail = widget.locator(".step.current .detail");
+
+  // "Expected: …" run together with the instruction is one long sentence to
+  // parse; the reviewer does one of these and checks the other.
+  const expected = detail.locator(".expect");
+  await expect(expected.locator(".expectlabel")).toHaveText("Expect");
+  await expect(expected.locator(".expecttext")).toContainText(
+    "The worklist opens at /Microbiology/worklist",
+  );
+  await expect(expected.locator(".expecttext")).not.toContainText("Expected:");
+
+  // Where to do it comes before what to check.
+  const routeBox = await detail.locator(".go").boundingBox();
+  const expectBox = await expected.boundingBox();
+  expect(routeBox.y).toBeLessThan(expectBox.y);
+});
+
+test("keeps the section a step belongs to visible while scrolling", async ({ page }) => {
+  const widget = await openPanel(page);
+  await widget.getByRole("button", { name: "Expand panel" }).click();
+  const scroller = widget.locator(".body");
+  // Into the middle of the list rather than the very end: the last section is a
+  // single step, and a section shorter than the window legitimately has nothing
+  // left to pin.
+  await scroller.evaluate((node) => {
+    node.scrollTop = Math.round(node.scrollHeight / 2);
+  });
+
+  const view = await scroller.boundingBox();
+  const headings = await widget.locator(".secrow:not([hidden])").evaluateAll((nodes) =>
+    nodes.map((node) => node.getBoundingClientRect().top),
+  );
+  // Scrolled deep into the list, the heading for the section the reviewer is
+  // inside has to be pinned to the top of the scroller — not merely somewhere on
+  // screen, which is true of an ordinary heading that happens to be nearby.
+  const pinned = headings.filter((top) => Math.abs(top - view.y) < 3);
+  expect(pinned).toHaveLength(1);
+});
+
 test("stands the preamble down once, not every time the count changes", async ({
   page,
 }) => {

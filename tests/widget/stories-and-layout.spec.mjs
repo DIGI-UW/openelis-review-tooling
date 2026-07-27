@@ -59,7 +59,7 @@ test("switching story loads its checklist and keeps the answers apart", async ({
   await widget.getByLabel("Story").selectOption("orders");
   await expect(widget.getByRole("heading", { level: 2 })).toHaveText("Order entry review");
   await expect(widget.locator(".step")).toHaveCount(2);
-  await expect(widget.locator(".step").nth(0).locator(".chip")).toHaveText("To do");
+  await expect(widget.locator(".step").nth(0)).toHaveAttribute("data-state", "todo");
 
   await widget.getByLabel("Story").selectOption("amr");
   await expect(widget.locator(".step")).toHaveCount(10);
