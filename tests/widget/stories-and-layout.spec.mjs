@@ -32,6 +32,23 @@ test("separates the stories that cover this page from the rest", async ({ page }
   await expect(picker).toHaveValue("amr");
 });
 
+test("re-groups the stories as the reviewer moves through the application", async ({
+  page,
+}) => {
+  const widget = await openPanel(page);
+  const picker = widget.getByLabel("Story");
+  const onThisPage = () =>
+    picker.locator('optgroup[label="On this page"] option').allTextContents();
+  expect(await onThisPage()).toEqual(["Order entry (2)"]);
+
+  // A single-page app routes without reloading, so nothing re-runs on its own.
+  await page.getByRole("button", { name: "Go to worklist" }).click();
+
+  await expect
+    .poll(onThisPage)
+    .toEqual(["Microbiology MVP (10)"]);
+});
+
 test("switching story loads its checklist and keeps the answers apart", async ({
   page,
 }) => {

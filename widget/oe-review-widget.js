@@ -283,6 +283,7 @@
 
     document.addEventListener("click", scheduleReposition, true);
     window.addEventListener("resize", scheduleReposition);
+    window.addEventListener("popstate", scheduleReposition);
 
     var inline = inlineChecklist();
     if (inline) {
@@ -514,11 +515,18 @@
   // side nav, so the panel instead steps aside from whatever fixed furniture it
   // would otherwise cover. A reviewer who picks a side themselves always wins.
   var repositionQueued = false;
+  var lastPath = location.pathname;
   function scheduleReposition() {
     if (repositionQueued) return;
     repositionQueued = true;
     requestAnimationFrame(function () {
       repositionQueued = false;
+      // After the frame, so a single-page app that routed on this click has
+      // already changed the path the story grouping is derived from.
+      if (ui && location.pathname !== lastPath) {
+        lastPath = location.pathname;
+        syncPanel();
+      }
       applyAnchor();
     });
   }
@@ -806,10 +814,34 @@
     label.setAttribute("for", "oe-review-story");
     var select = document.createElement("select");
     select.id = "oe-review-story";
+    select.onchange = function () {
+      selectStory(select.value);
+    };
+    box.appendChild(label);
+    box.appendChild(select);
+    parts.storySelect = select;
+    parts.storyGrouping = null;
+    return box;
+  }
+
+  // Which stories are about this page changes as the reviewer moves through the
+  // application, and a single-page app changes the path without ever reloading.
+  // Rebuilt only when the grouping actually differs, so the picker does not lose
+  // an open dropdown to a repaint.
+  function syncStories() {
+    if (!ui || !ui.storySelect) return;
     var here = stories().filter(coversHere);
     var elsewhere = stories().filter(function (story) {
       return !coversHere(story);
     });
+    var grouping = here
+      .map(function (story) {
+        return story.instance;
+      })
+      .join(",");
+    if (ui.storyGrouping === grouping) return;
+    ui.storyGrouping = grouping;
+    ui.storySelect.innerHTML = "";
     [
       ["On this page", here],
       ["Other stories", elsewhere],
@@ -824,15 +856,8 @@
           story.title + (story.steps ? " (" + story.steps + ")" : "");
         optgroup.appendChild(option);
       });
-      select.appendChild(optgroup);
+      ui.storySelect.appendChild(optgroup);
     });
-    select.onchange = function () {
-      selectStory(select.value);
-    };
-    box.appendChild(label);
-    box.appendChild(select);
-    parts.storySelect = select;
-    return box;
   }
 
   function buildFilters(parts) {
@@ -1051,6 +1076,7 @@
       " answered" +
       (sha ? " · " + sha : "");
     ui.progress.title = provenanceText();
+    syncStories();
     if (ui.storySelect && ui.storySelect.value !== activeStory) {
       ui.storySelect.value = activeStory;
     }

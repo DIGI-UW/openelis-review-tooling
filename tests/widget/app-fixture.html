@@ -127,6 +127,7 @@
       <h1>Microbiology worklist</h1>
       <button id="open-drawer">Open drawer</button>
       <button id="open-modal">Open modal</button>
+      <button id="route-worklist">Go to worklist</button>
       <table>
         <thead>
           <tr>
@@ -172,6 +173,10 @@
       const drawer = document.getElementById("drawer-root");
       const modal = document.getElementById("modal");
       document.getElementById("open-drawer").onclick = () => drawer.classList.toggle("open");
+      // Client-side routing: the path changes with no page load, which is how a
+      // reviewer actually moves around the application under review.
+      document.getElementById("route-worklist").onclick = () =>
+        history.pushState({}, "", "/Microbiology/worklist");
       // Carbon flags an open modal on <body>; the widget uses that flag to get
       // out of the way, so the fixture has to set it the same way.
       document.getElementById("open-modal").onclick = () => {

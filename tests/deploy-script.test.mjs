@@ -128,7 +128,7 @@ test("full and targeted deployment runners share an exclusive host lock", () => 
   }
 });
 
-test("review widget deployment is exact-SHA, locked, and restart-free", () => {
+test("review deployment is exact-SHA and locked", () => {
   assert.match(deployScript, /cmd_review_deploy/);
   assert.match(deployScript, /repo_git fetch --depth 1 origin '\$ref'/);
   assert.match(deployScript, /flock -n 9/);
@@ -136,13 +136,35 @@ test("review widget deployment is exact-SHA, locked, and restart-free", () => {
     deployScript,
     /curl -fsSk 'https:\/\/\$AMR_DOMAIN\/__review\/oe-review-widget\.js' -o/,
   );
-  assert.doesNotMatch(
-    deployScript.slice(
-      deployScript.indexOf("cmd_review_deploy()"),
-      deployScript.indexOf("cmd_review()", deployScript.indexOf("cmd_review_deploy()")),
-    ),
-    /docker compose|docker restart/,
+});
+
+const reviewDeploy = deployScript.slice(
+  deployScript.indexOf("cmd_review_deploy()"),
+  deployScript.indexOf("cmd_review()", deployScript.indexOf("cmd_review_deploy()")),
+);
+
+test("shipping the widget touches no container", () => {
+  // The widget is served straight from the checkout, so publishing it is a file
+  // swap. Restarting anything for it would take the demo down for a change that
+  // never needed it.
+  const widgetScope = reviewDeploy.slice(
+    reviewDeploy.indexOf("= widget ]"),
+    reviewDeploy.indexOf("= service ]"),
   );
+  assert.ok(widgetScope.length > 0);
+  assert.doesNotMatch(widgetScope, /docker compose|docker restart/);
+});
+
+test("rebuilding the checklist service stays inside the running project", () => {
+  const serviceScope = reviewDeploy.slice(reviewDeploy.indexOf("= service ]"));
+  // Inferring the Compose project from the path picks a different project, whose
+  // first act is to recreate Grist and Dex under names already in use.
+  assert.match(serviceScope, /com\.docker\.compose\.project/);
+  assert.match(serviceScope, /docker compose -p/);
+  assert.match(serviceScope, /--no-deps --build uat-read/);
+  // A rebuild nobody proves is the one answering is exactly the stale-image trap
+  // the drift check exists to catch.
+  assert.match(serviceScope, /uat\/index\.json/);
 });
 
 test("ready metadata is published only after health and route smoke checks", () => {
