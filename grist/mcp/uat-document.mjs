@@ -57,6 +57,7 @@ export function buildUatIndex(metaRecords, stepRecords) {
   }
 
   const stories = new Map();
+  const warnings = [];
   for (const record of stepRecords || []) {
     const fields = record.fields || {};
     const instance = String(fields.instance || "").trim();
@@ -69,13 +70,23 @@ export function buildUatIndex(metaRecords, stepRecords) {
     story.steps += 1;
     if (parseRequired(fields.required)) story.required += 1;
     if (fields.route) {
-      const route = validateRoute(String(fields.route).trim(), fields.step_key || instance);
-      story.routes.add(new URL(route, ROUTE_BASE).pathname);
+      // Reported and skipped rather than thrown. The catalog spans every story on
+      // the deployment, so one bad row in somebody's draft would otherwise take
+      // the whole thing down — and the deploy that is gated on this endpoint with
+      // it. The checklist document still refuses the route outright, which is
+      // where the reviewer would actually be sent.
+      try {
+        const route = validateRoute(String(fields.route).trim(), fields.step_key || instance);
+        story.routes.add(new URL(route, ROUTE_BASE).pathname);
+      } catch (error) {
+        warnings.push(`${instance}: ${error.message}`);
+      }
     }
   }
 
   return {
     schemaVersion: 1,
+    warnings,
     // A story with a meta row but no steps is not reviewable; listing it would
     // offer the reviewer an empty checklist.
     stories: [...stories.values()]

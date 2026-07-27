@@ -70,11 +70,24 @@ test("publishes the pages a story touches, without duplicates or query strings",
   assert.deepEqual(index.stories[0].routes, ["/Dashboard", "/Microbiology/worklist"]);
 });
 
-test("refuses a route that would send the reviewer off-origin", () => {
-  assert.throws(
-    () => buildUatIndex(metaRows, [step("amr", "AMR-1", { route: "/\\evil.example" })]),
-    /same-origin/,
-  );
+test("leaves an off-origin route out of the catalog and says why", () => {
+  const index = buildUatIndex(metaRows, [
+    step("amr", "AMR-1", { route: "/\\evil.example" }),
+    step("amr", "AMR-2", { route: "/Dashboard" }),
+  ]);
+
+  // The catalog covers every story on the deployment, so one bad row in somebody
+  // else's draft must not take it — or the deploy gated on it — down.
+  assert.deepEqual(index.stories[0].routes, ["/Dashboard"]);
+  assert.equal(index.stories[0].steps, 2);
+  assert.equal(index.warnings.length, 1);
+  assert.match(index.warnings[0], /^amr: /);
+  assert.match(index.warnings[0], /same-origin/);
+});
+
+test("says nothing when every route is sound", () => {
+  const index = buildUatIndex(metaRows, [step("amr", "AMR-1", { route: "/Dashboard" })]);
+  assert.deepEqual(index.warnings, []);
 });
 
 test("counts how much of a story is required", () => {
