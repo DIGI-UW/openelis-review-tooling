@@ -570,8 +570,25 @@ fi
 if [ \"\$scope\" = service ] || [ \"\$scope\" = all ]; then
   # The read service bakes its source into its image, so a checkout alone leaves
   # the old code serving. Rebuild it, then prove the rebuilt one is answering.
-  sudo -u '$OS_USER' docker compose -f \"\$edge_dir/grist/docker-compose.grist.yml\" \\
-    up -d --build uat-read
+  # Compose is driven from the running container's own project and file list:
+  # inferring either from the path picks a different project, whose first act is
+  # to try to recreate Grist and Dex under names that are already taken. --no-deps
+  # keeps the rebuild to the one service that changed.
+  read_project=\$(docker inspect -f '{{index .Config.Labels \"com.docker.compose.project\"}}' oe-edge-grist-uat-read)
+  read_workdir=\$(docker inspect -f '{{index .Config.Labels \"com.docker.compose.project.working_dir\"}}' oe-edge-grist-uat-read)
+  read_files=\$(docker inspect -f '{{index .Config.Labels \"com.docker.compose.project.config_files\"}}' oe-edge-grist-uat-read)
+  [ -n \"\$read_project\" ] && [ -d \"\$read_workdir\" ] || {
+    echo 'could not resolve the running checklist service Compose project' >&2
+    exit 1
+  }
+  compose_args=()
+  IFS=',' read -r -a read_file_list <<<\"\$read_files\"
+  for f in \"\${read_file_list[@]}\"; do
+    [ -f \"\$f\" ] || { echo \"active Compose file is missing: \$f\" >&2; exit 1; }
+    compose_args+=(-f \"\$f\")
+  done
+  ( cd \"\$read_workdir\" && sudo -u '$OS_USER' docker compose -p \"\$read_project\" \\
+      \"\${compose_args[@]}\" up -d --no-deps --build uat-read )
   for _ in \$(seq 1 30); do
     curl -fsSk 'https://$GRIST_DOMAIN/uat/index.json' -o \"\$probe\" && break
     sleep 2
