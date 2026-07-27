@@ -66,6 +66,70 @@ test("switching story loads its checklist and keeps the answers apart", async ({
   await expect(widget.locator(".step").nth(0).locator(".chip")).toHaveText("Pass");
 });
 
+test("says a story is unreachable rather than quietly reviewing a different one", async ({
+  page,
+}) => {
+  const widget = await openPanel(page);
+  await widget.getByLabel("Story").selectOption("orders");
+  await expect(widget.locator(".step")).toHaveCount(2);
+
+  await page.route("**/tests/widget/uat-orders.json", (route) =>
+    route.fulfill({ status: 503, body: "unavailable" }),
+  );
+  await widget.getByRole("button", { name: "Refresh checklist" }).click();
+
+  // Switching what is under review without saying so is the story-axis version
+  // of losing the reviewer's answers to a transient outage.
+  await expect(widget.getByRole("alert")).toContainText("503");
+  await expect(widget.getByLabel("Story")).toHaveValue("orders");
+});
+
+test("reports a checklist it refuses instead of swallowing the reason", async ({
+  page,
+}) => {
+  const widget = await openPanel(page);
+  await page.route("**/tests/widget/uat-orders.json", (route) =>
+    route.fulfill({
+      json: {
+        schemaVersion: 2,
+        checklistRevision: "orders-bad",
+        title: "Order entry review",
+        instance: "orders",
+        sections: [
+          {
+            title: "Add an order",
+            // Resolves off-origin: the URL parser reads the backslash as an
+            // authority separator.
+            steps: [{ key: "ORD-1", do: "Open add order", route: "/\\evil.example" }],
+          },
+        ],
+      },
+    }),
+  );
+
+  await widget.getByLabel("Story").selectOption("orders");
+  await expect(widget.getByRole("alert")).toContainText("same-origin");
+});
+
+test("falls back to the injected story when one is retired from the catalog", async ({
+  page,
+}) => {
+  const widget = await openPanel(page);
+  await widget.getByLabel("Story").selectOption("orders");
+  await expect(widget.locator(".step")).toHaveCount(2);
+
+  await page.route("**/tests/widget/uat-orders.json", (route) =>
+    route.fulfill({ status: 404, body: "gone" }),
+  );
+  await page.reload();
+
+  const reopened = page.locator("#oe-review-host");
+  await expect(reopened.getByRole("heading", { level: 2 })).toHaveText(
+    "Microbiology MVP - review",
+  );
+  await expect(reopened.locator(".step")).toHaveCount(10);
+});
+
 test("remembers the story the reviewer was last working on", async ({ page }) => {
   const widget = await openPanel(page);
   await widget.getByLabel("Story").selectOption("orders");

@@ -96,18 +96,44 @@ test("does not cover the application's own right-hand drawer", async ({ page }) 
   await expect(page.getByRole("button", { name: "Drawer action" })).toBeVisible();
 });
 
+// What the panel declares and where it actually lands are different questions.
+// A stacking context on the host scopes the z-index inside it, so the declared
+// value can be exactly right while the panel sits under the whole application.
+function topmostOverPanel(page) {
+  return page.evaluate(() => {
+    const host = document.getElementById("oe-review-host");
+    const box = host.shadowRoot.querySelector(".panel").getBoundingClientRect();
+    const hit = document.elementFromPoint(
+      Math.round(box.left + 40),
+      Math.round(box.top + box.height / 2),
+    );
+    return hit ? hit.id || hit.tagName + "." + hit.className : null;
+  });
+}
+
+test("sits above the application's own furniture", async ({ page }) => {
+  const widget = await openPanel(page);
+  // Onto the left anchor, where the application pins its side nav at z-index 8000.
+  await widget.getByRole("button", { name: "Move panel" }).click();
+  await widget.getByRole("button", { name: "Move panel" }).click();
+  await expect(widget.locator(".wrap")).toHaveClass(/anchor-left/);
+
+  expect(await topmostOverPanel(page)).toBe("oe-review-host");
+});
+
 test("lets an application modal come over the top of the checklist", async ({
   page,
 }) => {
   const widget = await openPanel(page);
-  await page.getByRole("button", { name: "Open modal" }).click();
-
-  // Carbon modals sit at z-index 9000. A checklist pinned to the maximum z-index
-  // floats over the dialog the step is asking the reviewer to use.
   const layer = await widget.evaluate(
     (host) => getComputedStyle(host.shadowRoot.querySelector(".wrap")).zIndex,
   );
   expect(Number(layer)).toBeLessThan(9000);
+
+  await page.getByRole("button", { name: "Open modal" }).click();
+  // Carbon modals sit at 9000: the dialog a step is asking the reviewer to use
+  // has to be able to come over the checklist that asked for it.
+  expect(await topmostOverPanel(page)).not.toBe("oe-review-host");
   await expect(page.getByRole("button", { name: "Modal action" })).toBeVisible();
 });
 
@@ -125,6 +151,30 @@ test("can be moved off whatever it is covering, and remembers where", async ({
   await widget.getByRole("button", { name: /review/i }).click();
   const restored = await widget.locator(".panel").boundingBox();
   expect(restored.x).toBeCloseTo(moved.x, 0);
+});
+
+test("hands keyboard focus on to the next step after answering", async ({ page }) => {
+  const widget = await openPanel(page);
+  await widget.locator(".step.current .detail").getByRole("button", { name: "Pass" }).focus();
+  await page.keyboard.press("Enter");
+
+  const landed = await page.evaluate(() => {
+    const host = document.getElementById("oe-review-host");
+    const inner = host.shadowRoot.activeElement;
+    const step = inner && inner.closest(".step");
+    return {
+      stillInPanel: document.activeElement === host,
+      onA: inner ? inner.className : null,
+      atStep: step ? step.querySelector(".num").textContent : null,
+    };
+  });
+
+  // Answering unmounts the button that was focused. Without carrying the focus
+  // over, a keyboard reviewer re-tabs from the top of the host application after
+  // every single answer.
+  expect(landed.stillInPanel).toBe(true);
+  expect(landed.onA).toContain("mark");
+  expect(landed.atStep).toBe("2");
 });
 
 test("numbers every step and says where each one stands", async ({ page }) => {

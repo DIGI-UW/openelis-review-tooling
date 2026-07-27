@@ -268,7 +268,11 @@
   function boot() {
     host = document.createElement("div");
     host.id = "oe-review-host";
-    host.style.cssText = "all:initial;isolation:isolate";
+    // No isolation: that would make the host its own stacking context, scoping
+    // the panel's z-index inside it and leaving the host itself at auto — under
+    // everything the application paints above zero, whatever the panel declares.
+    // The shadow root already isolates style; isolation only affects stacking.
+    host.style.cssText = "all:initial";
     document.body.appendChild(host);
     // Keep styles isolated while exposing the review surface to accessibility
     // inspection and Playwright UAT on deployed targets.
@@ -427,7 +431,11 @@
     return Promise.all([
       fetch(currentSrc(), { cache: "no-store" }).then(function (response) {
         if (!response.ok) {
-          throw new Error("Could not load checklist (" + response.status + ").");
+          var failure = new Error(
+            "Could not load checklist (" + response.status + ").",
+          );
+          failure.status = response.status;
+          throw failure;
         }
         return response.json();
       }),
@@ -453,10 +461,13 @@
         applyChecklist(values[0], build);
       })
       .catch(function (error) {
-        // A remembered story can be retired from the catalog between visits.
-        // Rather than stranding the reviewer on an error, fall back once to the
-        // story this deployment injects.
-        if (activeStory !== INSTANCE) {
+        // Only a checklist that is genuinely gone justifies moving the reviewer
+        // to a different story. A transient outage, or a checklist this widget
+        // refused to accept, has to say so: silently switching what is being
+        // reviewed is the same failure the deployment identity was hardened
+        // against, on the story axis — and it would swallow the route-origin
+        // guard's only visible signal.
+        if (error.status === 404 && activeStory !== INSTANCE) {
           activeStory = INSTANCE;
           prefs.story = null;
           savePrefs();
@@ -1037,9 +1048,13 @@
       var next = nextOpenAfter(step.key);
       if (next) state.current = next;
     }
+    // Asked before the sync: answering unmounts the button that was focused, so
+    // by the time the panel has been updated activeElement is null and a keyboard
+    // reviewer would be dropped back to the top of the host application.
+    var wasFocused = Boolean(ui && ui.panel.contains(root.activeElement));
     save();
     syncPanel();
-    scrollCurrentIntoView();
+    scrollCurrentIntoView(wasFocused);
   }
 
   function stepFor(key) {
@@ -1067,7 +1082,7 @@
     return null;
   }
 
-  function scrollCurrentIntoView() {
+  function scrollCurrentIntoView(focusWasInside) {
     if (!ui) return;
     var row = ui.rows[state.current];
     if (!row) return;
@@ -1086,7 +1101,11 @@
     var first = row.detail.querySelector(".mark");
     // Only chase the focus if it was already inside the panel: taking it from the
     // application under review would be worse than leaving it alone.
-    if (first && ui.panel.contains(root.activeElement)) first.focus();
+    var inside =
+      focusWasInside === undefined
+        ? ui.panel.contains(root.activeElement)
+        : focusWasInside;
+    if (first && inside) first.focus();
   }
 
   // ---- keeping the built panel in step with state ---------------------------
