@@ -26,6 +26,22 @@ claude mcp add --transport http grist https://grist.openelis-global.org/api/mcp 
 On claude.ai, the same URL added as a custom connector signs in through the
 browser — no key to paste.
 
+Note that `claude mcp add` writes persistent config for *future* sessions; it does
+not give you tools mid-conversation. If you need to author right now and the MCP
+tools are absent, use Grist's REST API with the same key — it is the same data and
+the same rules:
+
+```
+GET|POST|PATCH https://grist.openelis-global.org/api/docs/hvZ4rzsyGJuqggkZBko8gc/tables/UAT_Steps/records
+Authorization: Bearer <grist-api-key>
+```
+
+**If you cannot get a key, stop and say so.** There is no anonymous write path (the
+API returns 403), so there is nothing to fall back on. Draft the rows you would
+have created and hand them to the user with what you need to proceed — a fabricated
+"done" is far worse than a blocked one, because nobody discovers the checklist is
+missing until a reviewer opens an empty panel.
+
 The document is **"UAT Checklists"** (`hvZ4rzsyGJuqggkZBko8gc`). Tools you'll
 use: `grist_query_document` (SQL SELECT), `grist_add_records`,
 `grist_update_records`, `grist_remove_records`.
@@ -51,7 +67,9 @@ These are not style preferences — each one has broken a live checklist.
 read service fails the entire checklist, not just the bad row, so one empty key
 means every reviewer of that instance sees an error instead of any steps. Use a
 short stable id in the instance's existing scheme (`AMR-009`, `AN-QC-009`) and
-never reuse one.
+never reuse one. A brand-new instance has no scheme yet, so invent a short prefix
+from the feature and number from 001 (`SKT-001`), matching the shape of the
+existing instances rather than their letters.
 
 **`step_key` is immutable once reviewers have seen it.** Reviewer answers are
 keyed by it. Reordering rows is free — change `section_order`/`step_order` all
@@ -94,6 +112,14 @@ That step came back FAIL and became the top finding of the review.
 to measure, and a Fail tells you nothing about where it broke.
 
 Keep a step to one observation. If the `expect` needs "and", it is two steps.
+
+Group steps into sections that match how a reviewer moves through the app. A short
+checklist is legitimately one section — the thing to avoid is fragmenting six steps
+into six sections of one, not having a single well-named section.
+
+`route` is optional and only worth setting when you know the real path. Guessing
+sends reviewers to a 404, which is worse than making them navigate; omit it and let
+the `do` describe where to go.
 
 ## Adding a step
 
