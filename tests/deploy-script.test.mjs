@@ -155,16 +155,17 @@ test("shipping the widget touches no container", () => {
   assert.doesNotMatch(widgetScope, /docker compose|docker restart/);
 });
 
-test("rebuilding the checklist service stays inside the running project", () => {
+test("the checklist service rebuild is shipped as a script, not inlined", () => {
   const serviceScope = reviewDeploy.slice(reviewDeploy.indexOf("= service ]"));
-  // Inferring the Compose project from the path picks a different project, whose
-  // first act is to recreate Grist and Dex under names already in use.
-  assert.match(serviceScope, /com\.docker\.compose\.project/);
-  assert.match(serviceScope, /docker compose -p/);
-  assert.match(serviceScope, /--no-deps --build uat-read/);
-  // A rebuild nobody proves is the one answering is exactly the stale-image trap
-  // the drift check exists to catch.
-  assert.match(serviceScope, /uat\/index\.json/);
+  // What the rebuild does is asserted by running it, in
+  // rebuild-checklist-service.test.mjs. All this file can honestly check is that
+  // the deploy ships that script and hands it the values it needs — a command
+  // built as a string in a heredoc can only ever be grepped.
+  assert.match(serviceScope, /cat > \/tmp\/oe-rebuild-checklist-service\.sh/);
+  assert.match(serviceScope, /REMOTE_USER='\$OS_USER'/);
+  assert.match(serviceScope, /GRIST_DOMAIN='\$GRIST_DOMAIN'/);
+  assert.match(serviceScope, /\/tmp\/oe-rebuild-checklist-service\.sh/);
+  assert.doesNotMatch(serviceScope, /docker compose/);
 });
 
 test("ready metadata is published only after health and route smoke checks", () => {
