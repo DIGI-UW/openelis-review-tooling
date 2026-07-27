@@ -536,6 +536,9 @@ flock -n 9 || { echo 'another review-host deployment is already running' >&2; ex
 router_workdir=\$(docker inspect -f '{{index .Config.Labels \"com.docker.compose.project.working_dir\"}}' oe-edge-router)
 edge_dir=\${router_workdir%/router}
 repo_git() { sudo -u '$OS_USER' git -c safe.directory=\"\$edge_dir\" -C \"\$edge_dir\" \"\$@\"; }
+# Only the repository metadata: the checkout also holds Let's Encrypt private
+# keys that have no business being readable by the application user.
+sudo chown -R '$OS_USER':'$OS_USER' \"\$edge_dir/.git\"
 if ! repo_git diff --quiet || ! repo_git diff --cached --quiet; then
   echo \"refusing to overwrite tracked changes in \$edge_dir\" >&2
   repo_git status --short >&2
@@ -626,7 +629,11 @@ cmd_drift() {
   local script
   script="$(cat <<'DRIFT'
 cd EDGE_DIR_PLACEHOLDER 2>/dev/null || { echo "checkout missing"; exit 0; }
-G="git -c safe.directory=*"
+# SSM runs as root and the fetch below writes loose objects. Fetching as root
+# leaves root-owned fanout directories under .git/objects that the deploy path —
+# which correctly runs as the checkout's owner — can no longer write into, so a
+# read-only drift check would break the next deploy.
+G="sudo -u OS_USER_PLACEHOLDER git -c safe.directory=*"
 $G fetch -q origin BRANCH_PLACEHOLDER 2>/dev/null || true
 head=$($G rev-parse --short HEAD)
 want=$($G rev-parse --short FETCH_HEAD 2>/dev/null || echo unknown)
@@ -657,6 +664,7 @@ DRIFT
 )"
   script="${script//EDGE_DIR_PLACEHOLDER/$EDGE_DIR}"
   script="${script//BRANCH_PLACEHOLDER/$HARNESS_BRANCH}"
+  script="${script//OS_USER_PLACEHOLDER/$OS_USER}"
   ssm_run "$script" | sed 's/^/     /' || warn "drift check failed"
 }
 
