@@ -127,6 +127,26 @@ test("can be moved off whatever it is covering, and remembers where", async ({
   expect(restored.x).toBeCloseTo(moved.x, 0);
 });
 
+test("stands the preamble down once, not every time the count changes", async ({
+  page,
+}) => {
+  const widget = await openPanel(page);
+  const intro = widget.locator(".intro");
+  await expect(intro).toBeVisible();
+
+  const pass = widget.locator(".step.current .detail").getByRole("button", { name: "Pass" });
+  await pass.click();
+  await expect(intro).toBeHidden();
+
+  // Clearing the answer must not shove the checklist back down the panel.
+  await widget.locator(".step").nth(0).locator(".steptop").click();
+  await widget
+    .locator(".step.current .detail")
+    .getByRole("button", { name: "Pass" })
+    .click();
+  await expect(intro).toBeHidden();
+});
+
 test("stays usable on a narrow screen", async ({ page }) => {
   await page.setViewportSize({ width: 375, height: 812 });
   const widget = await openPanel(page);

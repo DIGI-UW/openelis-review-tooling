@@ -69,6 +69,7 @@
     value.minimized = value.minimized !== false;
     value.anchor = ANCHORS.indexOf(value.anchor) === -1 ? null : value.anchor;
     value.current = typeof value.current === "string" ? value.current : null;
+    value.introDone = Boolean(value.introDone);
     return value;
   }
   function loadStored(key) {
@@ -87,6 +88,7 @@
       notes: [],
       anchor: null,
       current: null,
+      introDone: false,
       updatedAt: null,
     };
   }
@@ -565,7 +567,7 @@
     var parts = { revision: uat.checklistRevision, rows: {}, detailKey: null };
     var panel = el("div", "panel");
     panel.setAttribute("role", "complementary");
-    panel.setAttribute("aria-label", (uat.title || LABEL) + " review checklist");
+    panel.setAttribute("aria-label", "Review checklist: " + (uat.title || LABEL));
     panel.addEventListener("keydown", function (event) {
       // Scoped to the panel on purpose: the host application binds Escape to its
       // own dialogs, and a document-level handler here would close them.
@@ -790,6 +792,7 @@
     // just pad the report with noise.
     saved.consoleErrors = saved.mark === "fail" ? pageErrors.slice() : [];
     state.steps[step.key] = saved;
+    state.introDone = true;
     if (saved.mark) {
       var next = nextOpenAfter(step.key);
       if (next) state.current = next;
@@ -862,9 +865,11 @@
     ui.provenance.hidden = !ui.provenance.textContent;
 
     // The preamble earns its space until the reviewer is under way; after that the
-    // checklist needs the room more than the introduction does.
+    // checklist needs the room more than the introduction does. Standing down is
+    // one-way: tying it to the answer count made it reappear — and shove the
+    // checklist down again — whenever an answer was cleared.
     ui.intro.textContent = uat.intro || "";
-    ui.intro.hidden = !uat.intro || counts.done > 0;
+    ui.intro.hidden = !uat.intro || state.introDone;
 
     var current = currentKey();
     state.current = current;
