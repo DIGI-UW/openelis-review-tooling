@@ -1,0 +1,14 @@
+{
+  "instance": "amr",
+  "deploymentId": "deploy-amr-001",
+  "state": "ready",
+  "appRepo": "https://github.com/DIGI-UW/OpenELIS-Global-2.git",
+  "appBranch": "feat/782-ogc-782-microbiology-mvp-m7-release-surveillance-readiness",
+  "appSha": "8b5609341e2b09747c9c54d29334a886c5b2d99f",
+  "harnessSha": "4a6e46f9e29e106ef8d608a7e1f76d12e86afe44",
+  "deployedAt": "2026-07-25T04:23:02Z",
+  "scope": "full",
+  "verification": {
+    "health": "passed"
+  }
+}

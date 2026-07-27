@@ -59,18 +59,37 @@ Open `index.html` for a live, backend-free demo.
 
 ## What the reviewer gets
 
-Each stable step can be marked **pass / fail / n-a** with an optional note, plus
-freeform page-level notes. Reordering keeps the answer; changed instructions mark
-the answer stale until it is reviewed again. Answers never carry into a different
-deployment, and old position-based state is not reused. **Download review report**
-produces:
+Every step is listed so the scope of the review is visible, but only the step being
+worked spells out its expected result, its route link and its **pass / fail / n-a**
+buttons; the rest collapse to a line and a status chip. Answering a step opens the
+next unanswered one, and clicking any line goes back to it. Marking never scrolls
+the checklist away from where the reviewer is.
 
-- `oe-review-<instance>-<timestamp>.md` — a readable checklist with `[PASS]/[FAIL]/
-  [N/A]/[----]` boxes, a summary line, and the freeform notes. Its footer says to
-  paste it into Claude to triage into Jira/GitHub.
-- `.json` — the same data structured, including checklist revision, verified
-  deployment provenance, stable key, required flag, marked time, actual URL,
-  status, and note.
+Reordering keeps the answer; changed instructions mark the answer stale until it is
+reviewed again. Answers never carry into a different deployment, and old
+position-based state is not reused.
+
+The panel floats over the application rather than reflowing it — a host app's fixed
+header and side nav do not move for an injected margin. It steps aside from fixed
+application furniture it would otherwise cover, sits below the host's modals so a
+dialog a step asks for can come over the top, and **Move panel** cycles it between
+the right, centre and left; a side chosen by hand is remembered and never
+overridden. Below 640px the open panel becomes a bottom sheet.
+
+**Copy report** puts the whole review on the clipboard, which is what the reviewer
+is asked to paste into Claude. **Download** writes the same thing as a single
+`oe-review-<instance>-<timestamp>.md`:
+
+- a readable checklist with `[PASS]/[FAIL]/[N/A]/[----]` boxes, a summary line, and
+  the freeform notes;
+- any console errors the page reported, attached to the step that was failed;
+- a fenced `json` block carrying the same review structured — checklist revision,
+  verified deployment provenance, stable key, required flag, marked time, actual
+  URL, status and note.
+
+It is one file on purpose. A second programmatic download from the same click asks
+for Chrome's automatic-downloads permission, and a reviewer who dismisses that
+prompt silently loses half of their review.
 
 ## Authoring checklists (optional)
 

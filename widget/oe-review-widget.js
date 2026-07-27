@@ -13,6 +13,7 @@
   // id="oe-review-checklist"> block; else the data-src URL; else a same-origin
   // default (back-compat with the router injection).
   var SRC = (self && self.getAttribute("data-src")) || "/__review/uat-" + INSTANCE + ".json";
+  var ANCHORS = ["right", "centre", "left"];
   function inlineChecklist() {
     try {
       if (window.OE_REVIEW_CHECKLIST) return window.OE_REVIEW_CHECKLIST;
@@ -24,6 +25,39 @@
     return null;
   }
 
+  // ---- what the browser was complaining about -------------------------------
+  // A reviewer marking something Fail rarely knows to open the console, so the
+  // errors the page was already reporting are collected here and attached to the
+  // failure. This is the cheapest way to turn "it didn't work" into something
+  // triageable.
+  var CONSOLE_LIMIT = 10;
+  var pageErrors = [];
+  function describe(value) {
+    if (typeof value === "string") return value;
+    if (value instanceof Error) return value.message;
+    try {
+      return JSON.stringify(value);
+    } catch (e) {
+      return String(value);
+    }
+  }
+  function recordPageError(message) {
+    if (!message) return;
+    pageErrors.push(String(message).slice(0, 500));
+    if (pageErrors.length > CONSOLE_LIMIT) pageErrors.shift();
+  }
+  var nativeConsoleError = console.error;
+  console.error = function () {
+    recordPageError(Array.prototype.map.call(arguments, describe).join(" "));
+    return nativeConsoleError.apply(console, arguments);
+  };
+  window.addEventListener("error", function (event) {
+    recordPageError(event.message);
+  });
+  window.addEventListener("unhandledrejection", function (event) {
+    recordPageError("Unhandled rejection: " + describe(event.reason));
+  });
+
   // ---- persisted state ------------------------------------------------------
   var state = fresh();
   var legacyStatePresent = false;
@@ -33,6 +67,8 @@
     value.notes = Array.isArray(value.notes) ? value.notes : [];
     value.reviewer = value.reviewer || "";
     value.minimized = value.minimized !== false;
+    value.anchor = ANCHORS.indexOf(value.anchor) === -1 ? null : value.anchor;
+    value.current = typeof value.current === "string" ? value.current : null;
     return value;
   }
   function loadStored(key) {
@@ -49,6 +85,8 @@
       minimized: true,
       steps: {},
       notes: [],
+      anchor: null,
+      current: null,
       updatedAt: null,
     };
   }
@@ -167,11 +205,15 @@
   var panelToggled = false;
   var loadError = "";
   var buildWarning = "";
+  // Built once per checklist revision and then updated in place. Rebuilding the
+  // panel on every interaction is what used to throw the reviewer back to the top
+  // of the checklist each time they answered something.
+  var ui = null;
 
   function boot() {
     host = document.createElement("div");
     host.id = "oe-review-host";
-    host.style.cssText = "all:initial";
+    host.style.cssText = "all:initial;isolation:isolate";
     document.body.appendChild(host);
     // Keep styles isolated while exposing the review surface to accessibility
     // inspection and Playwright UAT on deployed targets.
@@ -183,6 +225,9 @@
     wrap = document.createElement("div");
     wrap.className = "wrap";
     root.appendChild(wrap);
+
+    document.addEventListener("click", scheduleReposition, true);
+    window.addEventListener("resize", scheduleReposition);
 
     var inline = inlineChecklist();
     if (inline) {
@@ -203,23 +248,6 @@
     document.addEventListener("DOMContentLoaded", boot);
   } else {
     boot();
-  }
-
-  function render() {
-    wrap.innerHTML = "";
-    wrap.appendChild(state.minimized ? tab() : panel());
-    if (
-      (location.hostname === "127.0.0.1" || location.hostname === "localhost") &&
-      !window.__OE_REVIEW_TEST__
-    ) {
-      window.__OE_REVIEW_TEST__ = {
-        buildReport: buildReport,
-        refreshChecklist: refreshChecklist,
-        storageKey: function () {
-          return STORE_KEY;
-        },
-      };
-    }
   }
 
   // A prefix test is not enough: "/\evil.com" starts with a single slash but the
@@ -278,6 +306,32 @@
     });
   }
 
+  function allSteps() {
+    var list = [];
+    (uat.sections || []).forEach(function (section) {
+      (section.steps || []).forEach(function (step) {
+        list.push(step);
+      });
+    });
+    return list;
+  }
+  function answered(step) {
+    var saved = state.steps[step.key];
+    return Boolean(saved && saved.mark && !saved.stale);
+  }
+  function currentKey() {
+    var steps = allSteps();
+    if (!steps.length) return null;
+    var chosen = steps.filter(function (step) {
+      return step.key === state.current;
+    })[0];
+    if (chosen) return chosen.key;
+    var open = steps.filter(function (step) {
+      return !answered(step);
+    })[0];
+    return (open || steps[0]).key;
+  }
+
   function applyChecklist(next, target) {
     next = validateChecklist(next);
     var minimized = state.minimized;
@@ -305,6 +359,7 @@
     uat = next;
     state.checklistRevision = next.checklistRevision;
     state.deploymentId = deploymentIdentity(target);
+    state.current = currentKey();
     save();
   }
 
@@ -348,12 +403,152 @@
       });
   }
 
-  // ---- minimized tab --------------------------------------------------------
+  // ---- placement ------------------------------------------------------------
+  // The panel floats over an application it does not own. Injecting layout into
+  // the host — margin on <html>, say — does not move the host's fixed header or
+  // side nav, so the panel instead steps aside from whatever fixed furniture it
+  // would otherwise cover. A reviewer who picks a side themselves always wins.
+  var repositionQueued = false;
+  function scheduleReposition() {
+    if (repositionQueued) return;
+    repositionQueued = true;
+    requestAnimationFrame(function () {
+      repositionQueued = false;
+      applyAnchor();
+    });
+  }
+  function obstacles() {
+    var found = [];
+    var viewport = window.innerWidth * window.innerHeight;
+    (function walk(node, depth) {
+      if (!node || depth > 4) return;
+      for (var child = node.firstElementChild; child; child = child.nextElementSibling) {
+        if (child === host) continue;
+        var style = getComputedStyle(child);
+        if (
+          style.display === "none" ||
+          style.visibility === "hidden" ||
+          style.pointerEvents === "none"
+        ) {
+          continue;
+        }
+        var rect = child.getBoundingClientRect();
+        var pinned = style.position === "fixed" || style.position === "sticky";
+        if (pinned && rect.width > 0 && rect.height > 0) {
+          // A full-viewport pinned element is a backdrop or a drawer root, not
+          // something worth dodging. Its children are: that is where the drawer
+          // itself lives.
+          if (rect.width * rect.height < viewport * 0.8) {
+            found.push(rect);
+            continue;
+          }
+        }
+        walk(child, depth + 1);
+      }
+    })(document.body, 0);
+    return found;
+  }
+  function overlapArea(a, b) {
+    var x = Math.min(a.left + a.width, b.left + b.width) - Math.max(a.left, b.left);
+    var y = Math.min(a.top + a.height, b.top + b.height) - Math.max(a.top, b.top);
+    return x > 0 && y > 0 ? x * y : 0;
+  }
+  function candidateRect(anchor, width, height) {
+    var top = window.innerHeight - EDGE_GAP - height;
+    if (anchor === "right") {
+      return { left: window.innerWidth - 16 - width, top: top, width: width, height: height };
+    }
+    if (anchor === "left") return { left: 16, top: top, width: width, height: height };
+    return { left: (window.innerWidth - width) / 2, top: top, width: width, height: height };
+  }
+  var EDGE_GAP = 80;
+  function autoAnchor() {
+    if (!ui || state.minimized) return "right";
+    var width = ui.panel.offsetWidth;
+    var height = ui.panel.offsetHeight;
+    if (!width || !height) return "right";
+    var blockers = obstacles();
+    var best = "right";
+    var bestOverlap = Infinity;
+    for (var i = 0; i < ANCHORS.length; i++) {
+      var rect = candidateRect(ANCHORS[i], width, height);
+      var total = blockers.reduce(function (sum, blocker) {
+        return sum + overlapArea(rect, blocker);
+      }, 0);
+      if (total === 0) return ANCHORS[i];
+      if (total < bestOverlap) {
+        bestOverlap = total;
+        best = ANCHORS[i];
+      }
+    }
+    return best;
+  }
+  function applyAnchor() {
+    var anchor = state.anchor || autoAnchor();
+    // The open panel becomes a bottom sheet on a narrow screen; the launcher stays
+    // a corner pill, because a full-width bar at the bottom lands underneath
+    // whatever the application pins there.
+    var className = "wrap anchor-" + anchor + (state.minimized ? "" : " open");
+    if (wrap.className !== className) wrap.className = className;
+  }
+  function movePanel() {
+    var anchor = state.anchor || autoAnchor();
+    state.anchor = ANCHORS[(ANCHORS.indexOf(anchor) + 1) % ANCHORS.length];
+    save();
+    applyAnchor();
+  }
+
+  // ---- rendering ------------------------------------------------------------
+  function render() {
+    exposeTestHooks();
+    if (state.minimized) {
+      ui = null;
+      wrap.innerHTML = "";
+      wrap.appendChild(tab());
+      applyAnchor();
+      return;
+    }
+    var built = false;
+    if (!ui || ui.revision !== uat.checklistRevision) {
+      wrap.innerHTML = "";
+      ui = buildPanel();
+      wrap.appendChild(ui.panel);
+      built = true;
+    }
+    syncPanel();
+    applyAnchor();
+    // Only on a fresh panel: a background refresh must not yank the checklist away
+    // from wherever the reviewer has scrolled it.
+    if (built) scrollCurrentIntoView();
+  }
+
+  function exposeTestHooks() {
+    if (
+      (location.hostname === "127.0.0.1" || location.hostname === "localhost") &&
+      !window.__OE_REVIEW_TEST__
+    ) {
+      window.__OE_REVIEW_TEST__ = {
+        buildReport: buildReport,
+        refreshChecklist: refreshChecklist,
+        storageKey: function () {
+          return STORE_KEY;
+        },
+      };
+    }
+  }
+
+  // ---- minimized launcher ---------------------------------------------------
   function tab() {
-    var b = el("button", "tab");
-    b.innerHTML = badge() + "Review";
-    b.title = "Open the " + LABEL + " review checklist";
-    b.onclick = function () {
+    var button = el("button", "tab");
+    var counts = progress();
+    button.textContent = "Review " + counts.done + "/" + counts.total;
+    button.title = "Open the " + LABEL + " review checklist";
+    if (state.notes.length) {
+      var dot = el("span", "dot");
+      dot.textContent = String(state.notes.length);
+      button.appendChild(dot);
+    }
+    button.onclick = function () {
       state.minimized = false;
       panelToggled = true;
       save();
@@ -362,235 +557,449 @@
       if (!inlineMode) refreshChecklist();
       else render();
     };
-    return b;
+    return button;
   }
 
   // ---- expanded panel -------------------------------------------------------
-  function panel() {
-    var p = el("div", "panel");
+  function buildPanel() {
+    var parts = { revision: uat.checklistRevision, rows: {}, detailKey: null };
+    var panel = el("div", "panel");
+    panel.setAttribute("role", "complementary");
+    panel.setAttribute("aria-label", (uat.title || LABEL) + " review checklist");
+    panel.addEventListener("keydown", function (event) {
+      // Scoped to the panel on purpose: the host application binds Escape to its
+      // own dialogs, and a document-level handler here would close them.
+      if (event.key === "Escape") {
+        event.stopPropagation();
+        minimize();
+      }
+    });
 
     var head = el("div", "head");
-    var h = el("div", "title");
-    h.textContent = uat.title || LABEL + " review";
-    var sub = el("div", "sub");
-    sub.textContent = INSTANCE + " · " + progressText();
     var titleBox = el("div", "titlebox");
-    titleBox.appendChild(h);
-    titleBox.appendChild(sub);
+    parts.title = el("h2", "title");
+    parts.progress = el("div", "sub");
+    parts.progress.setAttribute("role", "status");
+    titleBox.appendChild(parts.title);
+    titleBox.appendChild(parts.progress);
     head.appendChild(titleBox);
+    var move = iconBtn("⇄", "Move panel");
+    move.onclick = movePanel;
+    head.appendChild(move);
     var refresh = iconBtn("↻", "Refresh checklist");
     refresh.onclick = refreshChecklist;
     head.appendChild(refresh);
     var min = iconBtn("–", "Minimize");
-    min.onclick = function () {
-      state.minimized = true;
-      panelToggled = true;
-      save();
-      render();
-    };
+    min.onclick = minimize;
     head.appendChild(min);
-    p.appendChild(head);
+    panel.appendChild(head);
 
-    if (loading) {
-      var loadingMessage = el("div", "status");
-      loadingMessage.setAttribute("role", "status");
-      loadingMessage.textContent = "Refreshing checklist…";
-      p.appendChild(loadingMessage);
-    }
-    if (loadError) {
-      var errorMessage = el("div", "status error");
-      errorMessage.setAttribute("role", "alert");
-      errorMessage.textContent = loadError;
-      p.appendChild(errorMessage);
-    }
-    if (buildWarning && !loadError) {
-      var warningMessage = el("div", "status warning");
-      warningMessage.setAttribute("role", "status");
-      warningMessage.textContent = buildWarning;
-      p.appendChild(warningMessage);
-    }
-    if (legacyStatePresent) {
-      var legacyWarning = el("div", "status warning legacy");
-      legacyWarning.setAttribute("role", "status");
-      legacyWarning.textContent =
-        "Earlier position-based answers were not reused. Review these stable checklist steps again, then Reset to remove the old local data.";
-      p.appendChild(legacyWarning);
-    }
-    if (uat.intro) {
-      var intro = el("div", "intro");
-      intro.textContent = uat.intro;
-      p.appendChild(intro);
-    }
+    parts.statusBox = el("div", "statusbox");
+    panel.appendChild(parts.statusBox);
+
+    parts.provenance = el("div", "provenance");
+    panel.appendChild(parts.provenance);
+
+    parts.intro = el("div", "intro");
+    panel.appendChild(parts.intro);
 
     var who = el("div", "who");
-    var wl = el("label", "");
-    wl.textContent = "Your name";
-    var wi = document.createElement("input");
-    wi.type = "text";
-    wi.value = state.reviewer || "";
-    wi.placeholder = "so we know whose feedback this is";
-    wi.oninput = function () {
-      state.reviewer = wi.value;
+    var label = el("label", "");
+    label.textContent = "Your name";
+    label.setAttribute("for", "oe-review-name");
+    parts.reviewer = document.createElement("input");
+    parts.reviewer.type = "text";
+    parts.reviewer.id = "oe-review-name";
+    parts.reviewer.placeholder = "so we know whose feedback this is";
+    parts.reviewer.oninput = function () {
+      state.reviewer = parts.reviewer.value;
       save();
     };
-    who.appendChild(wl);
-    who.appendChild(wi);
-    p.appendChild(who);
+    who.appendChild(label);
+    who.appendChild(parts.reviewer);
+    panel.appendChild(who);
 
-    // checklist
-    var body = el("div", "body");
-    (uat.sections || []).forEach(function (sec, si) {
-      var sh = el("div", "sec");
-      sh.textContent = sec.title;
-      body.appendChild(sh);
-      (sec.steps || []).forEach(function (step, ti) {
-        body.appendChild(stepRow(si, ti, step));
+    parts.body = el("div", "body");
+    (uat.sections || []).forEach(function (section) {
+      var heading = el("h3", "sec");
+      heading.textContent = section.title;
+      parts.body.appendChild(heading);
+      (section.steps || []).forEach(function (step) {
+        var row = buildRow(step);
+        parts.rows[step.key] = row;
+        parts.body.appendChild(row.row);
       });
     });
-    p.appendChild(body);
+    panel.appendChild(parts.body);
 
-    // freeform feedback
-    var fb = el("div", "fb");
-    var ft = el("div", "sec");
-    ft.textContent = "Anything else (bugs, ideas, confusion)";
-    fb.appendChild(ft);
-    var ta = document.createElement("textarea");
-    ta.placeholder = "Describe what you saw. The current page is captured automatically.";
-    fb.appendChild(ta);
-    var add = el("button", "add");
-    add.textContent = "+ Add note for this page";
-    add.onclick = function () {
-      var t = ta.value.trim();
-      if (!t) return;
-      state.notes.push({ text: t, url: location.href, at: nowISO() });
-      ta.value = "";
-      save();
-      render();
-    };
-    fb.appendChild(add);
-    if (state.notes.length) {
-      var list = el("div", "notes");
-      state.notes
-        .slice()
-        .reverse()
-        .forEach(function (n, i) {
-          var row = el("div", "note");
-          var txt = el("div", "notetext");
-          txt.textContent = n.text;
-          var meta = el("div", "notemeta");
-          meta.textContent = route(n.url);
-          var del = iconBtn("×", "Remove");
-          del.onclick = function () {
-            state.notes.splice(state.notes.length - 1 - i, 1);
-            save();
-            render();
-          };
-          row.appendChild(txt);
-          row.appendChild(meta);
-          row.appendChild(del);
-          list.appendChild(row);
-        });
-      fb.appendChild(list);
-    }
-    p.appendChild(fb);
+    panel.appendChild(buildNotes(parts));
 
-    // footer actions
     var foot = el("div", "foot");
-    var dl = el("button", "primary");
-    dl.textContent = "Download review report";
-    dl.onclick = download;
-    var clr = el("button", "ghost");
-    clr.textContent = "Reset";
-    clr.onclick = function () {
+    var reset = el("button", "ghost");
+    reset.textContent = "Reset";
+    reset.onclick = function () {
       if (confirm("Clear all checklist answers and notes for this instance?")) {
         clearInstanceState();
         state = fresh();
         state.minimized = false;
         save();
+        ui = null;
         render();
       }
     };
-    foot.appendChild(clr);
-    foot.appendChild(dl);
-    p.appendChild(foot);
-    return p;
+    var copy = el("button", "primary");
+    copy.textContent = "Copy report";
+    copy.onclick = function () {
+      copyReport(copy);
+    };
+    var download = el("button", "ghost");
+    download.textContent = "Download";
+    download.onclick = downloadReport;
+    foot.appendChild(reset);
+    foot.appendChild(download);
+    foot.appendChild(copy);
+    panel.appendChild(foot);
+
+    parts.panel = panel;
+    return parts;
   }
 
-  function stepRow(si, ti, step) {
-    var key = step.key;
-    var st = state.steps[key] || {};
+  function minimize() {
+    state.minimized = true;
+    panelToggled = true;
+    save();
+    render();
+  }
+
+  function buildNotes(parts) {
+    var box = el("div", "fb");
+    var toggle = el("button", "notetoggle");
+    toggle.textContent = "+ Note about this page";
+    toggle.setAttribute("aria-expanded", "false");
+    var form = el("div", "noteform");
+    var area = document.createElement("textarea");
+    area.setAttribute("aria-label", "Note about this page");
+    area.placeholder = "Describe what you saw. The current page is captured automatically.";
+    var add = el("button", "add");
+    add.textContent = "Add note";
+    add.onclick = function () {
+      var text = area.value.trim();
+      if (!text) return;
+      state.notes.push({ text: text, url: location.href, at: nowISO() });
+      area.value = "";
+      save();
+      syncPanel();
+    };
+    form.appendChild(area);
+    form.appendChild(add);
+    toggle.onclick = function () {
+      var open = box.classList.toggle("open");
+      toggle.setAttribute("aria-expanded", String(open));
+      if (open) area.focus();
+    };
+    box.appendChild(toggle);
+    box.appendChild(form);
+    parts.noteList = el("div", "notes");
+    box.appendChild(parts.noteList);
+    parts.noteToggle = toggle;
+    return box;
+  }
+
+  function buildRow(step) {
     var row = el("div", "step");
-    var top = el("div", "steptop");
-    var txt = el("div", "steplabel");
-    txt.textContent = step.do || step.text || "";
-    top.appendChild(txt);
-    row.appendChild(top);
+    var summary = el("button", "steptop");
+    summary.setAttribute("aria-expanded", "false");
+    var chip = el("span", "chip");
+    var text = el("span", "steplabel");
+    text.textContent = step.do || step.text || "";
+    summary.appendChild(chip);
+    summary.appendChild(text);
+    summary.onclick = function () {
+      // Clicking any row is how a reviewer goes back to something, or skips
+      // ahead. It never changes an answer.
+      state.current = step.key;
+      save();
+      syncPanel();
+      scrollCurrentIntoView();
+    };
+    row.appendChild(summary);
+    var detail = el("div", "detail");
+    row.appendChild(detail);
+    return { row: row, chip: chip, summary: summary, detail: detail, step: step };
+  }
+
+  function buildDetail(step) {
+    var detail = document.createDocumentFragment();
     if (step.expect) {
-      var ex = el("div", "expect");
-      ex.textContent = "Expected: " + step.expect;
-      row.appendChild(ex);
+      var expect = el("div", "expect");
+      expect.textContent = "Expected: " + step.expect;
+      detail.appendChild(expect);
     }
     if (!isRequired(step)) {
-      var optional = el("span", "optional");
+      var optional = el("div", "optional");
       optional.textContent = "Optional";
-      top.appendChild(optional);
-    }
-    if (st.stale) {
-      var stale = el("div", "stale");
-      stale.textContent = "Review again";
-      row.appendChild(stale);
+      detail.appendChild(optional);
     }
     if (step.route) {
       var go = el("a", "go");
-      go.textContent = "Go to " + step.route;
+      go.textContent = "Go to " + readableRoute(step.route);
       go.href = step.route;
-      row.appendChild(go);
+      go.title = step.route;
+      detail.appendChild(go);
     }
+    var saved = state.steps[step.key] || {};
     var marks = el("div", "marks");
     [
       ["pass", "Pass"],
       ["fail", "Fail"],
       ["na", "N/A"],
-    ].forEach(function (m) {
-      var b = el("button", "mark " + m[0] + (st.mark === m[0] ? " on" : ""));
-      b.textContent = m[1];
-      b.onclick = function () {
-        st.mark = st.mark === m[0] ? null : m[0];
-        st.markedAt = st.mark ? nowISO() : null;
-        st.actualUrl = st.mark ? location.href : null;
-        st.signature = stepSignature(step);
-        st.stale = false;
-        state.steps[key] = st;
-        save();
-        render();
+    ].forEach(function (option) {
+      var button = el("button", "mark " + option[0] + (saved.mark === option[0] ? " on" : ""));
+      button.textContent = option[1];
+      button.setAttribute("aria-pressed", String(saved.mark === option[0]));
+      button.onclick = function () {
+        mark(step, option[0]);
       };
-      marks.appendChild(b);
+      marks.appendChild(button);
     });
-    row.appendChild(marks);
-    var ni = document.createElement("input");
-    ni.type = "text";
-    ni.className = "stepnote";
-    ni.placeholder = "note (optional)";
-    ni.value = st.note || "";
-    ni.oninput = function () {
-      st.note = ni.value;
-      state.steps[key] = st;
+    detail.appendChild(marks);
+    var note = document.createElement("input");
+    note.type = "text";
+    note.className = "stepnote";
+    note.setAttribute("aria-label", "Note for this step");
+    note.placeholder = "What happened? (optional)";
+    note.value = saved.note || "";
+    note.oninput = function () {
+      var entry = state.steps[step.key] || {};
+      entry.note = note.value;
+      state.steps[step.key] = entry;
       save();
     };
-    row.appendChild(ni);
-    return row;
+    detail.appendChild(note);
+    return detail;
   }
 
-  // ---- report download ------------------------------------------------------
-  function download() {
+  function mark(step, value) {
+    var saved = state.steps[step.key] || {};
+    saved.mark = saved.mark === value ? null : value;
+    saved.markedAt = saved.mark ? nowISO() : null;
+    saved.actualUrl = saved.mark ? location.href : null;
+    saved.signature = stepSignature(step);
+    saved.stale = false;
+    // Only a failure carries the page's own error output; a passing step would
+    // just pad the report with noise.
+    saved.consoleErrors = saved.mark === "fail" ? pageErrors.slice() : [];
+    state.steps[step.key] = saved;
+    if (saved.mark) {
+      var next = nextOpenAfter(step.key);
+      if (next) state.current = next;
+    }
+    save();
+    syncPanel();
+    scrollCurrentIntoView();
+  }
+
+  function nextOpenAfter(key) {
+    var steps = allSteps();
+    var index = steps.findIndex(function (step) {
+      return step.key === key;
+    });
+    for (var i = index + 1; i < steps.length; i++) {
+      if (!answered(steps[i])) return steps[i].key;
+    }
+    return null;
+  }
+
+  function scrollCurrentIntoView() {
+    if (!ui) return;
+    var row = ui.rows[state.current];
+    if (!row) return;
+    // Scrolled by hand rather than with scrollIntoView, which is free to scroll
+    // ancestors — including the application's own page — to satisfy the request.
+    var body = ui.body;
+    var top = row.row.offsetTop;
+    var bottom = top + row.row.offsetHeight;
+    if (top < body.scrollTop) body.scrollTop = Math.max(0, top - 8);
+    else if (bottom > body.scrollTop + body.clientHeight) {
+      // Bring the end of the step into view, but never far enough to push its
+      // instruction off the top: a step read from the middle is worse than one
+      // whose note field needs a nudge.
+      body.scrollTop = Math.max(0, Math.min(bottom - body.clientHeight + 8, top - 4));
+    }
+    var first = row.detail.querySelector(".mark");
+    // Only chase the focus if it was already inside the panel: taking it from the
+    // application under review would be worse than leaving it alone.
+    if (first && ui.panel.contains(root.activeElement)) first.focus();
+  }
+
+  // ---- keeping the built panel in step with state ---------------------------
+  function syncPanel() {
+    if (!ui) return;
+    var counts = progress();
+    ui.title.textContent = uat.title || LABEL + " review";
+    ui.progress.textContent =
+      INSTANCE + " · " + counts.done + " of " + counts.total + " answered";
+    if (ui.reviewer.value !== (state.reviewer || "")) {
+      ui.reviewer.value = state.reviewer || "";
+    }
+
+    ui.statusBox.innerHTML = "";
+    if (loading) ui.statusBox.appendChild(status("Refreshing checklist…", "status"));
+    if (loadError) ui.statusBox.appendChild(status(loadError, "status error", "alert"));
+    if (buildWarning && !loadError) {
+      ui.statusBox.appendChild(status(buildWarning, "status warning"));
+    }
+    if (legacyStatePresent) {
+      ui.statusBox.appendChild(
+        status(
+          "Earlier position-based answers were not reused. Review these stable checklist steps again, then Reset to remove the old local data.",
+          "status warning legacy",
+        ),
+      );
+    }
+
+    ui.provenance.textContent = provenanceText();
+    ui.provenance.hidden = !ui.provenance.textContent;
+
+    // The preamble earns its space until the reviewer is under way; after that the
+    // checklist needs the room more than the introduction does.
+    ui.intro.textContent = uat.intro || "";
+    ui.intro.hidden = !uat.intro || counts.done > 0;
+
+    var current = currentKey();
+    state.current = current;
+    Object.keys(ui.rows).forEach(function (key) {
+      var row = ui.rows[key];
+      var saved = state.steps[key] || {};
+      var isCurrent = key === current;
+      row.row.classList.toggle("current", isCurrent);
+      row.row.classList.toggle("answered", Boolean(saved.mark && !saved.stale));
+      row.summary.setAttribute("aria-expanded", String(isCurrent));
+      row.chip.textContent = chipText(row.step, saved);
+      row.chip.className = "chip " + (saved.stale ? "stale" : saved.mark || "open");
+    });
+    if (ui.detailKey !== current) {
+      Object.keys(ui.rows).forEach(function (key) {
+        ui.rows[key].detail.innerHTML = "";
+      });
+      if (ui.rows[current]) ui.rows[current].detail.appendChild(buildDetail(ui.rows[current].step));
+      ui.detailKey = current;
+    } else if (ui.rows[current]) {
+      syncMarks(ui.rows[current], state.steps[current] || {});
+    }
+
+    ui.noteToggle.textContent = state.notes.length
+      ? "+ Note about this page (" + state.notes.length + ")"
+      : "+ Note about this page";
+    ui.noteList.innerHTML = "";
+    state.notes
+      .slice()
+      .reverse()
+      .forEach(function (note, index) {
+        var row = el("div", "note");
+        var text = el("div", "notetext");
+        text.textContent = note.text;
+        var meta = el("div", "notemeta");
+        meta.textContent = route(note.url);
+        var remove = iconBtn("×", "Remove note");
+        remove.onclick = function () {
+          state.notes.splice(state.notes.length - 1 - index, 1);
+          save();
+          syncPanel();
+        };
+        row.appendChild(text);
+        row.appendChild(meta);
+        row.appendChild(remove);
+        ui.noteList.appendChild(row);
+      });
+  }
+
+  function syncMarks(row, saved) {
+    row.detail.querySelectorAll(".mark").forEach(function (button) {
+      var value = button.classList.contains("pass")
+        ? "pass"
+        : button.classList.contains("fail")
+          ? "fail"
+          : "na";
+      var on = saved.mark === value;
+      button.classList.toggle("on", on);
+      button.setAttribute("aria-pressed", String(on));
+    });
+  }
+
+  function status(text, className, role) {
+    var node = el("div", className);
+    node.setAttribute("role", role || "status");
+    node.textContent = text;
+    return node;
+  }
+
+  function chipText(step, saved) {
+    if (saved.stale) return "Review again";
+    if (saved.mark === "pass") return "Pass";
+    if (saved.mark === "fail") return "Fail";
+    if (saved.mark === "na") return "N/A";
+    return isRequired(step) ? "To do" : "Optional";
+  }
+
+  function provenanceText() {
+    if (!build) return "";
+    var branch = build.appBranch || "";
+    var sha = (build.appSha || "").slice(0, 7);
+    if (!branch && !sha) return "";
+    return "Reviewing " + (branch || "unknown branch") + (sha ? " @ " + sha : "");
+  }
+
+  // A raw path is not a label. Show the reviewer where they are going and keep
+  // the exact target in the link's title.
+  function readableRoute(path) {
+    var clean = String(path).split("?")[0].replace(/^\/+|\/+$/g, "");
+    if (!clean) return "the home page";
+    var last = clean.split("/").pop();
+    return last.replace(/[-_]+/g, " ").toLowerCase();
+  }
+
+  function progress() {
+    var steps = allSteps();
+    return {
+      total: steps.length,
+      done: steps.filter(answered).length,
+    };
+  }
+
+  // ---- report ---------------------------------------------------------------
+  function downloadReport() {
     var report = buildReport();
     var stamp = nowISO().replace(/[:.]/g, "-");
-    var base = "oe-review-" + INSTANCE + "-" + stamp;
-    trigger(base + ".md", "text/markdown", report.md);
-    // small delay so both downloads fire in browsers that batch them
-    setTimeout(function () {
-      trigger(base + ".json", "application/json", report.json);
-    }, 300);
+    // One file, not two: a second programmatic download from the same click asks
+    // for Chrome's automatic-downloads permission, and a reviewer who dismisses
+    // that prompt silently loses half of their review.
+    trigger("oe-review-" + INSTANCE + "-" + stamp + ".md", "text/markdown", report.md);
+  }
+
+  function copyReport(button) {
+    // Built synchronously: Safari drops transient activation across an await, so
+    // anything asynchronous before this call makes the copy fail.
+    var text = buildReport().md;
+    var restore = button.textContent;
+    var done = function (message) {
+      button.textContent = message;
+      setTimeout(function () {
+        button.textContent = restore;
+      }, 2500);
+    };
+    try {
+      navigator.clipboard.writeText(text).then(
+        function () {
+          done("Copied");
+        },
+        function () {
+          done("Press ⌘/Ctrl+C");
+        },
+      );
+    } catch (e) {
+      done("Press ⌘/Ctrl+C");
+    }
   }
 
   function buildReport() {
@@ -664,6 +1073,9 @@
         if (st.note) lines.push("    - note: " + st.note);
         if (st.markedAt) lines.push("    - marked: " + st.markedAt);
         if (st.actualUrl) lines.push("    - page: " + st.actualUrl);
+        (st.consoleErrors || []).forEach(function (message) {
+          lines.push("    - console: " + message);
+        });
       });
     });
     lines.push("");
@@ -693,86 +1105,67 @@
         lines.push("    - at: " + n.at);
       });
     }
+
+    var json = JSON.stringify(
+      {
+        schemaVersion: 2,
+        instance: INSTANCE,
+        label: LABEL,
+        origin: location.origin,
+        reviewer: state.reviewer,
+        generated: generated,
+        checklistRevision: uat.checklistRevision || null,
+        deploymentId: build && build.deploymentId ? build.deploymentId : null,
+        build: build,
+        summary: {
+          total: total,
+          pass: pass,
+          fail: fail,
+          na: na,
+          stale: stale,
+          requiredOpen: requiredOpen,
+        },
+        checklist: (uat.sections || []).map(function (sec) {
+          return {
+            section: sec.title,
+            steps: (sec.steps || []).map(function (step) {
+              var st = state.steps[step.key] || {};
+              return {
+                key: step.key,
+                required: isRequired(step),
+                do: step.do || step.text || "",
+                expect: step.expect || null,
+                route: step.route || null,
+                mark: st.mark || null,
+                note: st.note || null,
+                markedAt: st.markedAt || null,
+                actualUrl: st.actualUrl || null,
+                stale: Boolean(st.stale),
+                consoleErrors: st.consoleErrors || [],
+              };
+            }),
+          };
+        }),
+        feedback: state.notes,
+      },
+      null,
+      2
+    );
+
+    lines.push("");
+    lines.push("## Structured record");
+    lines.push("");
+    lines.push("```json");
+    lines.push(json);
+    lines.push("```");
     lines.push("");
     lines.push(
-      "_Paste this into Claude to triage into Jira/GitHub. The JSON sibling file carries the same data structured._"
+      "_Paste this whole document into Claude to triage into Jira/GitHub. The fenced block above carries the same review as structured data._"
     );
-    return {
-      md: lines.join("\n"),
-      json: JSON.stringify(
-        {
-          schemaVersion: 2,
-          instance: INSTANCE,
-          label: LABEL,
-          origin: location.origin,
-          reviewer: state.reviewer,
-          generated: generated,
-          checklistRevision: uat.checklistRevision || null,
-          deploymentId: build && build.deploymentId ? build.deploymentId : null,
-          build: build,
-          summary: {
-            total: total,
-            pass: pass,
-            fail: fail,
-            na: na,
-            stale: stale,
-            requiredOpen: requiredOpen,
-          },
-          checklist: (uat.sections || []).map(function (sec) {
-            return {
-              section: sec.title,
-              steps: (sec.steps || []).map(function (step) {
-                var st = state.steps[step.key] || {};
-                return {
-                  key: step.key,
-                  required: isRequired(step),
-                  do: step.do || step.text || "",
-                  expect: step.expect || null,
-                  route: step.route || null,
-                  mark: st.mark || null,
-                  note: st.note || null,
-                  markedAt: st.markedAt || null,
-                  actualUrl: st.actualUrl || null,
-                  stale: Boolean(st.stale),
-                };
-              }),
-            };
-          }),
-          feedback: state.notes,
-        },
-        null,
-        2
-      ),
-    };
+    return { md: lines.join("\n"), json: json };
   }
 
   // ---- helpers --------------------------------------------------------------
-  function progressText() {
-    var total = 0,
-      done = 0;
-    (uat.sections || []).forEach(function (sec) {
-      (sec.steps || []).forEach(function (step) {
-        total++;
-        var saved = state.steps[step.key] || {};
-        if (saved.mark && !saved.stale) done++;
-      });
-    });
-    return done + "/" + total + " checked · " + state.notes.length + " notes";
-  }
-  function badge() {
-    var total = 0,
-      done = 0;
-    (uat.sections || []).forEach(function (sec) {
-      (sec.steps || []).forEach(function (step) {
-        total++;
-        var saved = state.steps[step.key] || {};
-        if (saved.mark && !saved.stale) done++;
-      });
-    });
-    return state.notes.length
-      ? '<span class="dot">' + state.notes.length + "</span>"
-      : "";
-  }
   function route(u) {
     try {
       var x = new URL(u);
@@ -811,41 +1204,77 @@
 
   function CSS() {
     return [
-      ".wrap{position:fixed;right:16px;bottom:80px;z-index:2147483647;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;font-size:13px;color:#1a1f26;}",
-      ".tab{display:flex;align-items:center;gap:6px;background:#0f62fe;color:#fff;border:none;border-radius:20px;padding:10px 16px;font-size:13px;font-weight:600;cursor:pointer;box-shadow:0 4px 14px rgba(0,0,0,.25);}",
+      // Above the host application's own header and side nav, which Carbon puts
+      // at 8000, but below its modals at 9000: a dialog the checklist is asking
+      // the reviewer to use has to be able to come over the top.
+      ".wrap{position:fixed;bottom:80px;z-index:8500;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;font-size:13px;color:#1a1f26;}",
+      ".anchor-right{right:16px;}",
+      ".anchor-left{left:16px;}",
+      ".anchor-centre{left:50%;transform:translateX(-50%);}",
+      ".tab{display:flex;align-items:center;gap:6px;background:#0f62fe;color:#fff;border:none;border-radius:20px;padding:10px 16px;font-size:13px;font-weight:600;cursor:pointer;box-shadow:0 4px 14px rgba(0,0,0,.25);font-variant-numeric:tabular-nums;}",
       ".tab:hover{background:#0353e9;}",
-      ".dot{background:#fff;color:#0f62fe;border-radius:10px;padding:0 6px;font-size:11px;font-weight:700;margin-right:2px;}",
-      ".panel{width:360px;max-height:82vh;display:flex;flex-direction:column;background:#fff;border:1px solid #d0d5dd;border-radius:10px;box-shadow:0 10px 40px rgba(0,0,0,.28);overflow:hidden;}",
-      ".head{display:flex;align-items:flex-start;gap:8px;padding:12px 14px;background:#161616;color:#fff;}",
-      ".titlebox{flex:1;}.title{font-weight:700;}.sub{font-size:11px;opacity:.7;margin-top:2px;font-variant-numeric:tabular-nums;}",
-      ".icon{background:transparent;border:none;color:inherit;font-size:16px;line-height:1;cursor:pointer;padding:2px 6px;border-radius:4px;}.icon:hover{background:rgba(255,255,255,.15);}",
-      ".status,.intro{padding:9px 14px;border-bottom:1px solid #eef0f3;color:#5b6673;}.status.error{background:#fff1f1;color:#a2191f;font-weight:600;}.status.warning{background:#fff8e1;color:#684e00;}",
-      ".who{padding:10px 14px;border-bottom:1px solid #eef0f3;display:flex;flex-direction:column;gap:4px;}",
-      ".who label{font-size:11px;color:#5b6673;font-weight:600;}",
-      "input[type=text],textarea{width:100%;box-sizing:border-box;border:1px solid #d0d5dd;border-radius:6px;padding:7px 9px;font:inherit;color:inherit;}",
-      "input:focus,textarea:focus{outline:2px solid #0f62fe;outline-offset:-1px;border-color:#0f62fe;}",
-      ".body{overflow-y:auto;padding:6px 14px 12px;}",
-      ".sec{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:#8b95a3;font-weight:700;margin:14px 0 6px;}",
-      ".step{border:1px solid #eef0f3;border-radius:8px;padding:9px 10px;margin-bottom:8px;background:#fafbfc;}",
-      ".steplabel{font-weight:600;line-height:1.35;}",
-      ".optional{display:inline-block;margin:5px 0 0 6px;font-size:10px;color:#697077;text-transform:uppercase;}",
-      ".expect{font-size:12px;color:#5b6673;margin-top:3px;}",
-      ".stale{display:inline-block;margin-top:6px;background:#fff8e1;color:#684e00;border:1px solid #f1c21b;border-radius:4px;padding:2px 6px;font-size:11px;font-weight:700;}",
-      ".go{display:inline-block;font-size:12px;color:#0f62fe;text-decoration:none;margin-top:5px;}.go:hover{text-decoration:underline;}",
-      ".marks{display:flex;gap:6px;margin-top:8px;}",
-      ".mark{flex:1;border:1px solid #d0d5dd;background:#fff;border-radius:6px;padding:5px 0;font-size:12px;font-weight:600;cursor:pointer;color:#5b6673;}",
+      ".dot{background:#fff;color:#0f62fe;border-radius:10px;padding:0 6px;font-size:11px;font-weight:700;}",
+      ".panel{box-sizing:border-box;width:min(360px,calc(100vw - 32px));max-height:min(560px,78vh);display:flex;flex-direction:column;background:#fff;border:1px solid #d0d5dd;border-radius:10px;box-shadow:0 10px 40px rgba(0,0,0,.28);overflow:hidden;}",
+      // Only the checklist scrolls. Without this the fixed rows shrink to absorb
+      // a long checklist and clip their own text.
+      ".head,.statusbox,.provenance,.intro,.who,.fb,.foot{flex:none;}",
+      ".head{display:flex;align-items:flex-start;gap:4px;padding:10px 12px;background:#161616;color:#fff;}",
+      ".titlebox{flex:1;min-width:0;}",
+      ".title{font-size:14px;font-weight:700;margin:0;}",
+      ".sub{font-size:11px;opacity:.75;margin-top:2px;font-variant-numeric:tabular-nums;}",
+      ".icon{background:transparent;border:none;color:inherit;font-size:15px;line-height:1;cursor:pointer;min-width:24px;min-height:24px;border-radius:4px;}.icon:hover{background:rgba(255,255,255,.15);}",
+      ".statusbox:empty{display:none;}",
+      ".status{padding:8px 12px;border-bottom:1px solid #eef0f3;color:#5b6673;}",
+      ".status.error{background:#fff1f1;color:#a2191f;font-weight:600;}",
+      ".status.warning{background:#fff8e1;color:#684e00;}",
+      ".provenance{padding:6px 12px;border-bottom:1px solid #eef0f3;font-size:11px;color:#697077;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}",
+      ".provenance[hidden]{display:none;}",
+      ".intro{padding:8px 12px;border-bottom:1px solid #eef0f3;color:#5b6673;}",
+      ".intro[hidden]{display:none;}",
+      ".who{padding:8px 12px;border-bottom:1px solid #eef0f3;display:flex;align-items:center;gap:8px;}",
+      ".who label{font-size:11px;color:#5b6673;font-weight:600;white-space:nowrap;}",
+      "input[type=text],textarea{width:100%;box-sizing:border-box;border:1px solid #d0d5dd;border-radius:6px;padding:6px 8px;font:inherit;color:inherit;}",
+      "input:focus-visible,textarea:focus-visible,button:focus-visible,a:focus-visible{outline:2px solid #0f62fe;outline-offset:1px;}",
+      // Positioned so a row's offsetTop is measured against the scroller itself.
+      ".body{position:relative;flex:1;min-height:0;overflow-y:auto;padding:4px 12px 10px;}",
+      ".sec{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:#8b95a3;font-weight:700;margin:12px 0 4px;}",
+      ".step{border:1px solid #eef0f3;border-radius:8px;margin-bottom:6px;background:#fafbfc;}",
+      ".step.current{background:#fff;border-color:#c6d4ff;box-shadow:0 0 0 2px rgba(15,98,254,.12);}",
+      ".steptop{display:flex;gap:8px;align-items:flex-start;width:100%;text-align:left;background:none;border:none;padding:8px 10px;font:inherit;color:inherit;cursor:pointer;min-height:24px;}",
+      ".steplabel{flex:1;line-height:1.35;}",
+      ".step:not(.current) .steplabel{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;}",
+      ".step.current .steplabel{font-weight:600;}",
+      ".step.answered .steplabel{color:#697077;}",
+      ".chip{flex:none;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.03em;border-radius:4px;padding:2px 5px;margin-top:1px;background:#eef0f3;color:#5b6673;}",
+      ".chip.pass{background:#defbe6;color:#0e6027;}",
+      ".chip.fail{background:#fff1f1;color:#a2191f;}",
+      ".chip.stale{background:#fff8e1;color:#684e00;}",
+      ".detail:empty{display:none;}",
+      ".detail{padding:0 10px 10px;}",
+      ".expect{font-size:12px;color:#5b6673;margin-bottom:4px;}",
+      ".optional{font-size:10px;color:#697077;text-transform:uppercase;margin-bottom:4px;}",
+      ".go{display:inline-block;font-size:12px;color:#0f62fe;text-decoration:none;margin-bottom:6px;}.go:hover{text-decoration:underline;}",
+      ".marks{display:flex;gap:6px;}",
+      ".mark{flex:1;border:1px solid #d0d5dd;background:#fff;border-radius:6px;padding:6px 0;font-size:12px;font-weight:600;cursor:pointer;color:#5b6673;min-height:24px;}",
       ".mark.pass.on{background:#defbe6;border-color:#24a148;color:#0e6027;}",
       ".mark.fail.on{background:#fff1f1;border-color:#da1e28;color:#a2191f;}",
       ".mark.na.on{background:#eef0f3;border-color:#8b95a3;color:#5b6673;}",
-      ".stepnote{margin-top:7px;font-size:12px;}",
-      ".fb{padding:4px 14px 12px;border-top:1px solid #eef0f3;}",
-      ".add{margin-top:6px;background:#eef4ff;color:#0f62fe;border:1px solid #cfe0ff;border-radius:6px;padding:6px 10px;font-weight:600;cursor:pointer;}",
-      ".notes{margin-top:8px;display:flex;flex-direction:column;gap:6px;}",
+      ".stepnote{margin-top:6px;font-size:12px;}",
+      ".fb{padding:6px 12px 8px;border-top:1px solid #eef0f3;}",
+      ".notetoggle{background:none;border:none;color:#0f62fe;font:inherit;font-weight:600;cursor:pointer;padding:4px 0;min-height:24px;}",
+      ".noteform{display:none;margin-top:6px;}",
+      ".fb.open .noteform{display:block;}",
+      ".add{margin-top:6px;background:#eef4ff;color:#0f62fe;border:1px solid #cfe0ff;border-radius:6px;padding:6px 10px;font-weight:600;cursor:pointer;min-height:24px;}",
+      ".notes{margin-top:6px;display:flex;flex-direction:column;gap:6px;}",
+      ".notes:empty{display:none;}",
       ".note{display:grid;grid-template-columns:1fr auto auto;gap:6px;align-items:start;background:#fafbfc;border:1px solid #eef0f3;border-radius:6px;padding:6px 8px;}",
+      ".note .icon{color:#5b6673;}",
       ".notetext{font-size:12px;}.notemeta{font-size:11px;color:#8b95a3;font-variant-numeric:tabular-nums;white-space:nowrap;}",
-      ".foot{display:flex;gap:8px;padding:12px 14px;border-top:1px solid #eef0f3;background:#fff;}",
-      ".primary{flex:1;background:#0f62fe;color:#fff;border:none;border-radius:6px;padding:9px 0;font-weight:700;cursor:pointer;}.primary:hover{background:#0353e9;}",
-      ".ghost{background:#fff;color:#5b6673;border:1px solid #d0d5dd;border-radius:6px;padding:9px 14px;cursor:pointer;}",
+      ".foot{display:flex;gap:6px;padding:10px 12px;border-top:1px solid #eef0f3;background:#fff;}",
+      ".primary{flex:1;background:#0f62fe;color:#fff;border:none;border-radius:6px;padding:8px 0;font-weight:700;cursor:pointer;min-height:24px;}.primary:hover{background:#0353e9;}",
+      ".ghost{background:#fff;color:#5b6673;border:1px solid #d0d5dd;border-radius:6px;padding:8px 12px;cursor:pointer;min-height:24px;}",
+      "@media (max-width:640px){.wrap.open{left:0;right:0;bottom:0;transform:none;}.wrap.open .panel{width:100vw;max-height:70vh;border-radius:10px 10px 0 0;}}",
+      "@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important;}}",
     ].join("");
   }
 })();

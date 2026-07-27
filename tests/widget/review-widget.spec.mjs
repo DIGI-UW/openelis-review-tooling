@@ -101,11 +101,9 @@ test("refresh preserves reordered answers and marks changed instructions stale",
   });
 
   const widget = await openPanel(page);
-  await widget
-    .locator(".step")
-    .filter({ hasText: "Find a shipped profile" })
-    .getByText("Pass", { exact: true })
-    .click();
+  const reordered = widget.locator(".step").filter({ hasText: "Find a shipped profile" });
+  await reordered.locator(".steptop").click();
+  await reordered.getByText("Pass", { exact: true }).click();
 
   revision = "revision-two";
   firstInstruction = "Find and inspect a shipped profile";
@@ -231,11 +229,10 @@ test("keeps answers when the target fetch fails after a mark", async ({ page }) 
   targetAvailable = false;
   await page.reload();
   widget = page.locator("#oe-review-host");
-  await widget.getByRole("button", { name: "Review" }).click();
-  await expect(
-    widget
-      .locator(".step")
-      .filter({ hasText: "Find a shipped profile" })
-      .locator(".mark.pass"),
-  ).toHaveClass(/on/);
+  const marked = widget.locator(".step").filter({ hasText: "Find a shipped profile" });
+  await expect(marked.locator(".chip")).toHaveText("Pass");
+
+  const stored = await savedState(page);
+  expect(stored.key).toContain("oe-review:v2:analyzers:abc123:");
+  expect(stored.value.steps["AN-QC-001"].mark).toBe("pass");
 });

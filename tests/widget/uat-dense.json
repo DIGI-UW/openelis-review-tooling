@@ -1,0 +1,95 @@
+{
+  "schemaVersion": 2,
+  "title": "Microbiology MVP - review",
+  "instance": "amr",
+  "jira": "OGC-782",
+  "intro": "Task-based review of the Microbiology / AMR MVP. Sign in, open Review, and work each step. Use the configured Microbiology navigation and canonical worklist and case URLs; mark Pass, Fail, or N/A and note anything confusing or broken.",
+  "sections": [
+    {
+      "title": "Open the microbiology worklist",
+      "steps": [
+        {
+          "key": "AMR-1",
+          "required": true,
+          "do": "Sign in, open the main navigation, expand Microbiology, and choose Microbiology worklist.",
+          "expect": "The worklist opens at /Microbiology/worklist, the Microbiology navigation remains visible without covering the page, and seeded cases are listed.",
+          "route": "/Dashboard"
+        },
+        {
+          "key": "AMR-2",
+          "required": true,
+          "do": "Set Workflow to Bacteriology and Sort to Newest, then refresh the page.",
+          "expect": "The URL keeps workflow=BACTERIOLOGY and sort=newest, and the same filters remain selected after refresh.",
+          "route": "/Microbiology/worklist"
+        },
+        {
+          "key": "AMR-3",
+          "required": true,
+          "do": "Clear the worklist filters.",
+          "expect": "The filter values return to their defaults and the URL returns to /Microbiology/worklist without stale query parameters.",
+          "route": "/Microbiology/worklist?workflow=BACTERIOLOGY&sort=newest"
+        }
+      ]
+    },
+    {
+      "title": "Open and navigate the seeded case",
+      "steps": [
+        {
+          "key": "AMR-4",
+          "required": true,
+          "do": "From a filtered worklist, open the seeded bacteriology case.",
+          "expect": "The case opens at /Microbiology/cases/<case-id>, keeps the worklist query context, and shows the specimen at RECEIVED with patient and order context.",
+          "route": "/Microbiology/worklist?workflow=BACTERIOLOGY&sort=newest"
+        },
+        {
+          "key": "AMR-5",
+          "required": true,
+          "do": "Use the case progress rail to open Isolates, then refresh the page.",
+          "expect": "The URL includes section=isolates and Isolates remains the active case destination after refresh."
+        },
+        {
+          "key": "AMR-16",
+          "required": true,
+          "do": "Choose Back to microbiology worklist.",
+          "expect": "The worklist returns with the previous workflow and sort filters restored."
+        }
+      ]
+    },
+    {
+      "title": "Drive the workflow",
+      "steps": [
+        {
+          "key": "AMR-6",
+          "required": true,
+          "do": "Record an isolate or organism on the received specimen.",
+          "expect": "You can add an isolate and advance the case beyond RECEIVED; the state change is reflected in the workbench."
+        },
+        {
+          "key": "AMR-7",
+          "required": true,
+          "do": "Enter an AST result using the seeded breakpoint, antibiotic, and panel reference data.",
+          "expect": "The AST entry surface accepts the result, derives an S/I/R interpretation, and does not force the reviewer into a dead end."
+        },
+        {
+          "key": "AMR-20",
+          "required": true,
+          "do": "Follow the interpreted AST result through review and release, then inspect the patient-facing report.",
+          "expect": "The released report presents the antibiotic result and S/I/R interpretation clearly. Mark Fail and describe where it stops if it does not reach the report."
+        }
+      ]
+    },
+    {
+      "title": "Shared-specimen and overall review",
+      "steps": [
+        {
+          "key": "AMR-21",
+          "required": true,
+          "do": "Find the sibling TB case on the same specimen, then identify the single most important missing part of the bench workflow.",
+          "expect": "The bacterial and TB cases remain distinct without hiding or corrupting one another, and the reviewer records one clear highest-value gap for the next iteration.",
+          "route": "/Microbiology/worklist"
+        }
+      ]
+    }
+  ],
+  "checklistRevision": "dense-revision-one"
+}
