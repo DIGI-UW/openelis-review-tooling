@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OpenELIS Review Tooling — docs</title>
+<style>
+  :root{
+    --paper:#f5f7f8; --surface:#fff; --ink:#16202a; --muted:#566571; --faint:#8497a3;
+    --line:#d9e2e7; --accent:#0c8f86; --accent-soft:#e2f1ef;
+    --mono:ui-monospace,"JetBrains Mono","SF Mono",Menlo,Consolas,monospace;
+    --sans:system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+  }
+  @media (prefers-color-scheme:dark){
+    :root{--paper:#0c1319;--surface:#111c24;--ink:#e8eef2;--muted:#93a6b2;--faint:#6d818e;
+          --line:#22323c;--accent:#2fb7a9;--accent-soft:#123029}
+  }
+  :root[data-theme="light"]{--paper:#f5f7f8;--surface:#fff;--ink:#16202a;--muted:#566571;
+          --faint:#8497a3;--line:#d9e2e7;--accent:#0c8f86;--accent-soft:#e2f1ef}
+  :root[data-theme="dark"]{--paper:#0c1319;--surface:#111c24;--ink:#e8eef2;--muted:#93a6b2;
+          --faint:#6d818e;--line:#22323c;--accent:#2fb7a9;--accent-soft:#123029}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--sans);
+       line-height:1.55;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:820px;margin:0 auto;padding:clamp(24px,5vw,64px) clamp(16px,4vw,32px)}
+  .eyebrow{font-family:var(--mono);font-size:12px;letter-spacing:.14em;text-transform:uppercase;
+           color:var(--accent);font-weight:600;display:flex;align-items:center;gap:9px}
+  .dot{width:9px;height:9px;border-radius:50%;background:var(--accent);
+       box-shadow:0 0 0 4px var(--accent-soft)}
+  h1{font-size:clamp(28px,5vw,40px);line-height:1.08;letter-spacing:-.02em;margin:.4em 0 .2em;
+     text-wrap:balance;font-weight:680}
+  .lede{font-size:clamp(16px,2.2vw,19px);color:var(--muted);max-width:62ch;margin:0 0 40px}
+  h2{font-family:var(--mono);font-size:12.5px;letter-spacing:.12em;text-transform:uppercase;
+     color:var(--muted);font-weight:600;margin:40px 0 14px;display:flex;align-items:center;gap:10px}
+  h2::before{content:"";width:20px;height:2px;background:var(--accent);border-radius:2px}
+  .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:14px}
+  a.card{display:block;background:var(--surface);border:1px solid var(--line);border-radius:13px;
+         padding:18px 20px;text-decoration:none;color:inherit;transition:border-color .15s}
+  a.card:hover{border-color:var(--accent)}
+  a.card:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+  a.card .t{font-size:16.5px;font-weight:640;letter-spacing:-.01em;margin-bottom:4px}
+  a.card .d{font-size:14px;color:var(--muted)}
+  .list{display:flex;flex-direction:column;gap:9px}
+  .list a{display:flex;gap:12px;align-items:baseline;background:var(--surface);
+          border:1px solid var(--line);border-radius:10px;padding:12px 15px;
+          text-decoration:none;color:inherit}
+  .list a:hover{border-color:var(--accent)}
+  .list .k{font-family:var(--mono);font-size:12.5px;color:var(--accent);flex:none}
+  .list .d{font-size:14px;color:var(--muted)}
+  code{font-family:var(--mono);font-size:.87em;background:var(--accent-soft);
+       padding:1.5px 6px;border-radius:5px;color:var(--ink)}
+  footer{margin-top:48px;padding-top:20px;border-top:1px solid var(--line);
+         color:var(--faint);font-family:var(--mono);font-size:12px;
+         display:flex;flex-wrap:wrap;gap:8px 18px;justify-content:space-between}
+  footer a{color:var(--faint)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="eyebrow"><span class="dot"></span>OpenELIS Review Tooling</div>
+  <h1>Docs</h1>
+  <p class="lede">Write a UAT checklist once, put it in front of reviewers on any deployment, and get
+    structured feedback back as issues. No frontend build, no fork, no redeploy.</p>
+
+  <h2>Start here</h2>
+  <div class="cards">
+    <a class="card" href="tutorial.html">
+      <div class="t">Set up a review →</div>
+      <div class="d">The walkthrough. Fill in your instance slug once and every snippet on the page
+        personalises. Author → check → attach → review → triage.</div>
+    </a>
+    <a class="card" href="overview.html">
+      <div class="t">How it fits together →</div>
+      <div class="d">The authoring and feedback loops end to end, and what is actually running on
+        this host.</div>
+    </a>
+  </div>
+
+  <h2>Reference</h2>
+  <div class="list">
+    <a href="TUTORIAL.md"><span class="k">TUTORIAL.md</span><span class="d">The walkthrough as plain Markdown</span></a>
+    <a href="AGENTS.md"><span class="k">AGENTS.md</span><span class="d">Operating context for an LLM authoring checklists over MCP</span></a>
+    <a href="OPERATIONS.md"><span class="k">OPERATIONS.md</span><span class="d">Running the host: deploys, drift, certs, secrets</span></a>
+    <a href="https://github.com/DIGI-UW/openelis-review-tooling"><span class="k">repo</span><span class="d">DIGI-UW/openelis-review-tooling</span></a>
+  </div>
+
+  <h2>Authoring</h2>
+  <div class="list">
+    <a href="/"><span class="k">Grist</span><span class="d">Sign in and edit the UAT Checklists document</span></a>
+    <a href="https://github.com/DIGI-UW/openelis-review-tooling/blob/main/docs/AGENTS.md#authoring--native-grist-mcp"><span class="k">/api/mcp</span><span class="d">Connect an agent to author checklists in plain language</span></a>
+    <a href="/uat/amr.json"><span class="k">/uat/…</span><span class="d">What a reviewer's browser actually loads</span></a>
+  </div>
+
+  <footer>
+    <span>Served from this host · versioned in the repo</span>
+    <span><a href="https://github.com/DIGI-UW/openelis-review-tooling">DIGI-UW/openelis-review-tooling</a></span>
+  </footer>
+</div>
+</body>
+</html>

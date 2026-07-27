@@ -30,6 +30,8 @@ services:
       # by the router at /__review/ and injected via sub_filter.
       - ../widget:/etc/nginx/review:ro
       - ../runtime:/etc/nginx/runtime:ro
+      # Project docs, served publicly at /docs/ on the grist vhost.
+      - ../docs:/etc/nginx/docs:ro
       # Shared with the cert scripts — LE lineages live here, one dir per domain.
       - ./letsencrypt:/etc/letsencrypt:ro
       # ACME HTTP-01 webroot; certbot writes challenge tokens here.
