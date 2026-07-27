@@ -1,582 +1,510 @@
+<!doctype html>
+<html lang="en">
+<head>
 <meta charset="utf-8">
-<title>Set up a review — OpenELIS Review Tooling</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Set up a review — OpenELIS Review Tooling</title>
 <style>
   :root{
-    --paper:#f5f7f8; --surface:#fff; --surface-2:#eef3f5; --sunk:#e7eef1;
+    --paper:#f5f7f8; --surface:#fff; --surface-2:#eef3f5;
     --ink:#16202a; --muted:#566571; --faint:#8497a3;
     --line:#d9e2e7; --line-strong:#c3d0d7;
-    --accent:#0c8f86; --accent-soft:#e2f1ef; --accent-ink:#065c55;
+    --accent:#0c8f86; --accent-ink:#fff; --accent-soft:#e2f1ef;
+    --pass:#1f9d57; --fail:#d6453d; --warn:#d6a11e;
     --shadow:0 1px 2px rgba(22,32,42,.05), 0 6px 22px rgba(22,32,42,.06);
     --mono:ui-monospace,"JetBrains Mono","SF Mono",Menlo,Consolas,monospace;
     --sans:system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
-    /* the widget's own Carbon palette — used only inside UI previews */
-    --w-blue:#0f62fe; --w-green:#24a148; --w-red:#da1e28; --w-dark:#1a1f26;
-    --w-grey:#5b6673; --w-line:#d0d5dd; --w-bg:#fafbfc;
   }
   @media (prefers-color-scheme:dark){
-    :root{
-      --paper:#0c1319; --surface:#111c24; --surface-2:#16232c; --sunk:#0d171e;
-      --ink:#e8eef2; --muted:#93a6b2; --faint:#6d818e;
-      --line:#22323c; --line-strong:#31454f;
-      --accent:#2fb7a9; --accent-soft:#123029; --accent-ink:#7fe0d4;
-      --shadow:0 1px 2px rgba(0,0,0,.3), 0 8px 26px rgba(0,0,0,.34);
-    }
+    :root{--paper:#0c1319;--surface:#111c24;--surface-2:#16232c;--ink:#e8eef2;
+      --muted:#93a6b2;--faint:#6d818e;--line:#22323c;--line-strong:#31454f;
+      --accent:#2fb7a9;--accent-ink:#04201d;--accent-soft:#123029;
+      --pass:#37c07d;--fail:#f0685f;--warn:#e0b33d;
+      --shadow:0 1px 2px rgba(0,0,0,.3),0 8px 26px rgba(0,0,0,.34)}
   }
-  :root[data-theme="light"]{
-    --paper:#f5f7f8; --surface:#fff; --surface-2:#eef3f5; --sunk:#e7eef1;
-    --ink:#16202a; --muted:#566571; --faint:#8497a3;
-    --line:#d9e2e7; --line-strong:#c3d0d7;
-    --accent:#0c8f86; --accent-soft:#e2f1ef; --accent-ink:#065c55;
-    --shadow:0 1px 2px rgba(22,32,42,.05), 0 6px 22px rgba(22,32,42,.06);
-  }
-  :root[data-theme="dark"]{
-    --paper:#0c1319; --surface:#111c24; --surface-2:#16232c; --sunk:#0d171e;
-    --ink:#e8eef2; --muted:#93a6b2; --faint:#6d818e;
-    --line:#22323c; --line-strong:#31454f;
-    --accent:#2fb7a9; --accent-soft:#123029; --accent-ink:#7fe0d4;
-    --shadow:0 1px 2px rgba(0,0,0,.3), 0 8px 26px rgba(0,0,0,.34);
-  }
+  :root[data-theme="light"]{--paper:#f5f7f8;--surface:#fff;--surface-2:#eef3f5;--ink:#16202a;
+    --muted:#566571;--faint:#8497a3;--line:#d9e2e7;--line-strong:#c3d0d7;--accent:#0c8f86;
+    --accent-ink:#fff;--accent-soft:#e2f1ef;--pass:#1f9d57;--fail:#d6453d;--warn:#d6a11e}
+  :root[data-theme="dark"]{--paper:#0c1319;--surface:#111c24;--surface-2:#16232c;--ink:#e8eef2;
+    --muted:#93a6b2;--faint:#6d818e;--line:#22323c;--line-strong:#31454f;--accent:#2fb7a9;
+    --accent-ink:#04201d;--accent-soft:#123029;--pass:#37c07d;--fail:#f0685f;--warn:#e0b33d}
   *{box-sizing:border-box}
+  html{scroll-behavior:smooth;scroll-padding-top:20px}
+  @media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}}
   body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--sans);
-    font-size:16px;line-height:1.6;-webkit-font-smoothing:antialiased}
-  .mono{font-family:var(--mono)}
-  a{color:var(--accent);text-decoration:none}
-  a:hover{text-decoration:underline}
-  a:focus-visible,button:focus-visible,input:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:4px}
+    line-height:1.6;-webkit-font-smoothing:antialiased;font-size:16px}
+  .wrap{max-width:1080px;margin:0 auto;padding:clamp(20px,4vw,52px) clamp(16px,4vw,32px)}
 
-  .shell{max-width:1120px;margin:0 auto;padding:clamp(20px,4vw,44px) clamp(16px,4vw,28px)}
-  .eyebrow{font-family:var(--mono);font-size:11.5px;letter-spacing:.16em;text-transform:uppercase;
-    color:var(--accent);font-weight:700}
-  h1{font-size:clamp(28px,4.6vw,40px);line-height:1.06;letter-spacing:-.022em;margin:.3em 0 .25em;
-    font-weight:680;text-wrap:balance}
-  .lede{font-size:clamp(16.5px,2.2vw,19px);color:var(--muted);max-width:62ch;margin:0;text-wrap:pretty}
-  .meta{display:flex;flex-wrap:wrap;gap:8px;margin-top:18px}
-  .pill{font-family:var(--mono);font-size:12px;padding:5px 11px;border:1px solid var(--line-strong);
-    border-radius:999px;background:var(--surface);color:var(--muted);box-shadow:var(--shadow)}
+  /* ---------- header ---------- */
+  .eyebrow{font-family:var(--mono);font-size:12px;letter-spacing:.14em;text-transform:uppercase;
+    color:var(--accent);font-weight:600;display:flex;align-items:center;gap:9px}
+  .dot{width:9px;height:9px;border-radius:50%;background:var(--accent);box-shadow:0 0 0 4px var(--accent-soft)}
+  h1{font-size:clamp(30px,5.2vw,44px);line-height:1.05;letter-spacing:-.022em;margin:.35em 0 .18em;
+    text-wrap:balance;font-weight:690}
+  .lede{font-size:clamp(16.5px,2.2vw,19.5px);color:var(--muted);max-width:64ch;margin:0}
+  .meta{display:flex;flex-wrap:wrap;gap:8px;margin-top:22px}
+  .chip{font-family:var(--mono);font-size:12.5px;padding:6px 12px;border:1px solid var(--line-strong);
+    border-radius:999px;background:var(--surface);display:inline-flex;gap:7px;align-items:center;box-shadow:var(--shadow)}
+  .chip b{color:var(--faint);font-weight:600;font-size:10.5px;letter-spacing:.06em;text-transform:uppercase}
 
-  /* ---- setup bar: personalises every snippet on the page ---- */
-  .setup{margin:26px 0 8px;background:var(--surface);border:1px solid var(--line);border-radius:14px;
-    padding:16px 18px;box-shadow:var(--shadow);display:grid;
-    grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:14px;align-items:end}
-  .setup .full{grid-column:1/-1;margin:0 0 2px;font-size:13.5px;color:var(--muted)}
-  .field label{display:block;font-family:var(--mono);font-size:10.5px;letter-spacing:.1em;
-    text-transform:uppercase;color:var(--faint);margin-bottom:5px}
-  .field input{width:100%;font-family:var(--mono);font-size:13.5px;padding:9px 11px;color:var(--ink);
-    background:var(--sunk);border:1px solid var(--line-strong);border-radius:8px}
+  h2{font-family:var(--mono);font-size:12.5px;letter-spacing:.12em;text-transform:uppercase;
+    color:var(--muted);font-weight:600;margin:0 0 14px;display:flex;align-items:center;gap:10px}
+  h2::before{content:"";width:20px;height:2px;background:var(--accent);border-radius:2px;flex:none}
+  section{margin:44px 0}
 
-  /* ---- layout: sticky rail + steps ---- */
-  .cols{display:grid;grid-template-columns:200px 1fr;gap:34px;margin-top:34px;align-items:start}
-  @media (max-width:860px){ .cols{grid-template-columns:1fr;gap:20px} .rail{display:none} }
-  .rail{position:sticky;top:24px}
-  .rail ol{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:2px}
-  .rail a{display:flex;gap:10px;align-items:flex-start;padding:8px 10px;border-radius:9px;
-    color:var(--muted);font-size:13.5px;line-height:1.35;border-left:2px solid transparent}
-  .rail a:hover{background:var(--surface);text-decoration:none;color:var(--ink)}
-  .rail a.on{background:var(--surface);border-left-color:var(--accent);color:var(--ink);font-weight:600;
-    box-shadow:var(--shadow)}
-  .rail .n{font-family:var(--mono);font-size:11px;color:var(--accent);font-weight:700;margin-top:2px}
+  /* ---------- figures ---------- */
+  figure{margin:0;background:var(--surface);border:1px solid var(--line);border-radius:14px;
+    padding:clamp(14px,2.4vw,22px);box-shadow:var(--shadow);overflow:hidden}
+  figure svg{display:block;width:100%;height:auto}
+  figcaption{margin-top:12px;font-size:13.5px;color:var(--muted);text-wrap:pretty}
+  .svg-l{fill:var(--ink)} .svg-m{fill:var(--muted)} .svg-f{fill:var(--faint)}
+  .svg-box{fill:var(--paper);stroke:var(--line-strong)}
+  .svg-key{fill:var(--accent-soft);stroke:var(--accent)}
+  .svg-arrow{stroke:var(--line-strong);fill:none}
+  .svg-mono{font-family:var(--mono)}
 
-  .step{background:var(--surface);border:1px solid var(--line);border-radius:16px;
-    padding:clamp(18px,2.6vw,28px);box-shadow:var(--shadow);margin-bottom:22px;scroll-margin-top:20px}
-  .step-hd{display:flex;gap:14px;align-items:flex-start;margin-bottom:6px}
-  .step-n{flex:none;width:30px;height:30px;border-radius:9px;background:var(--accent-soft);
-    color:var(--accent-ink);font-family:var(--mono);font-weight:700;font-size:13.5px;
-    display:flex;align-items:center;justify-content:center;margin-top:2px}
-  .step h2{margin:0;font-size:21px;letter-spacing:-.015em;line-height:1.25}
-  .step .sub{color:var(--muted);font-size:14.5px;margin:2px 0 0}
-  .step-body{margin-top:16px}
-  .step p{margin:0 0 12px}
-  .step p:last-child{margin-bottom:0}
+  /* ---------- personalise ---------- */
+  .personalise{background:var(--surface);border:1px solid var(--line);border-radius:14px;
+    padding:18px 20px;box-shadow:var(--shadow)}
+  .personalise p{margin:0 0 14px;font-size:14.5px;color:var(--muted)}
+  .fields{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px}
+  .fields label{display:block;font-family:var(--mono);font-size:10.5px;letter-spacing:.08em;
+    text-transform:uppercase;color:var(--faint);margin-bottom:6px}
+  .fields input{width:100%;font-family:var(--mono);font-size:14px;padding:9px 11px;
+    border:1px solid var(--line-strong);border-radius:9px;background:var(--paper);color:var(--ink)}
+  .fields input:focus{outline:2px solid var(--accent);outline-offset:1px;border-color:var(--accent)}
 
-  h3{font-size:15px;margin:22px 0 8px;letter-spacing:-.01em}
-  h3:first-child{margin-top:0}
-  .hint{border-left:2px solid var(--accent);padding:3px 0 3px 14px;color:var(--muted);font-size:14.5px;margin:14px 0}
-  .warn{border-left:2px solid #d6a11e;padding:3px 0 3px 14px;color:var(--muted);font-size:14.5px;margin:14px 0}
+  /* ---------- steps ---------- */
+  .layout{display:grid;grid-template-columns:190px 1fr;gap:28px;align-items:start}
+  @media (max-width:860px){.layout{grid-template-columns:1fr}nav.toc{position:static!important;display:none}}
+  nav.toc{position:sticky;top:20px;display:flex;flex-direction:column;gap:3px}
+  nav.toc a{display:flex;gap:10px;align-items:baseline;padding:9px 11px;border-radius:9px;
+    text-decoration:none;color:var(--muted);font-size:14px;border:1px solid transparent}
+  nav.toc a:hover{background:var(--surface);color:var(--ink)}
+  nav.toc a.on{background:var(--accent-soft);border-color:var(--accent);color:var(--ink);font-weight:620}
+  nav.toc .n{font-family:var(--mono);font-size:11.5px;color:var(--accent);font-weight:700}
 
-  /* ---- code + copy ---- */
-  .code{position:relative;margin:12px 0}
-  pre{margin:0;background:var(--sunk);border:1px solid var(--line);border-radius:11px;
-    padding:14px 52px 14px 15px;overflow-x:auto;font-family:var(--mono);font-size:12.8px;
-    line-height:1.62;color:var(--ink)}
-  pre .cm{color:var(--faint)}
-  pre .tok{color:var(--accent-ink)}
-  @media (prefers-color-scheme:dark){ pre .tok{color:var(--accent)} }
-  .copy{position:absolute;top:9px;right:9px;font-family:var(--mono);font-size:10.5px;letter-spacing:.08em;
-    text-transform:uppercase;padding:5px 9px;border-radius:7px;border:1px solid var(--line-strong);
-    background:var(--surface);color:var(--muted);cursor:pointer}
-  .copy:hover{color:var(--ink);border-color:var(--accent)}
-  .copy.done{color:var(--accent);border-color:var(--accent)}
+  .step{background:var(--surface);border:1px solid var(--line);border-radius:15px;
+    padding:clamp(16px,2.6vw,26px);box-shadow:var(--shadow);margin-bottom:18px}
+  .step-hd{display:flex;gap:14px;align-items:flex-start;margin-bottom:14px}
+  .step-n{flex:none;width:34px;height:34px;border-radius:10px;background:var(--accent);color:var(--accent-ink);
+    font-family:var(--mono);font-size:14px;font-weight:700;display:flex;align-items:center;justify-content:center}
+  .step-hd h3{margin:0;font-size:20px;letter-spacing:-.015em}
+  .step-hd .sub{margin:3px 0 0;font-size:14px;color:var(--muted)}
+
+  .tabs{display:flex;gap:7px;margin:16px 0 14px;flex-wrap:wrap}
+  .tab{font-size:14px;padding:7px 14px;border-radius:999px;border:1px solid var(--line-strong);
+    background:var(--paper);color:var(--muted);cursor:pointer;font-family:inherit}
+  .tab[aria-selected="true"]{background:var(--accent-soft);border-color:var(--accent);color:var(--ink);font-weight:620}
+  .tab:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+  .code{position:relative;margin:14px 0 0}
+  .code pre{margin:0;background:var(--surface-2);border:1px solid var(--line);border-radius:11px;
+    padding:14px 15px;overflow-x:auto;font-family:var(--mono);font-size:12.8px;line-height:1.55;color:var(--ink)}
+  .code .cm{color:var(--faint)}
+  .tok{color:var(--accent);font-weight:640}
+  .copy{position:absolute;top:9px;right:9px;font-family:var(--mono);font-size:11px;padding:5px 10px;
+    border-radius:7px;border:1px solid var(--line-strong);background:var(--surface);color:var(--muted);cursor:pointer}
+  .copy:hover{border-color:var(--accent);color:var(--ink)}
+  .copy:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+  .check{display:flex;gap:11px;align-items:flex-start;background:color-mix(in srgb,var(--pass) 9%,transparent);
+    border:1px solid color-mix(in srgb,var(--pass) 34%,transparent);border-radius:11px;padding:12px 14px;margin-top:16px}
+  .check .ic{color:var(--pass);font-weight:700;flex:none;font-family:var(--mono)}
+  .check .t{font-size:14px}
+  .check .t b{font-weight:640}
+  .warn{border-left:3px solid var(--warn);background:color-mix(in srgb,var(--warn) 8%,transparent);
+    padding:12px 15px;border-radius:0 10px 10px 0;margin:16px 0 0;font-size:14.2px;color:var(--ink)}
+  .hint{border-left:2px solid var(--accent);padding:3px 0 3px 14px;color:var(--muted);font-size:14.2px;margin:16px 0 0}
+
   code{font-family:var(--mono);font-size:.87em;background:var(--surface-2);border:1px solid var(--line);
-    padding:1px 5px;border-radius:5px}
-
-  /* ---- tabs ---- */
-  .tabs{display:flex;flex-wrap:wrap;gap:6px;margin:4px 0 14px}
-  .tab{font-size:13.5px;padding:7px 13px;border-radius:9px;border:1px solid var(--line-strong);
-    background:var(--surface);color:var(--muted);cursor:pointer;font-family:var(--sans)}
-  .tab[aria-selected="true"]{background:var(--accent-soft);border-color:var(--accent);color:var(--accent-ink);font-weight:600}
-  .panel[hidden]{display:none}
-
-  /* ---- tables ---- */
-  .tbl{width:100%;border-collapse:collapse;font-size:14px;margin:12px 0}
-  .tbl th,.tbl td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line);vertical-align:top}
-  .tbl th{font-family:var(--mono);font-size:10.5px;letter-spacing:.09em;text-transform:uppercase;color:var(--faint);font-weight:600}
-  .tbl td:first-child{font-family:var(--mono);font-size:12.5px;color:var(--accent-ink);white-space:nowrap}
-  @media (prefers-color-scheme:dark){ .tbl td:first-child{color:var(--accent)} }
-  .scroll{overflow-x:auto}
-
-  /* ---- browser frame + faithful widget preview (widget's own Carbon palette) ---- */
-  .frame{border:1px solid var(--line-strong);border-radius:12px;overflow:hidden;background:var(--w-bg);
-    box-shadow:var(--shadow);margin:14px 0}
-  .frame-bar{display:flex;align-items:center;gap:6px;padding:8px 11px;background:var(--surface-2);
-    border-bottom:1px solid var(--line)}
-  .frame-bar i{width:9px;height:9px;border-radius:50%;background:var(--line-strong);display:block}
-  .frame-url{margin-left:8px;font-family:var(--mono);font-size:11px;color:var(--faint);
-    overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-  .frame-body{position:relative;min-height:210px;padding:16px;background:
-    linear-gradient(var(--sunk),var(--sunk)) padding-box}
-  .ghost{height:9px;border-radius:5px;background:var(--line);margin-bottom:9px}
-  .ghost.w60{width:60%} .ghost.w40{width:40%} .ghost.w75{width:75%}
-  .cap{font-family:var(--mono);font-size:11px;color:var(--faint);margin-top:-4px}
-
-  /* widget panel replica */
-  .wp{position:absolute;right:14px;bottom:14px;width:min(300px,86%);background:#fff;color:#161616;
-    border-radius:10px;box-shadow:0 10px 40px rgba(0,0,0,.28);overflow:hidden;
-    font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;text-align:left}
-  .wp-hd{background:var(--w-dark);color:#fff;padding:9px 12px;display:flex;justify-content:space-between;align-items:center}
-  .wp-hd b{font-size:12.5px;font-weight:600;display:block}
-  .wp-hd span{font-size:10.5px;opacity:.72;display:block;margin-top:1px}
-  .wp-bd{padding:11px 12px;background:var(--w-bg)}
-  .wp-sec{font-size:9.5px;letter-spacing:.09em;text-transform:uppercase;color:var(--w-grey);
-    font-weight:700;margin:9px 0 6px}
-  .wp-sec:first-child{margin-top:0}
-  .wp-step{background:#fff;border:1px solid var(--w-line);border-radius:8px;padding:9px;margin-bottom:7px}
-  .wp-do{font-size:11.5px;font-weight:600;line-height:1.35}
-  .wp-ex{font-size:10.5px;color:var(--w-grey);margin-top:3px;line-height:1.35}
-  .wp-marks{display:flex;gap:5px;margin-top:8px}
-  .wp-m{flex:1;text-align:center;font-size:10px;font-weight:600;padding:5px 0;border-radius:6px;
-    border:1px solid var(--w-line);background:#fff;color:var(--w-grey)}
-  .wp-m.pass{background:#defbe6;border-color:var(--w-green);color:#0e6027}
-  .wp-m.fail{background:#fff1f1;border-color:var(--w-red);color:#a2191f}
-  .wp-note{margin-top:7px;font-size:10.5px;color:#161616;background:#fff;border:1px solid var(--w-line);
-    border-radius:6px;padding:6px 8px;line-height:1.35}
-  .wp-cta{display:block;width:100%;margin-top:10px;background:var(--w-blue);color:#fff;text-align:center;
-    font-size:11.5px;font-weight:600;padding:9px;border-radius:6px}
-  .wp-tab{position:absolute;right:14px;bottom:14px;background:var(--w-blue);color:#fff;font-size:12px;
-    font-weight:600;padding:9px 16px;border-radius:20px;box-shadow:0 4px 14px rgba(0,0,0,.25);
-    font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif}
-
-  /* report preview */
-  .report{background:var(--sunk);border:1px solid var(--line);border-radius:11px;padding:14px 16px;
-    font-family:var(--mono);font-size:12.3px;line-height:1.65;overflow-x:auto;margin:12px 0}
-  .report .h{color:var(--ink);font-weight:700}
-  .report .p{color:#0e6027} .report .f{color:#a2191f}
-  @media (prefers-color-scheme:dark){ .report .p{color:#42be65} .report .f{color:#ff8389} }
-  .report .d{color:var(--faint)}
-
-  .outcome{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:12px;margin:14px 0}
-  .oc{border:1px solid var(--line);border-radius:11px;padding:13px 14px;background:var(--sunk)}
-  .oc .k{font-family:var(--mono);font-size:10px;letter-spacing:.09em;text-transform:uppercase;
-    color:var(--faint);margin-bottom:5px}
-  .oc .v{font-size:13.8px;line-height:1.45}
-
-  footer{margin-top:34px;padding-top:20px;border-top:1px solid var(--line);color:var(--faint);
+    padding:1.5px 5px;border-radius:5px}
+  .scroll{overflow-x:auto;margin-top:14px}
+  table.tbl{border-collapse:collapse;width:100%;font-size:14px;min-width:420px}
+  table.tbl th{text-align:left;font-family:var(--mono);font-size:10.5px;letter-spacing:.07em;
+    text-transform:uppercase;color:var(--faint);font-weight:600;padding:0 12px 8px 0;border-bottom:1px solid var(--line)}
+  table.tbl td{padding:9px 12px 9px 0;border-bottom:1px solid var(--line);vertical-align:top;color:var(--muted)}
+  table.tbl td:first-child{color:var(--ink);font-family:var(--mono);font-size:12.8px;white-space:nowrap}
+  a{color:var(--accent)}
+  footer{margin-top:48px;padding-top:20px;border-top:1px solid var(--line);color:var(--faint);
     font-family:var(--mono);font-size:12px;display:flex;flex-wrap:wrap;gap:8px 18px;justify-content:space-between}
+  footer a{color:var(--faint)}
 </style>
+</head>
+<body>
+<div class="wrap">
 
-<div class="shell">
   <header>
-    <div class="eyebrow">OpenELIS Review Tooling</div>
+    <div class="eyebrow"><span class="dot"></span>OpenELIS Review Tooling</div>
     <h1>Set up a review for a branch, PR, or ticket</h1>
-    <p class="lede">Write a checklist once, put it in front of reviewers on any deployment, and get
-      structured feedback back as issues. No frontend build, no fork, no redeploy.</p>
+    <p class="lede">Write a checklist once, put it in front of reviewers on a deployment you already
+      have, and get structured feedback back as issues — no frontend build, no fork, no redeploy.</p>
     <div class="meta">
-      <span class="pill">~15 min end to end</span>
-      <span class="pill">5 steps</span>
-      <span class="pill">works on an existing deployment</span>
+      <span class="chip"><b>time</b> ~15 min</span>
+      <span class="chip"><b>steps</b> 5</span>
+      <span class="chip"><b>you need</b> a running deployment + a Grist login</span>
     </div>
   </header>
 
-  <div class="setup">
-    <p class="full"><b>Make this page yours.</b> Fill these in and every command and snippet below
-      updates to match.</p>
-    <div class="field">
-      <label for="slug">Instance slug</label>
-      <input id="slug" value="my-feature" spellcheck="false" autocomplete="off">
-    </div>
-    <div class="field">
-      <label for="label">Review label</label>
-      <input id="label" value="My Feature (OGC-1234)" spellcheck="false" autocomplete="off">
-    </div>
-    <div class="field">
-      <label for="host">Review service host</label>
-      <input id="host" value="grist.openelis-global.org" spellcheck="false" autocomplete="off">
-    </div>
-  </div>
+  <!-- ============ MENTAL MODEL ============ -->
+  <section>
+    <h2>How it works</h2>
+    <figure>
+      <svg viewBox="0 0 900 250" role="img" aria-label="Checklists are authored in Grist, served live to a review overlay on the deployment, and returned as a report that becomes issues.">
+        <defs>
+          <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+            <path d="M0,0 L10,5 L0,10 z" fill="var(--line-strong)"/>
+          </marker>
+        </defs>
+        <!-- authors -->
+        <rect class="svg-box" x="8" y="26" width="150" height="46" rx="10"/>
+        <text class="svg-l svg-mono" x="83" y="47" font-size="13" text-anchor="middle" font-weight="600">You / a colleague</text>
+        <text class="svg-f svg-mono" x="83" y="63" font-size="11" text-anchor="middle">in the Grist UI</text>
+        <rect class="svg-box" x="8" y="86" width="150" height="46" rx="10"/>
+        <text class="svg-l svg-mono" x="83" y="107" font-size="13" text-anchor="middle" font-weight="600">An agent</text>
+        <text class="svg-f svg-mono" x="83" y="123" font-size="11" text-anchor="middle">over /api/mcp</text>
+        <path class="svg-arrow" d="M158,49 C190,49 190,72 214,76" marker-end="url(#ah)"/>
+        <path class="svg-arrow" d="M158,109 C190,109 190,86 214,82" marker-end="url(#ah)"/>
 
-  <div class="cols">
-    <nav class="rail" aria-label="Steps">
-      <ol>
-        <li><a href="#s1" class="on"><span class="n">01</span><span>Author the checklist</span></a></li>
-        <li><a href="#s2"><span class="n">02</span><span>Check it's live</span></a></li>
-        <li><a href="#s3"><span class="n">03</span><span>Put it in front of reviewers</span></a></li>
-        <li><a href="#s4"><span class="n">04</span><span>Review</span></a></li>
-        <li><a href="#s5"><span class="n">05</span><span>Collect &amp; triage</span></a></li>
-      </ol>
+        <!-- grist -->
+        <rect class="svg-key" x="222" y="52" width="152" height="56" rx="11" stroke-width="1.5"/>
+        <text class="svg-l svg-mono" x="298" y="76" font-size="13.5" text-anchor="middle" font-weight="700">Grist</text>
+        <text class="svg-m svg-mono" x="298" y="94" font-size="11" text-anchor="middle">the checklist</text>
+        <path class="svg-arrow" d="M374,80 L432,80" marker-end="url(#ah)"/>
+        <text class="svg-f svg-mono" x="403" y="70" font-size="10" text-anchor="middle">live read</text>
+
+        <!-- deployment -->
+        <rect class="svg-box" x="440" y="36" width="180" height="88" rx="11"/>
+        <text class="svg-l svg-mono" x="530" y="60" font-size="13" text-anchor="middle" font-weight="600">Your deployment</text>
+        <rect class="svg-key" x="470" y="72" width="120" height="34" rx="8"/>
+        <text class="svg-l svg-mono" x="530" y="93" font-size="11.5" text-anchor="middle">Review overlay</text>
+        <path class="svg-arrow" d="M620,80 L678,80" marker-end="url(#ah)"/>
+
+        <!-- reviewer -->
+        <rect class="svg-box" x="686" y="52" width="150" height="56" rx="10"/>
+        <text class="svg-l svg-mono" x="761" y="76" font-size="13" text-anchor="middle" font-weight="600">Reviewer</text>
+        <text class="svg-f svg-mono" x="761" y="94" font-size="11" text-anchor="middle">pass / fail + notes</text>
+
+        <!-- return path -->
+        <path class="svg-arrow" d="M761,108 L761,168 L530,168" marker-end="url(#ah)" stroke-dasharray="5 4"/>
+        <rect class="svg-box" x="404" y="150" width="126" height="38" rx="9"/>
+        <text class="svg-l svg-mono" x="467" y="174" font-size="12" text-anchor="middle">report .md/.json</text>
+        <path class="svg-arrow" d="M404,169 L330,169" marker-end="url(#ah)" stroke-dasharray="5 4"/>
+        <rect class="svg-box" x="196" y="150" width="132" height="38" rx="9"/>
+        <text class="svg-l svg-mono" x="262" y="174" font-size="12" text-anchor="middle">Claude → issues</text>
+
+        <text class="svg-f svg-mono" x="8" y="214" font-size="11">━━  authoring &amp; delivery</text>
+        <text class="svg-f svg-mono" x="196" y="214" font-size="11">┈┈  feedback returning</text>
+      </svg>
+      <figcaption>One checklist, edited in one place. The overlay reads it live, so an edit reaches
+        reviewers in about 30 seconds — there is no publish step and nothing to redeploy.</figcaption>
+    </figure>
+  </section>
+
+  <!-- ============ PERSONALISE ============ -->
+  <section>
+    <h2>Make this page yours</h2>
+    <div class="personalise">
+      <p>Fill these in and every command and snippet below updates to match.</p>
+      <div class="fields">
+        <div><label for="f-slug">Instance slug</label><input id="f-slug" value="my-feature" spellcheck="false"></div>
+        <div><label for="f-label">Review label</label><input id="f-label" value="My Feature (OGC-1234)" spellcheck="false"></div>
+        <div><label for="f-host">Review service host</label><input id="f-host" value="grist.openelis-global.org" spellcheck="false"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ STEPS ============ -->
+  <div class="layout">
+    <nav class="toc" aria-label="Steps">
+      <a href="#s1" class="on"><span class="n">01</span><span>Author the checklist</span></a>
+      <a href="#s2"><span class="n">02</span><span>Check it's live</span></a>
+      <a href="#s3"><span class="n">03</span><span>Put it in front of reviewers</span></a>
+      <a href="#s4"><span class="n">04</span><span>Review</span></a>
+      <a href="#s5"><span class="n">05</span><span>Collect &amp; triage</span></a>
     </nav>
 
-    <main>
-      <!-- ---------------- STEP 1 ---------------- -->
-      <section class="step" id="s1">
+    <div>
+      <!-- STEP 1 -->
+      <section class="step" id="s1" style="margin-top:0">
         <div class="step-hd">
           <div class="step-n">01</div>
-          <div>
-            <h2>Author the checklist</h2>
-            <p class="sub">Do this first — reviewers need something to work through.</p>
-          </div>
+          <div><h3>Author the checklist</h3>
+            <p class="sub">Do this first — reviewers need something to work through.</p></div>
         </div>
-        <div class="step-body">
-          <p>Checklists live in one shared Grist document. Each review is a set of rows tagged with an
-            <b>instance slug</b> — that slug is what ties the checklist, the widget, and each reviewer's
-            saved answers together. Pick one per feature or ticket.</p>
+        <p>Checklists live in one shared Grist document. Each review is a set of rows tagged with an
+          <b>instance slug</b> — that slug ties the checklist, the overlay, and each reviewer's saved
+          answers together. Pick one per feature or ticket.</p>
 
-          <div class="tabs" role="tablist">
-            <button class="tab" role="tab" aria-selected="true" data-tab="t1a">In the spreadsheet</button>
-            <button class="tab" role="tab" aria-selected="false" data-tab="t1b">With an agent</button>
-          </div>
+        <figure style="margin-top:16px">
+          <svg viewBox="0 0 900 208" role="img" aria-label="Anatomy of a checklist step: a stable key, a required flag, the action, the expected result, and an optional route.">
+            <rect class="svg-box" x="6" y="10" width="888" height="150" rx="12"/>
+            <!-- key -->
+            <rect class="svg-key" x="26" y="32" width="104" height="30" rx="7"/>
+            <text class="svg-l svg-mono" x="78" y="52" font-size="12.5" text-anchor="middle" font-weight="700">AMR-009</text>
+            <text class="svg-f svg-mono" x="78" y="80" font-size="10.5" text-anchor="middle">step_key</text>
+            <text class="svg-m svg-mono" x="78" y="96" font-size="10" text-anchor="middle">stable · unique</text>
+            <text class="svg-m svg-mono" x="78" y="110" font-size="10" text-anchor="middle">never reuse</text>
+            <!-- required -->
+            <rect class="svg-key" x="146" y="32" width="94" height="30" rx="7"/>
+            <text class="svg-l svg-mono" x="193" y="52" font-size="12" text-anchor="middle" font-weight="700">required</text>
+            <text class="svg-f svg-mono" x="193" y="80" font-size="10.5" text-anchor="middle">must pass</text>
+            <text class="svg-m svg-mono" x="193" y="96" font-size="10" text-anchor="middle">set it explicitly</text>
+            <!-- do -->
+            <rect class="svg-box" x="256" y="32" width="300" height="30" rx="7"/>
+            <text class="svg-l" x="270" y="52" font-size="12.5">Enter an AST result using the seeded breakpoint…</text>
+            <text class="svg-f svg-mono" x="270" y="80" font-size="10.5">do — what the reviewer performs</text>
+            <!-- expect -->
+            <rect class="svg-box" x="572" y="32" width="300" height="30" rx="7"/>
+            <text class="svg-l" x="586" y="52" font-size="12.5">An S/I/R interpretation is derivable…</text>
+            <text class="svg-f svg-mono" x="586" y="80" font-size="10.5">expect — how they judge it</text>
+            <text class="svg-m" x="586" y="98" font-size="11">this is what makes a Fail mean something</text>
+            <!-- route -->
+            <rect class="svg-box" x="256" y="116" width="220" height="28" rx="7"/>
+            <text class="svg-l svg-mono" x="270" y="135" font-size="11.5">/Microbiology/worklist</text>
+            <text class="svg-f svg-mono" x="492" y="135" font-size="10.5">route — optional deep link</text>
+            <text class="svg-f svg-mono" x="26" y="182" font-size="11">A step is one observation. If the “expect” needs an “and”, it is two steps.</text>
+          </svg>
+          <figcaption>The anatomy of a step. <code>step_key</code> and <code>required</code> are the two
+            that bite: a blank key breaks the whole checklist, and an unset <code>required</code> quietly
+            makes the step optional.</figcaption>
+        </figure>
 
-          <div class="panel" id="t1a">
-            <p>Sign in to Grist, open <b>UAT Checklists</b>, and add rows to two tables:</p>
-            <div class="scroll"><table class="tbl">
-              <tr><th>Table</th><th>What you add</th></tr>
-              <tr><td>UAT_Meta</td><td>One row for the review: <code>instance</code>, <code>title</code>,
-                <code>intro</code>, <code>jira</code>.</td></tr>
-              <tr><td>UAT_Steps</td><td>One row per step: <code>instance</code>, <b><code>step_key</code></b>,
-                <b><code>required</code></b>, <code>section</code>,
-                <code>section_order</code>, <code>step_order</code>, <code>do</code>, <code>expect</code>,
-                <code>route</code>.</td></tr>
-            </table></div>
-            <p class="hint">Reviewers see steps grouped by <code>section</code>, ordered by
-              <code>section_order</code> then <code>step_order</code>. <code>route</code> is the page a
-              reviewer should open for that step.</p>
-            <p class="hint"><b><code>step_key</code> is required</b> — a short stable id, unique in the
-              instance (<code>AMR-001</code>). It ties a reviewer's answer to the step, so never change it
-              once reviewers have seen it; reorder rows freely instead. <code>required</code> marks a step
-              that must pass for the review to count.</p>
-            <p class="warn">⚠️ A row with an empty <code>step_key</code> breaks the <em>entire</em>
-              checklist, not just that row — reviewers get an error for every step. That's deliberate: a
-              silently dropped step could let a report claim everything passed. Run the check in step 02
-              after every edit.</p>
-          </div>
+        <div class="tabs" role="tablist">
+          <button class="tab" role="tab" aria-selected="true" data-panel="p1a">In the spreadsheet</button>
+          <button class="tab" role="tab" aria-selected="false" data-panel="p1b">With an agent</button>
+        </div>
 
-          <div class="panel" id="t1b" hidden>
-            <p>Connect the authoring MCP once, then just ask — “add a checklist for
-              <span class="v-label">My Feature (OGC-1234)</span> covering the new screens”.</p>
-            <div class="code">
-              <button class="copy" data-copy="c1">Copy</button>
-              <pre id="c1"><span class="cm"># Claude Code CLI</span>
+        <div id="p1a">
+          <p>Sign in to Grist, open <b>UAT Checklists</b>, and add rows to two tables:</p>
+          <div class="scroll"><table class="tbl">
+            <tr><th>Table</th><th>What you add</th></tr>
+            <tr><td>UAT_Meta</td><td>One row for the review: <code>instance</code>, <code>title</code>,
+              <code>intro</code>, <code>jira</code>.</td></tr>
+            <tr><td>UAT_Steps</td><td>One row per step: <code>instance</code>, <b><code>step_key</code></b>,
+              <b><code>required</code></b>, <code>section</code>, <code>section_order</code>,
+              <code>step_order</code>, <code>do</code>, <code>expect</code>, <code>route</code>.</td></tr>
+          </table></div>
+          <div class="warn">⚠️ A row with an empty <code>step_key</code> breaks the <em>entire</em>
+            checklist — reviewers get an error for every step, not just that row. That is deliberate:
+            silently dropping a step could let a report claim everything passed. Run the check in
+            step 02 after every edit.</div>
+        </div>
+
+        <div id="p1b" hidden>
+          <p>Connect the authoring MCP once, then just ask — “add a step to
+            <span class="v-label">My Feature (OGC-1234)</span> covering the new export screen”.</p>
+          <div class="code"><button class="copy" data-copy="c1">Copy</button><pre id="c1"><span class="cm"># Claude Code CLI</span>
 claude mcp add --transport http grist \
   https://<span class="v-host tok">grist.openelis-global.org</span>/api/mcp \
-  --header "Authorization: Bearer &lt;grist-api-key&gt;"</pre>
-            </div>
-            <p>On <b>claude.ai</b>, add <code class="v-mcp">https://grist.openelis-global.org/api/mcp</code>
-              as a custom connector and sign in — there's no key to paste.</p>
-          </div>
-
-          <h3>What makes a step worth writing</h3>
-          <p>A <b>do</b> the reviewer performs and an <b>expect</b> they judge it against. Write the check
-            for the thing you're unsure about — a missing feature is a perfectly good step, because a
-            reviewer marking it <b>Fail</b> is exactly the signal you wanted.</p>
-          <p class="hint">From the real microbiology review: <i>“After entering AST results, check whether
-            the S/I/R interpretation is carried onto the patient's report.”</i> It came back <b>Fail</b> —
-            and became the top priority for the next iteration.</p>
+  --header "Authorization: Bearer &lt;grist-api-key&gt;"</pre></div>
+          <p class="hint">On claude.ai, add that same URL as a custom connector and sign in — no key to
+            paste. There is a bundled <a href="https://github.com/DIGI-UW/openelis-review-tooling/tree/main/skills/uat-authoring">uat-authoring skill</a>
+            that teaches an agent these rules, so it reads before writing and verifies after.</p>
         </div>
       </section>
 
-      <!-- ---------------- STEP 2 ---------------- -->
+      <!-- STEP 2 -->
       <section class="step" id="s2">
         <div class="step-hd">
           <div class="step-n">02</div>
-          <div>
-            <h2>Check it's live</h2>
-            <p class="sub">One request confirms reviewers will see it.</p>
-          </div>
+          <div><h3>Check it's live</h3>
+            <p class="sub">One request tells you what reviewers will actually get.</p></div>
         </div>
-        <div class="step-body">
-          <div class="code">
-            <button class="copy" data-copy="c2">Copy</button>
-            <pre id="c2">curl https://<span class="v-host tok">grist.openelis-global.org</span>/uat/<span class="v-slug tok">my-feature</span>.json</pre>
-          </div>
-          <p>That is exactly what a reviewer's browser will fetch. You should get your checklist back as
-            JSON. Three responses worth knowing:</p>
-          <div class="scroll"><table class="tbl">
-            <tr><th>Response</th><th>Meaning</th></tr>
-            <tr><td>200</td><td>Live. Edits in Grist appear here within ~30 seconds.</td></tr>
-            <tr><td>404</td><td>No checklist for that slug — usually a typo, or rows not added yet.</td></tr>
-            <tr><td>502</td><td>A row is malformed and the whole checklist is unusable. The body names the
-              culprit, e.g. <code>{"error":"step row 35 is missing step_key"}</code> — fix that row and
-              re-run this check.</td></tr>
-          </table></div>
-          <p class="hint">Re-run this after every edit. Because a bad row takes down the whole checklist,
-            this one request is the difference between reviewers working and reviewers stuck.</p>
-        </div>
+        <div class="code"><button class="copy" data-copy="c2">Copy</button><pre id="c2">curl -sS -o /dev/null -w '%{http_code}\n' \
+  https://<span class="v-host tok">grist.openelis-global.org</span>/uat/<span class="v-slug tok">my-feature</span>.json</pre></div>
+        <div class="check"><span class="ic">✓</span><span class="t"><b>You should see <code>200</code>.</b>
+          That means a reviewer's browser will load exactly this checklist.</span></div>
+        <div class="scroll"><table class="tbl">
+          <tr><th>Response</th><th>Meaning</th></tr>
+          <tr><td>200</td><td>Live. Edits in Grist appear here within ~30 seconds.</td></tr>
+          <tr><td>404</td><td>No checklist for that slug — usually a typo, or rows not added yet.</td></tr>
+          <tr><td>502</td><td>A row is malformed and the whole checklist is unusable. The body names the
+            culprit, e.g. <code>{"error":"step row 35 is missing step_key"}</code> — fix that row and re-run.</td></tr>
+        </table></div>
+        <p class="hint">Re-run this after every edit. Because a bad row takes down the whole checklist,
+          this one request is the difference between reviewers working and reviewers stuck.</p>
       </section>
 
-      <!-- ---------------- STEP 3 ---------------- -->
+      <!-- STEP 3 -->
       <section class="step" id="s3">
         <div class="step-hd">
           <div class="step-n">03</div>
-          <div>
-            <h2>Put it in front of reviewers</h2>
-            <p class="sub">Pick the row that matches what you control.</p>
-          </div>
+          <div><h3>Put it in front of reviewers</h3>
+            <p class="sub">One script tag on a deployment you already have.</p></div>
         </div>
-        <div class="step-body">
-          <div class="tabs" role="tablist">
-            <button class="tab" role="tab" aria-selected="true" data-tab="t3a">App already deployed</button>
-            <button class="tab" role="tab" aria-selected="false" data-tab="t3b">Only the proxy</button>
-            <button class="tab" role="tab" aria-selected="false" data-tab="t3c">Nothing deployed yet</button>
-          </div>
 
-          <div class="panel" id="t3a">
-            <p>Add one tag to the page template, before <code>&lt;/head&gt;</code>:</p>
-            <div class="code">
-              <button class="copy" data-copy="c3">Copy</button>
-              <pre id="c3">&lt;script src="https://<span class="v-host tok">grist.openelis-global.org</span>/oe-review-widget.js"
+        <figure style="margin-bottom:4px">
+          <svg viewBox="0 0 900 210" role="img" aria-label="The overlay appears as a Review tab in the corner of your existing app, which opens into a checklist panel.">
+            <!-- browser -->
+            <rect class="svg-box" x="8" y="14" width="470" height="176" rx="11"/>
+            <path class="svg-arrow" d="M8,44 L478,44"/>
+            <circle class="svg-f" cx="30" cy="29" r="4.5"/><circle class="svg-f" cx="46" cy="29" r="4.5"/><circle class="svg-f" cx="62" cy="29" r="4.5"/>
+            <text class="svg-f svg-mono" x="86" y="34" font-size="11">your existing deployment — unchanged</text>
+            <rect class="svg-box" x="30" y="62" width="180" height="12" rx="5"/>
+            <rect class="svg-box" x="30" y="84" width="330" height="9" rx="4"/>
+            <rect class="svg-box" x="30" y="100" width="300" height="9" rx="4"/>
+            <rect class="svg-box" x="30" y="116" width="250" height="9" rx="4"/>
+            <!-- the tab -->
+            <rect class="svg-key" x="382" y="150" width="84" height="28" rx="14" stroke-width="1.5"/>
+            <text class="svg-l svg-mono" x="424" y="169" font-size="12" text-anchor="middle" font-weight="700">Review</text>
+            <path class="svg-arrow" d="M478,164 L520,164" marker-end="url(#ah)"/>
+
+            <!-- panel -->
+            <rect class="svg-box" x="528" y="14" width="364" height="176" rx="11"/>
+            <text class="svg-l svg-mono" x="548" y="38" font-size="12.5" font-weight="700">My Feature (OGC-1234)</text>
+            <text class="svg-f svg-mono" x="548" y="54" font-size="10.5">my-feature · 1/3 checked</text>
+            <path class="svg-arrow" d="M528,66 L892,66"/>
+            <rect class="svg-box" x="548" y="80" width="324" height="44" rx="8"/>
+            <text class="svg-l" x="562" y="98" font-size="11.5">Enter an AST result using the seeded…</text>
+            <text class="svg-m" x="562" y="114" font-size="10.5">Expected: an S/I/R interpretation is derivable</text>
+            <rect x="548" y="132" width="62" height="22" rx="6" fill="color-mix(in srgb, var(--pass) 18%, transparent)" stroke="var(--pass)"/>
+            <text x="579" y="147" font-size="11" text-anchor="middle" fill="var(--pass)" font-weight="700" class="svg-mono">Pass</text>
+            <rect class="svg-box" x="618" y="132" width="62" height="22" rx="6"/>
+            <text class="svg-m svg-mono" x="649" y="147" font-size="11" text-anchor="middle">Fail</text>
+            <rect class="svg-box" x="688" y="132" width="62" height="22" rx="6"/>
+            <text class="svg-m svg-mono" x="719" y="147" font-size="11" text-anchor="middle">N/A</text>
+            <rect class="svg-key" x="758" y="132" width="114" height="22" rx="6"/>
+            <text class="svg-l svg-mono" x="815" y="147" font-size="10.5" text-anchor="middle" font-weight="700">Download report</text>
+          </svg>
+          <figcaption>The overlay rides on top of the app as a corner tab. It changes nothing about the
+            page and needs no build step.</figcaption>
+        </figure>
+
+        <p>Add this before <code>&lt;/head&gt;</code> in the app's page template:</p>
+        <div class="code"><button class="copy" data-copy="c3">Copy</button><pre id="c3">&lt;script src="https://<span class="v-host tok">grist.openelis-global.org</span>/oe-review-widget.js"
         data-instance="<span class="v-slug tok">my-feature</span>"
         data-label="<span class="v-label tok">My Feature (OGC-1234)</span>"
-        data-src="https://<span class="v-host tok">grist.openelis-global.org</span>/uat/<span class="v-slug tok">my-feature</span>.json"&gt;&lt;/script&gt;</pre>
-            </div>
-            <p class="hint">Nothing is bundled or vendored — the widget and the checklist are both fetched
-              from the review service, so checklist edits need no redeploy.</p>
-          </div>
-
-          <div class="panel" id="t3b" hidden>
-            <p>Can't touch the app, but you run the reverse proxy? Inject it there — the app is untouched.
-              Add to the <code>location</code> block that serves HTML:</p>
-            <div class="code">
-              <button class="copy" data-copy="c4">Copy</button>
-              <pre id="c4"><span class="cm"># inject the review overlay into HTML responses</span>
-proxy_set_header Accept-Encoding "";
-sub_filter_once on;
-sub_filter '&lt;/head&gt;' '&lt;script src="https://<span class="v-host tok">grist.openelis-global.org</span>/oe-review-widget.js" data-instance="<span class="v-slug tok">my-feature</span>" data-label="<span class="v-label tok">My Feature (OGC-1234)</span>" data-src="https://<span class="v-host tok">grist.openelis-global.org</span>/uat/<span class="v-slug tok">my-feature</span>.json"&gt;&lt;/script&gt;&lt;/head&gt;';</pre>
-            </div>
-            <p>Then <code>nginx -s reload</code>. That's the whole integration.</p>
-            <p class="warn">Needs the <code>sub_filter</code> module — check with
-              <code>nginx -V 2>&amp;1 | grep -o with-http_sub_module</code>. It's in the stock nginx image
-              and most distro builds. Apache equivalent (mod_substitute) is in the repo docs.</p>
-          </div>
-
-          <div class="panel" id="t3c" hidden>
-            <p>Stand up a demo stack for the branch under review, then the router injects the widget for
-              you:</p>
-            <div class="code">
-              <button class="copy" data-copy="c5">Copy</button>
-              <pre id="c5">cp .env.example .env      <span class="cm"># host, domains, branch to build</span>
-./deploy.sh configure     <span class="cm"># docker + cert renewal (idempotent)</span>
-./deploy.sh deploy --yes  <span class="cm"># build + bring up the stack (20-40 min)</span>
-<span class="cm"># point DNS at the host, then:</span>
-./deploy.sh certs         <span class="cm"># Let's Encrypt</span>
-./deploy.sh seed          <span class="cm"># demo data to review against</span></pre>
-            </div>
-            <p class="hint">Reviewing a different branch is a change to <code>.env</code>, not to code.</p>
-            <p>No deployment at all — reviewing a design or copy? The widget also runs standalone with the
-              checklist embedded in a single HTML file.</p>
-          </div>
-        </div>
+        data-src="https://<span class="v-host tok">grist.openelis-global.org</span>/uat/<span class="v-slug tok">my-feature</span>.json"&gt;&lt;/script&gt;</pre></div>
+        <div class="check"><span class="ic">✓</span><span class="t"><b>Reload the app — a “Review” tab
+          appears in the bottom-right.</b> If it doesn't, check the browser console: a blocked script
+          usually means a Content-Security-Policy on the host page.</span></div>
+        <p class="hint">Can't edit the app's templates? Inject it at the reverse proxy instead — one
+          <code>sub_filter</code> line, no application change. Recipes for nginx, Apache and a
+          bookmarklet are in <a href="https://github.com/DIGI-UW/openelis-review-tooling/blob/main/integration/README.md">integration/README.md</a>.</p>
       </section>
 
-      <!-- ---------------- STEP 4 ---------------- -->
+      <!-- STEP 4 -->
       <section class="step" id="s4">
         <div class="step-hd">
           <div class="step-n">04</div>
-          <div>
-            <h2>Review</h2>
-            <p class="sub">What your reviewer actually does. No account, no training.</p>
-          </div>
+          <div><h3>Review</h3>
+            <p class="sub">What the reviewer does — no account, no setup.</p></div>
         </div>
-        <div class="step-body">
-          <p>A <b>Review</b> tab appears in the corner of every page. Opening it shows the checklist;
-            each step gets <b>Pass</b>, <b>Fail</b> or <b>N/A</b> plus an optional note, and there's a
-            freeform box for anything the checklist didn't ask about.</p>
-
-          <div class="frame">
-            <div class="frame-bar"><i></i><i></i><i></i>
-              <span class="frame-url v-appurl">https://your-deployment.example/</span></div>
-            <div class="frame-body">
-              <div class="ghost w40"></div><div class="ghost w75"></div><div class="ghost w60"></div>
-              <div class="ghost w40"></div>
-              <div class="wp-tab">Review</div>
-            </div>
-          </div>
-          <p class="cap">Collapsed — the reviewer's entry point.</p>
-
-          <div class="frame">
-            <div class="frame-bar"><i></i><i></i><i></i>
-              <span class="frame-url v-appurl">https://your-deployment.example/</span></div>
-            <div class="frame-body" style="min-height:360px">
-              <div class="ghost w40"></div><div class="ghost w75"></div><div class="ghost w60"></div>
-              <div class="wp">
-                <div class="wp-hd">
-                  <div><b class="v-label">My Feature (OGC-1234)</b>
-                    <span><span class="v-slug">my-feature</span> · 2/4 checked · 1 note</span></div>
-                  <div style="opacity:.7">–</div>
-                </div>
-                <div class="wp-bd">
-                  <div class="wp-sec">Getting started</div>
-                  <div class="wp-step">
-                    <div class="wp-do">Open the worklist and confirm the seeded case is listed.</div>
-                    <div class="wp-ex">Expected: the case appears with patient context.</div>
-                    <div class="wp-marks">
-                      <div class="wp-m pass">Pass</div><div class="wp-m">Fail</div><div class="wp-m">N/A</div>
-                    </div>
-                  </div>
-                  <div class="wp-step">
-                    <div class="wp-do">Check the result reaches the patient report.</div>
-                    <div class="wp-ex">Expected: the interpretation appears on the report.</div>
-                    <div class="wp-marks">
-                      <div class="wp-m">Pass</div><div class="wp-m fail">Fail</div><div class="wp-m">N/A</div>
-                    </div>
-                    <div class="wp-note">Saves fine, but never shows up on any report.</div>
-                  </div>
-                  <div class="wp-cta">Download review report</div>
-                </div>
-              </div>
-            </div>
-          </div>
-          <p class="cap">Open, mid-review — UI preview using the widget's own styles.</p>
-
-          <p class="hint">Answers are saved in the reviewer's own browser, keyed by the instance slug, so
-            they can stop and come back. Nothing leaves their machine until they export.</p>
-        </div>
+        <p>They open the site, click <b>Review</b>, and work the list: each step gets
+          <b>pass / fail / n-a</b> and an optional note, plus freeform notes for anything the checklist
+          didn't ask about. Answers persist in their browser, so they can stop and come back.</p>
+        <div class="check"><span class="ic">✓</span><span class="t"><b>Nothing is transmitted anywhere.</b>
+          Answers stay in the reviewer's own browser until they choose to export — worth saying out loud
+          when you send the link.</span></div>
+        <p class="hint">Tell reviewers that a <b>Fail</b> is the useful outcome. A checklist that only
+          confirms what already works tells you nothing you didn't know.</p>
       </section>
 
-      <!-- ---------------- STEP 5 ---------------- -->
+      <!-- STEP 5 -->
       <section class="step" id="s5">
         <div class="step-hd">
           <div class="step-n">05</div>
-          <div>
-            <h2>Collect &amp; triage</h2>
-            <p class="sub">Reviewer feedback becomes issues without anyone writing issue text.</p>
-          </div>
+          <div><h3>Collect &amp; triage</h3>
+            <p class="sub">From reviewer feedback to drafted issues.</p></div>
         </div>
-        <div class="step-body">
-          <p><b>Download review report</b> produces two files: a readable Markdown summary and a
-            structured JSON twin. The reviewer sends you the Markdown — or pastes it into Claude
-            themselves and asks for triage.</p>
-
-          <div class="report">
-<span class="h"># OpenELIS review report — <span class="v-label">My Feature (OGC-1234)</span></span>
-<span class="d">- Instance: `<span class="v-slug">my-feature</span>` · Reviewer: Beth Dunbar</span>
-
-<span class="h">## Checklist</span>
-<span class="p">- [PASS] Open the worklist and confirm the seeded case is listed.</span>
-<span class="f">- [FAIL] Check the result reaches the patient report.</span>
-<span class="d">    - note: Saves fine, but never shows up on any report.</span>
-
-<span class="h">**Summary:** 3 pass · 1 fail · 0 n/a · 0 untested (of 4)</span>
-          </div>
-
-          <p>Claude reads the marks and notes, groups failures by severity, and drafts issues under the
-            ticket. A real 8-step review produced:</p>
-          <div class="outcome">
-            <div class="oc"><div class="k">Story</div><div class="v">Carry the AST interpretation through
-              to the patient report.</div></div>
-            <div class="oc"><div class="k">Task</div><div class="v">Add the microbiology worklist to the
-              sidenav.</div></div>
-            <div class="oc"><div class="k">Confirmed working</div><div class="v">Seven steps across
-              sign-in, case handling and result entry.</div></div>
-          </div>
-
-          <h3>Then iterate</h3>
-          <p>Checklists are live. Add or reword steps in Grist (or ask an agent) and reviewers pick up the
-            change in about 30 seconds — no redeploy, no re-integration. Send the same link again.</p>
-        </div>
+        <p><b>Download review report</b> produces two files — a readable <code>.md</code> and a
+          structured <code>.json</code>. The reviewer sends you the Markdown (or pastes it into Claude
+          themselves) and asks for triage.</p>
+        <div class="code"><button class="copy" data-copy="c5">Copy</button><pre id="c5"><span class="cm"># paste the report, then:</span>
+Triage this UAT report into ranked issues under <span class="v-label tok">My Feature (OGC-1234)</span>.
+Group by severity, map each FAIL to a concrete story or task,
+and tell me what passed.</pre></div>
+        <p class="hint">From the real <code>amr</code> review, an 8-step checklist produced one story
+          (carry AST interpretation through to the patient report), one task (add the worklist to the
+          sidenav), and seven confirmed-working steps — from a reviewer who wrote no issue text at all.</p>
+        <div class="check"><span class="ic">✓</span><span class="t"><b>Iterate without redeploying.</b>
+          Edit rows in Grist and reviewers pick up the change within ~30 seconds. Send the same link again.</span></div>
       </section>
-
-      <section class="step">
-        <div class="step-hd">
-          <div class="step-n">✓</div>
-          <div><h2>The two URLs you actually need</h2>
-            <p class="sub">Everything above is built from these.</p></div>
-        </div>
-        <div class="step-body">
-          <div class="scroll"><table class="tbl">
-            <tr><th>What</th><th>URL</th></tr>
-            <tr><td>widget</td><td class="mono v-widgeturl">https://grist.openelis-global.org/oe-review-widget.js</td></tr>
-            <tr><td>checklist</td><td class="mono v-checkurl">https://grist.openelis-global.org/uat/my-feature.json</td></tr>
-            <tr><td>authoring</td><td class="mono v-mcp">https://grist.openelis-global.org/api/mcp</td></tr>
-          </table></div>
-        </div>
-      </section>
-    </main>
+    </div>
   </div>
 
+  <section>
+    <h2>When something looks wrong</h2>
+    <div class="scroll"><table class="tbl">
+      <tr><th>Symptom</th><th>Cause &amp; fix</th></tr>
+      <tr><td>502 on the checklist</td><td>A malformed row — the body names it. Usually a blank
+        <code>step_key</code>.</td></tr>
+      <tr><td>404 on the checklist</td><td>Slug typo. <code>instance</code> is free text, so a
+        misspelling creates a separate empty checklist rather than an error.</td></tr>
+      <tr><td>Every step says “optional”</td><td><code>required</code> was never set. Grist writes
+        <code>false</code> for untouched rows, so nothing can fail the review.</td></tr>
+      <tr><td>Edit isn't showing up</td><td>Check <code>X-UAT-Cache</code> on the response.
+        <code>STALE</code> means you're seeing a cached copy because the read service is failing.</td></tr>
+      <tr><td>No Review tab</td><td>Script blocked — check the console for a CSP error, or confirm the
+        tag is actually in the served HTML.</td></tr>
+    </table></div>
+    <p class="hint">Fuller reference: <a href="https://github.com/DIGI-UW/openelis-review-tooling/blob/main/skills/uat-authoring/references/troubleshooting.md">troubleshooting.md</a>
+      · <a href="AGENTS.md">agent context</a> · <a href="OPERATIONS.md">running the host</a></p>
+  </section>
+
   <footer>
-    <span>OpenELIS Review Tooling · tutorial</span>
-    <span>github.com/DIGI-UW/openelis-review-tooling</span>
+    <span><a href="./">← all docs</a></span>
+    <span><a href="https://github.com/DIGI-UW/openelis-review-tooling">DIGI-UW/openelis-review-tooling</a></span>
   </footer>
 </div>
 
 <script>
-  (function () {
-    var slug = document.getElementById("slug"),
-        label = document.getElementById("label"),
-        host = document.getElementById("host");
+(function(){
+  "use strict";
+  // ---- personalisation: retype every marked token when a field changes ----
+  var fields = { slug: document.getElementById("f-slug"),
+                 label: document.getElementById("f-label"),
+                 host: document.getElementById("f-host") };
+  function apply(){
+    Object.keys(fields).forEach(function(k){
+      var v = fields[k].value.trim() || fields[k].defaultValue;
+      var nodes = document.querySelectorAll(".v-" + k);
+      for (var i = 0; i < nodes.length; i++) nodes[i].textContent = v;
+    });
+  }
+  Object.keys(fields).forEach(function(k){ fields[k].addEventListener("input", apply); });
+  apply();
 
-    function apply() {
-      var s = slug.value.trim() || "my-feature",
-          l = label.value.trim() || s,
-          h = host.value.trim().replace(/^https?:\/\//, "").replace(/\/$/, "") || "grist.openelis-global.org";
-      set(".v-slug", s); set(".v-label", l); set(".v-host", h);
-      set(".v-mcp", "https://" + h + "/api/mcp");
-      set(".v-widgeturl", "https://" + h + "/oe-review-widget.js");
-      set(".v-checkurl", "https://" + h + "/uat/" + s + ".json");
-    }
-    function set(sel, val) {
-      document.querySelectorAll(sel).forEach(function (n) { n.textContent = val; });
-    }
-    [slug, label, host].forEach(function (i) { i.addEventListener("input", apply); });
-    apply();
+  // ---- copy buttons ----
+  document.querySelectorAll(".copy").forEach(function(btn){
+    btn.addEventListener("click", function(){
+      var pre = document.getElementById(btn.getAttribute("data-copy"));
+      if (!pre) return;
+      navigator.clipboard.writeText(pre.innerText).then(function(){
+        var was = btn.textContent; btn.textContent = "Copied";
+        setTimeout(function(){ btn.textContent = was; }, 1400);
+      }).catch(function(){ btn.textContent = "Press ⌘C"; });
+    });
+  });
 
-    // copy buttons — copy the rendered (personalised) text
-    document.querySelectorAll(".copy").forEach(function (b) {
-      b.addEventListener("click", function () {
-        var pre = document.getElementById(b.dataset.copy);
-        navigator.clipboard.writeText(pre.innerText).then(function () {
-          b.textContent = "Copied"; b.classList.add("done");
-          setTimeout(function () { b.textContent = "Copy"; b.classList.remove("done"); }, 1600);
-        });
+  // ---- tabs ----
+  document.querySelectorAll(".tab").forEach(function(tab){
+    tab.addEventListener("click", function(){
+      var group = tab.parentNode;
+      group.querySelectorAll(".tab").forEach(function(t){
+        t.setAttribute("aria-selected", String(t === tab));
+        var panel = document.getElementById(t.getAttribute("data-panel"));
+        if (panel) panel.hidden = (t !== tab);
       });
     });
+  });
 
-    // tabs
-    document.querySelectorAll(".tabs").forEach(function (group) {
-      var tabs = group.querySelectorAll(".tab");
-      tabs.forEach(function (t) {
-        t.addEventListener("click", function () {
-          tabs.forEach(function (o) {
-            o.setAttribute("aria-selected", String(o === t));
-            var p = document.getElementById(o.dataset.tab);
-            if (p) p.hidden = o !== t;
-          });
-        });
-      });
-    });
-
-    // scroll-spy: highlight the rail entry for the step in view
-    var links = [].slice.call(document.querySelectorAll(".rail a"));
-    var steps = links.map(function (a) { return document.querySelector(a.getAttribute("href")); });
-    if ("IntersectionObserver" in window) {
-      var spy = new IntersectionObserver(function (entries) {
-        entries.forEach(function (e) {
-          if (!e.isIntersecting) return;
-          var i = steps.indexOf(e.target);
-          if (i < 0) return;
-          links.forEach(function (a, j) { a.classList.toggle("on", i === j); });
-        });
-      }, { rootMargin: "-15% 0px -70% 0px" });
-      steps.forEach(function (s) { if (s) spy.observe(s); });
-    }
-  })();
+  // ---- highlight the step you're reading ----
+  var links = Array.prototype.slice.call(document.querySelectorAll("nav.toc a"));
+  var steps = links.map(function(a){ return document.querySelector(a.getAttribute("href")); });
+  if ("IntersectionObserver" in window) {
+    var seen = new Map();
+    var io = new IntersectionObserver(function(entries){
+      entries.forEach(function(e){ seen.set(e.target, e.intersectionRatio); });
+      var best = null, bestRatio = 0;
+      seen.forEach(function(ratio, el){ if (ratio > bestRatio) { bestRatio = ratio; best = el; } });
+      if (!best) return;
+      links.forEach(function(a, i){ a.classList.toggle("on", steps[i] === best); });
+    }, { threshold: [0.15, 0.5, 0.85], rootMargin: "-10% 0px -55% 0px" });
+    steps.forEach(function(s){ if (s) io.observe(s); });
+  }
+})();
 </script>
+</body>
+</html>

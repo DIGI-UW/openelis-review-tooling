@@ -53,7 +53,9 @@ claude mcp add --transport http grist https://grist.openelis-global.org/api/mcp 
 On claude.ai (web), add `https://grist.openelis-global.org/api/mcp` as a custom
 connector and sign in — no key to paste.
 
-Agent context, tools, and the data model: [`AGENTS.md`](AGENTS.md).
+Agent context, tools, and the data model: [`AGENTS.md`](AGENTS.md). There is also a
+bundled [`uat-authoring` skill](../skills/uat-authoring/) that teaches an agent these
+rules — it reads before writing and verifies after.
 
 ### What makes a good step
 A `do` the reviewer performs and an `expect` they judge against. Write the check for
