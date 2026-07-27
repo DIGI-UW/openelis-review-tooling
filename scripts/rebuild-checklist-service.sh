@@ -22,10 +22,10 @@ label() {
 project="$(label com.docker.compose.project)"
 workdir="$(label com.docker.compose.project.working_dir)"
 config_files="$(label com.docker.compose.project.config_files)"
-[ -n "$project" ] && [ -d "$workdir" ] || {
+if [ -z "$project" ] || [ ! -d "$workdir" ]; then
   echo "could not resolve the running checklist service Compose project" >&2
   exit 1
-}
+fi
 
 # Checked before the split rather than after: an empty list would otherwise leave
 # Compose to infer the file from the working directory, which is the same guess
