@@ -31,8 +31,12 @@ slug and title of unreleased work into the very document the flag exists to keep
 them out of. Publish one with:
 
 ```
-node grist-sync.mjs publish <instance>          # and --unlist to take it back
+./grist/bootstrap.sh publish <instance>         # and --unlist to take it back
 ```
+
+The router caches checklist reads for 30s, so give it that long before deciding a
+publish did not take; `X-UAT-Cache` on the response says whether you are looking
+at a cached copy.
 
 Note the boundary: this governs **discovery, not access**. Anyone who knows or
 guesses a slug can still read that checklist directly at `/uat/<slug>.json`, as
