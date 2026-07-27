@@ -44,6 +44,56 @@ function contentHash(value) {
   return createHash("sha256").update(JSON.stringify(value)).digest("hex");
 }
 
+// The catalog of stories reviewable on a deployment. The widget uses it to offer
+// a switcher and to say which stories have anything to say about the page the
+// reviewer is currently looking at, so `routes` carries paths only — a step's
+// query string selects a filter, it does not identify a different page.
+export function buildUatIndex(metaRecords, stepRecords) {
+  const titles = new Map();
+  for (const record of metaRecords || []) {
+    const fields = record.fields || {};
+    const instance = String(fields.instance || "").trim();
+    if (instance) titles.set(instance, fields);
+  }
+
+  const stories = new Map();
+  for (const record of stepRecords || []) {
+    const fields = record.fields || {};
+    const instance = String(fields.instance || "").trim();
+    if (!instance) continue;
+    let story = stories.get(instance);
+    if (!story) {
+      story = { instance, steps: 0, required: 0, routes: new Set() };
+      stories.set(instance, story);
+    }
+    story.steps += 1;
+    if (parseRequired(fields.required)) story.required += 1;
+    if (fields.route) {
+      const route = validateRoute(String(fields.route).trim(), fields.step_key || instance);
+      story.routes.add(new URL(route, ROUTE_BASE).pathname);
+    }
+  }
+
+  return {
+    schemaVersion: 1,
+    // A story with a meta row but no steps is not reviewable; listing it would
+    // offer the reviewer an empty checklist.
+    stories: [...stories.values()]
+      .sort((a, b) => a.instance.localeCompare(b.instance))
+      .map((story) => {
+        const meta = titles.get(story.instance) || {};
+        return {
+          instance: story.instance,
+          title: meta.title || `${story.instance} review`,
+          jira: meta.jira || "",
+          steps: story.steps,
+          required: story.required,
+          routes: [...story.routes].sort(),
+        };
+      }),
+  };
+}
+
 export function buildUatDocument(instance, meta, records) {
   const seenKeys = new Set();
   const seenOrders = new Set();

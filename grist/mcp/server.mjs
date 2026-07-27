@@ -10,7 +10,7 @@
 
 import express from "express";
 import { readFileSync } from "node:fs";
-import { buildUatDocument } from "./uat-document.mjs";
+import { buildUatDocument, buildUatIndex } from "./uat-document.mjs";
 
 const GRIST_URL = process.env.GRIST_URL || "http://grist:8484";
 const GRIST_ORG = process.env.GRIST_ORG || "openelis";
@@ -68,6 +68,21 @@ const app = express();
 app.use(express.json({ limit: "1mb" }));
 
 app.get("/healthz", (_req, res) => res.json({ ok: true }));
+
+// Ahead of /uat/:file on purpose: "index" is a legal instance slug as far as the
+// router's pattern is concerned, and the catalog has to win. It rides the same
+// path shape so no deployment needs a new proxy rule to expose it.
+app.get("/uat/index.json", async (_req, res) => {
+  try {
+    const [metaRecs, stepRecs] = await Promise.all([
+      listRecords("UAT_Meta"),
+      listRecords("UAT_Steps"),
+    ]);
+    res.set("Cache-Control", "no-store").json(buildUatIndex(metaRecs, stepRecs));
+  } catch (e) {
+    res.status(502).json({ error: String(e.message || e) });
+  }
+});
 
 app.get("/uat/:file", async (req, res) => {
   const instance = req.params.file.replace(/\.json$/, "");

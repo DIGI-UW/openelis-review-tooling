@@ -76,6 +76,27 @@ dialog a step asks for can come over the top, and **Move panel** cycles it betwe
 the right, centre and left; a side chosen by hand is remembered and never
 overridden. Below 640px the open panel becomes a bottom sheet.
 
+**Expand panel** widens it and opens every step at once, laying the expected result
+down the left and the answer on the right so more of the checklist fits. **All / To
+do / Failed** narrows the list once there is something to narrow, and each section
+heading carries its own count. How the panel is arranged — side, expanded, filter,
+and which story was open — is remembered per deployment, so it survives a reload
+and a story switch.
+
+## Several stories on one deployment
+
+A deployment usually hosts more than one story. If the checklist URL follows either
+`…/uat-<story>.json` or `…/uat/<story>.json`, the widget looks for a catalog beside
+it at `uat-index.json` and offers a **Story** picker, grouped into *On this page*
+and *Other stories* by matching each story's step routes against the current path.
+Point `data-index` somewhere else to override that, and any other `data-src` shape
+simply gets no picker. The catalog is optional in the strongest sense: if it is
+missing, malformed or unreachable, the checklist still loads.
+
+Each story keeps its own answers, so switching never shows one story's marks
+against another's steps. A story that disappears from the catalog between visits
+falls back to the one the deployment injects rather than stranding the reviewer.
+
 **Copy report** puts the whole review on the clipboard, which is what the reviewer
 is asked to paste into Claude. **Download** writes the same thing as a single
 `oe-review-<instance>-<timestamp>.md`:

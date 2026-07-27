@@ -31,7 +31,7 @@
 #   ./deploy.sh app status <instance> [--deployment <id>]
 #   ./deploy.sh app verify <instance>
 #   ./deploy.sh app rollback <instance>
-#   ./deploy.sh review deploy --ref <sha> --scope widget
+#   ./deploy.sh review deploy --ref <sha> --scope widget|service|all
 #   ./deploy.sh data seed amr --fixture microbiology-mvp
 #   ./deploy.sh up-to-certs --yes   # configure -> deploy -> certs -> seed
 set -euo pipefail
@@ -527,9 +527,12 @@ cmd_review_deploy() {
     esac
   done
   validate_sha "$ref"
-  [ "$scope" = widget ] || die "--scope must be widget"
+  case "$scope" in
+    widget | service | all) ;;
+    *) die "--scope must be widget, service or all" ;;
+  esac
   require_aws
-  log "deploying review widget at exact harness SHA $ref"
+  log "deploying review $scope at exact harness SHA $ref"
   ssm_run "set -euo pipefail
 exec 9>/var/lock/openelis-review-deploy.lock
 flock -n 9 || { echo 'another review-host deployment is already running' >&2; exit 1; }
@@ -556,11 +559,26 @@ for instance in amr analyzers; do
   chmod 0644 \"\$tmp\"
   mv \"\$tmp\" \"\$target\"
 done
-widget_tmp=\$(mktemp)
-trap 'rm -f \"\$widget_tmp\"' EXIT
-curl -fsSk 'https://$AMR_DOMAIN/__review/oe-review-widget.js' -o \"\$widget_tmp\"
-grep -q 'attachShadow({ mode: \"open\" })' \"\$widget_tmp\"
-echo 'review widget ready at $ref'"
+scope='$scope'
+probe=\$(mktemp)
+trap 'rm -f \"\$probe\"' EXIT
+if [ \"\$scope\" = widget ] || [ \"\$scope\" = all ]; then
+  curl -fsSk 'https://$AMR_DOMAIN/__review/oe-review-widget.js' -o \"\$probe\"
+  grep -q 'attachShadow({ mode: \"open\" })' \"\$probe\"
+  echo 'review widget ready at $ref'
+fi
+if [ \"\$scope\" = service ] || [ \"\$scope\" = all ]; then
+  # The read service bakes its source into its image, so a checkout alone leaves
+  # the old code serving. Rebuild it, then prove the rebuilt one is answering.
+  sudo -u '$OS_USER' docker compose -f \"\$edge_dir/grist/docker-compose.grist.yml\" \\
+    up -d --build uat-read
+  for _ in \$(seq 1 30); do
+    curl -fsSk 'https://$GRIST_DOMAIN/uat/index.json' -o \"\$probe\" && break
+    sleep 2
+  done
+  grep -q '\"stories\"' \"\$probe\"
+  echo 'checklist service ready at $ref'
+fi"
 }
 
 cmd_review() {

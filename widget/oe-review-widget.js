@@ -4,7 +4,14 @@
   var INSTANCE = (self && self.getAttribute("data-instance")) || "unknown";
   var LABEL = (self && self.getAttribute("data-label")) || INSTANCE;
   var LEGACY_STORE_KEY = "oe-review:" + INSTANCE;
-  var STORE_PREFIX = "oe-review:v2:" + INSTANCE + ":";
+  // One deployment can carry several stories. Answers are keyed by the story
+  // being reviewed, so switching never shows one story's marks against another's
+  // steps; the deployment identity and the reviewer's layout preferences stay
+  // keyed to the deployment, because those are not per-story facts.
+  var activeStory = INSTANCE;
+  function storePrefix() {
+    return "oe-review:v2:" + activeStory + ":";
+  }
   var STORE_KEY = null;
   var BUILD_SRC =
     (self && self.getAttribute("data-build-src")) || "/__review/target.json";
@@ -14,6 +21,25 @@
   // default (back-compat with the router injection).
   var SRC = (self && self.getAttribute("data-src")) || "/__review/uat-" + INSTANCE + ".json";
   var ANCHORS = ["right", "centre", "left"];
+  var FILTERS = ["all", "todo", "failed"];
+
+  // Sibling stories live beside this one under whichever of the two naming
+  // conventions the deployment serves: /__review/uat-<story>.json same-origin, or
+  // /uat/<story>.json on the checklist host. A custom data-src that follows
+  // neither simply has no siblings to offer.
+  function storyUrl(story) {
+    if (/uat-[a-z0-9_-]+\.json$/.test(SRC)) {
+      return SRC.replace(/uat-[a-z0-9_-]+\.json$/, "uat-" + story + ".json");
+    }
+    if (/\/uat\/[a-z0-9_-]+\.json$/.test(SRC)) {
+      return SRC.replace(/\/uat\/[a-z0-9_-]+\.json$/, "/uat/" + story + ".json");
+    }
+    return null;
+  }
+  var INDEX_SRC = (self && self.getAttribute("data-index")) || storyUrl("index");
+  function currentSrc() {
+    return storyUrl(activeStory) || SRC;
+  }
   function inlineChecklist() {
     try {
       if (window.OE_REVIEW_CHECKLIST) return window.OE_REVIEW_CHECKLIST;
@@ -67,7 +93,6 @@
     value.notes = Array.isArray(value.notes) ? value.notes : [];
     value.reviewer = value.reviewer || "";
     value.minimized = value.minimized !== false;
-    value.anchor = ANCHORS.indexOf(value.anchor) === -1 ? null : value.anchor;
     value.current = typeof value.current === "string" ? value.current : null;
     value.introDone = Boolean(value.introDone);
     return value;
@@ -86,13 +111,40 @@
       minimized: true,
       steps: {},
       notes: [],
-      anchor: null,
       current: null,
       introDone: false,
       updatedAt: null,
     };
   }
-  var IDENTITY_KEY = STORE_PREFIX + "last-identity";
+  // Keyed to the deployment, not the story: which build is running, and how the
+  // reviewer likes the panel arranged, are the same answer whichever story they
+  // happen to be working through.
+  var IDENTITY_KEY = "oe-review:v2:" + INSTANCE + ":last-identity";
+  var PREFS_KEY = "oe-review:v2:" + INSTANCE + ":prefs";
+  var prefs = loadPrefs();
+  function loadPrefs() {
+    var stored = null;
+    try {
+      stored = JSON.parse(localStorage.getItem(PREFS_KEY) || "null");
+    } catch (e) {
+      stored = null;
+    }
+    stored = stored && typeof stored === "object" ? stored : {};
+    return {
+      anchor: ANCHORS.indexOf(stored.anchor) === -1 ? null : stored.anchor,
+      filter: FILTERS.indexOf(stored.filter) === -1 ? "all" : stored.filter,
+      expanded: Boolean(stored.expanded),
+      story: typeof stored.story === "string" ? stored.story : null,
+    };
+  }
+  function savePrefs() {
+    try {
+      localStorage.setItem(PREFS_KEY, JSON.stringify(prefs));
+    } catch (e) {
+      /* storage unavailable — the panel simply opens the default way next time */
+    }
+  }
+  if (prefs.story) activeStory = prefs.story;
   function rememberIdentity(id) {
     try {
       localStorage.setItem(IDENTITY_KEY, id);
@@ -122,7 +174,7 @@
     return identityOf(target) || lastKnownIdentity() || "unbound";
   }
   function contextPrefix(target) {
-    return STORE_PREFIX + encodeURIComponent(deploymentIdentity(target)) + ":";
+    return storePrefix() + encodeURIComponent(deploymentIdentity(target)) + ":";
   }
   function contextKey(target, checklist) {
     return contextPrefix(target) + checklist.checklistRevision;
@@ -146,7 +198,7 @@
     // there is no identity and answers land under the unbound prefix. Adopt those
     // once the real identity appears, or a reviewer working during a deploy loses
     // everything the moment it finishes.
-    var unbound = STORE_PREFIX + "unbound:";
+    var unbound = storePrefix() + "unbound:";
     var prefixes = prefix === unbound ? [prefix] : [prefix, unbound];
     var latest = null;
     try {
@@ -184,7 +236,7 @@
       var keys = [];
       for (var i = 0; i < localStorage.length; i++) {
         var key = localStorage.key(i);
-        if (key && key.startsWith(STORE_PREFIX)) keys.push(key);
+        if (key && key.startsWith(storePrefix())) keys.push(key);
       }
       keys.forEach(function (key) {
         localStorage.removeItem(key);
@@ -207,6 +259,7 @@
   var panelToggled = false;
   var loadError = "";
   var buildWarning = "";
+  var catalog = null;
   // Built once per checklist revision and then updated in place. Rebuilding the
   // panel on every interaction is what used to throw the reviewer back to the top
   // of the checklist each time they answered something.
@@ -371,7 +424,7 @@
     buildWarning = "";
     render();
     return Promise.all([
-      fetch(SRC, { cache: "no-store" }).then(function (response) {
+      fetch(currentSrc(), { cache: "no-store" }).then(function (response) {
         if (!response.ok) {
           throw new Error("Could not load checklist (" + response.status + ").");
         }
@@ -387,6 +440,7 @@
         buildWarning = "Build information is unavailable.";
         return null;
       }),
+      fetchCatalog(),
     ])
       .then(function (values) {
         // A failed target fetch must not change the deployment identity: that
@@ -394,15 +448,64 @@
         // re-key the panel and hide answers the reviewer already gave. Keep the
         // last known target and surface buildWarning instead.
         if (values[1]) build = values[1];
+        if (values[2]) catalog = values[2];
         applyChecklist(values[0], build);
       })
       .catch(function (error) {
+        // A remembered story can be retired from the catalog between visits.
+        // Rather than stranding the reviewer on an error, fall back once to the
+        // story this deployment injects.
+        if (activeStory !== INSTANCE) {
+          activeStory = INSTANCE;
+          prefs.story = null;
+          savePrefs();
+          ui = null;
+          return refreshChecklist();
+        }
         loadError = error.message || String(error);
       })
       .finally(function () {
         loading = false;
         render();
       });
+  }
+
+  // ---- the other stories on this deployment ---------------------------------
+  function fetchCatalog() {
+    if (!INDEX_SRC) return Promise.resolve(null);
+    return fetch(INDEX_SRC, { cache: "no-store" })
+      .then(function (response) {
+        return response.ok ? response.json() : null;
+      })
+      .then(function (value) {
+        // A deployment that serves no catalog is not broken, it just has one
+        // story; never let a missing or malformed index fail the checklist load.
+        return value && Array.isArray(value.stories) ? value : null;
+      })
+      .catch(function () {
+        return null;
+      });
+  }
+
+  function stories() {
+    return (catalog && catalog.stories) || [];
+  }
+  // A story is about this page when one of its steps points here. Query strings
+  // pick a filter rather than a page, so the catalog publishes paths only.
+  function coversHere(story) {
+    var here = location.pathname;
+    return (story.routes || []).some(function (route) {
+      return here === route || here.indexOf(route + "/") === 0;
+    });
+  }
+  function selectStory(story) {
+    if (story === activeStory) return;
+    activeStory = story;
+    prefs.story = story;
+    savePrefs();
+    // A different checklist entirely: the built panel cannot be updated into it.
+    ui = null;
+    refreshChecklist();
   }
 
   // ---- placement ------------------------------------------------------------
@@ -486,7 +589,7 @@
     return best;
   }
   function applyAnchor() {
-    var anchor = state.anchor || autoAnchor();
+    var anchor = prefs.anchor || autoAnchor();
     // The open panel becomes a bottom sheet on a narrow screen; the launcher stays
     // a corner pill, because a full-width bar at the bottom lands underneath
     // whatever the application pins there.
@@ -494,9 +597,9 @@
     if (wrap.className !== className) wrap.className = className;
   }
   function movePanel() {
-    var anchor = state.anchor || autoAnchor();
-    state.anchor = ANCHORS[(ANCHORS.indexOf(anchor) + 1) % ANCHORS.length];
-    save();
+    var anchor = prefs.anchor || autoAnchor();
+    prefs.anchor = ANCHORS[(ANCHORS.indexOf(anchor) + 1) % ANCHORS.length];
+    savePrefs();
     applyAnchor();
   }
 
@@ -588,6 +691,15 @@
     var move = iconBtn("⇄", "Move panel");
     move.onclick = movePanel;
     head.appendChild(move);
+    parts.expand = iconBtn("⤢", "Expand panel");
+    parts.expand.onclick = function () {
+      prefs.expanded = !prefs.expanded;
+      savePrefs();
+      syncPanel();
+      applyAnchor();
+      if (!prefs.expanded) scrollCurrentIntoView();
+    };
+    head.appendChild(parts.expand);
     var refresh = iconBtn("↻", "Refresh checklist");
     refresh.onclick = refreshChecklist;
     head.appendChild(refresh);
@@ -599,8 +711,7 @@
     parts.statusBox = el("div", "statusbox");
     panel.appendChild(parts.statusBox);
 
-    parts.provenance = el("div", "provenance");
-    panel.appendChild(parts.provenance);
+    if (stories().length > 1) panel.appendChild(buildStories(parts));
 
     parts.intro = el("div", "intro");
     panel.appendChild(parts.intro);
@@ -619,18 +730,30 @@
     };
     who.appendChild(label);
     who.appendChild(parts.reviewer);
+    parts.who = who;
     panel.appendChild(who);
 
+    parts.filters = buildFilters(parts);
+    panel.appendChild(parts.filters);
+
     parts.body = el("div", "body");
+    parts.sections = [];
     (uat.sections || []).forEach(function (section) {
+      var row = el("div", "secrow");
       var heading = el("h3", "sec");
       heading.textContent = section.title;
-      parts.body.appendChild(heading);
+      var count = el("span", "seccount");
+      row.appendChild(heading);
+      row.appendChild(count);
+      parts.body.appendChild(row);
+      var keys = [];
       (section.steps || []).forEach(function (step) {
-        var row = buildRow(step);
-        parts.rows[step.key] = row;
-        parts.body.appendChild(row.row);
+        var stepRow = buildRow(step);
+        parts.rows[step.key] = stepRow;
+        parts.body.appendChild(stepRow.row);
+        keys.push(step.key);
       });
+      parts.sections.push({ row: row, count: count, keys: keys });
     });
     panel.appendChild(parts.body);
 
@@ -671,6 +794,68 @@
     panelToggled = true;
     save();
     render();
+  }
+
+  // Native optgroups rather than a badge on each option: a reviewer on the
+  // worklist wants the stories about the worklist, and grouping says that once
+  // instead of ten times.
+  function buildStories(parts) {
+    var box = el("div", "stories");
+    var label = el("label", "");
+    label.textContent = "Story";
+    label.setAttribute("for", "oe-review-story");
+    var select = document.createElement("select");
+    select.id = "oe-review-story";
+    var here = stories().filter(coversHere);
+    var elsewhere = stories().filter(function (story) {
+      return !coversHere(story);
+    });
+    [
+      ["On this page", here],
+      ["Other stories", elsewhere],
+    ].forEach(function (group) {
+      if (!group[1].length) return;
+      var optgroup = document.createElement("optgroup");
+      optgroup.label = group[0];
+      group[1].forEach(function (story) {
+        var option = document.createElement("option");
+        option.value = story.instance;
+        option.textContent =
+          story.title + (story.steps ? " (" + story.steps + ")" : "");
+        optgroup.appendChild(option);
+      });
+      select.appendChild(optgroup);
+    });
+    select.onchange = function () {
+      selectStory(select.value);
+    };
+    box.appendChild(label);
+    box.appendChild(select);
+    parts.storySelect = select;
+    return box;
+  }
+
+  function buildFilters(parts) {
+    var box = el("div", "filters");
+    box.setAttribute("role", "group");
+    box.setAttribute("aria-label", "Show steps");
+    parts.filterButtons = {};
+    [
+      ["all", "All"],
+      ["todo", "To do"],
+      ["failed", "Failed"],
+    ].forEach(function (option) {
+      var button = el("button", "filter");
+      button.textContent = option[1];
+      button.onclick = function () {
+        prefs.filter = option[0];
+        savePrefs();
+        syncPanel();
+      };
+      parts.filterButtons[option[0]] = button;
+      box.appendChild(button);
+    });
+    return box;
   }
 
   function buildNotes(parts) {
@@ -802,6 +987,20 @@
     scrollCurrentIntoView();
   }
 
+  function stepFor(key) {
+    return (
+      allSteps().filter(function (step) {
+        return step.key === key;
+      })[0] || { key: key }
+    );
+  }
+
+  function matchesFilter(saved) {
+    if (prefs.filter === "todo") return !(saved.mark && !saved.stale);
+    if (prefs.filter === "failed") return saved.mark === "fail" && !saved.stale;
+    return true;
+  }
+
   function nextOpenAfter(key) {
     var steps = allSteps();
     var index = steps.findIndex(function (step) {
@@ -840,8 +1039,31 @@
     if (!ui) return;
     var counts = progress();
     ui.title.textContent = uat.title || LABEL + " review";
+    // The build under review belongs beside the progress, not on a row of its own:
+    // it is something a reviewer checks once and refers to in a bug report.
+    var sha = build && build.appSha ? build.appSha.slice(0, 7) : "";
     ui.progress.textContent =
-      INSTANCE + " · " + counts.done + " of " + counts.total + " answered";
+      activeStory +
+      " · " +
+      counts.done +
+      " of " +
+      counts.total +
+      " answered" +
+      (sha ? " · " + sha : "");
+    ui.progress.title = provenanceText();
+    if (ui.storySelect && ui.storySelect.value !== activeStory) {
+      ui.storySelect.value = activeStory;
+    }
+    ui.panel.classList.toggle("expanded", prefs.expanded);
+    ui.expand.title = prefs.expanded ? "Collapse panel" : "Expand panel";
+    ui.expand.setAttribute("aria-label", ui.expand.title);
+    ui.expand.textContent = prefs.expanded ? "⤡" : "⤢";
+    FILTERS.forEach(function (name) {
+      var button = ui.filterButtons[name];
+      var on = prefs.filter === name;
+      button.classList.toggle("on", on);
+      button.setAttribute("aria-pressed", String(on));
+    });
     if (ui.reviewer.value !== (state.reviewer || "")) {
       ui.reviewer.value = state.reviewer || "";
     }
@@ -861,37 +1083,75 @@
       );
     }
 
-    ui.provenance.textContent = provenanceText();
-    ui.provenance.hidden = !ui.provenance.textContent;
-
     // The preamble earns its space until the reviewer is under way; after that the
     // checklist needs the room more than the introduction does. Standing down is
     // one-way: tying it to the answer count made it reappear — and shove the
     // checklist down again — whenever an answer was cleared.
     ui.intro.textContent = uat.intro || "";
+    ui.intro.title = uat.intro || "";
     ui.intro.hidden = !uat.intro || state.introDone;
 
+    // Everything below is chrome the reviewer needs occasionally, not while they
+    // are working a step. In the compact panel it stands down once it has done
+    // its job; expanded, it is all on show.
+    ui.who.hidden = !prefs.expanded && Boolean(state.reviewer);
+    ui.filters.hidden = !prefs.expanded && counts.done === 0;
+
+    var shown = {};
+    allSteps().forEach(function (step) {
+      shown[step.key] = matchesFilter(state.steps[step.key] || {});
+    });
     var current = currentKey();
+    // Filtering to what is left to do should not strand the reviewer on a step
+    // the filter has just hidden.
+    if (!shown[current]) {
+      var firstShown = allSteps().filter(function (step) {
+        return shown[step.key];
+      })[0];
+      if (firstShown) current = firstShown.key;
+    }
     state.current = current;
+
     Object.keys(ui.rows).forEach(function (key) {
       var row = ui.rows[key];
       var saved = state.steps[key] || {};
-      var isCurrent = key === current;
-      row.row.classList.toggle("current", isCurrent);
+      row.row.hidden = !shown[key];
+      row.row.classList.toggle("current", key === current);
       row.row.classList.toggle("answered", Boolean(saved.mark && !saved.stale));
-      row.summary.setAttribute("aria-expanded", String(isCurrent));
+      row.row.classList.toggle("failed", saved.mark === "fail" && !saved.stale);
       row.chip.textContent = chipText(row.step, saved);
       row.chip.className = "chip " + (saved.stale ? "stale" : saved.mark || "open");
     });
-    if (ui.detailKey !== current) {
+
+    // Expanded shows every step in full; compact shows only the one being worked.
+    var open = {};
+    if (prefs.expanded) {
       Object.keys(ui.rows).forEach(function (key) {
-        ui.rows[key].detail.innerHTML = "";
+        open[key] = shown[key];
       });
-      if (ui.rows[current]) ui.rows[current].detail.appendChild(buildDetail(ui.rows[current].step));
-      ui.detailKey = current;
-    } else if (ui.rows[current]) {
-      syncMarks(ui.rows[current], state.steps[current] || {});
+    } else if (shown[current]) {
+      open[current] = true;
     }
+    Object.keys(ui.rows).forEach(function (key) {
+      var row = ui.rows[key];
+      var mounted = row.detail.childNodes.length > 0;
+      // Mount and unmount only what changed: rebuilding every detail would throw
+      // away the note the reviewer is in the middle of typing.
+      if (open[key] && !mounted) row.detail.appendChild(buildDetail(row.step));
+      else if (!open[key] && mounted) row.detail.innerHTML = "";
+      else if (open[key]) syncMarks(row, state.steps[key] || {});
+      row.summary.setAttribute("aria-expanded", String(Boolean(open[key])));
+    });
+
+    ui.sections.forEach(function (section) {
+      var done = section.keys.filter(function (key) {
+        return answered(stepFor(key));
+      }).length;
+      section.count.textContent = done + "/" + section.keys.length;
+      section.row.hidden = !section.keys.some(function (key) {
+        return shown[key];
+      });
+    });
 
     ui.noteToggle.textContent = state.notes.length
       ? "+ Note about this page (" + state.notes.length + ")"
@@ -1219,10 +1479,25 @@
       ".tab{display:flex;align-items:center;gap:6px;background:#0f62fe;color:#fff;border:none;border-radius:20px;padding:10px 16px;font-size:13px;font-weight:600;cursor:pointer;box-shadow:0 4px 14px rgba(0,0,0,.25);font-variant-numeric:tabular-nums;}",
       ".tab:hover{background:#0353e9;}",
       ".dot{background:#fff;color:#0f62fe;border-radius:10px;padding:0 6px;font-size:11px;font-weight:700;}",
-      ".panel{box-sizing:border-box;width:min(360px,calc(100vw - 32px));max-height:min(560px,78vh);display:flex;flex-direction:column;background:#fff;border:1px solid #d0d5dd;border-radius:10px;box-shadow:0 10px 40px rgba(0,0,0,.28);overflow:hidden;}",
+      // The panel is anchored 80px off the bottom, so its height has to leave the
+      // same again at the top. Without that reserve an expanded panel on a short
+      // screen pushes its own header off the top of the viewport, under the host
+      // application's fixed header, and the close button cannot be reached.
+      ".panel{box-sizing:border-box;width:min(360px,calc(100vw - 32px));max-height:min(560px,calc(100vh - 160px));display:flex;flex-direction:column;background:#fff;border:1px solid #d0d5dd;border-radius:10px;box-shadow:0 10px 40px rgba(0,0,0,.28);overflow:hidden;}",
       // Only the checklist scrolls. Without this the fixed rows shrink to absorb
       // a long checklist and clip their own text.
-      ".head,.statusbox,.provenance,.intro,.who,.fb,.foot{flex:none;}",
+      ".head,.statusbox,.stories,.intro,.who,.filters,.fb,.foot{flex:none;}",
+      ".panel.expanded{width:min(760px,92vw);max-height:min(720px,calc(100vh - 160px));}",
+      ".stories{display:flex;align-items:center;gap:8px;padding:8px 12px;border-bottom:1px solid #eef0f3;}",
+      ".stories label{font-size:11px;color:#5b6673;font-weight:600;}",
+      ".stories select{flex:1;min-width:0;border:1px solid #d0d5dd;border-radius:6px;padding:5px 6px;font:inherit;color:inherit;background:#fff;min-height:24px;}",
+      ".filters{display:flex;gap:6px;padding:8px 12px 0;}",
+      ".filter{flex:1;border:1px solid #d0d5dd;background:#fff;border-radius:6px;padding:5px 0;font:inherit;font-size:12px;font-weight:600;color:#5b6673;cursor:pointer;min-height:24px;}",
+      ".filter.on{background:#eef4ff;border-color:#0f62fe;color:#0f62fe;}",
+      ".secrow{display:flex;align-items:baseline;justify-content:space-between;gap:8px;margin:12px 0 4px;}",
+      ".secrow[hidden]{display:none;}",
+      ".seccount{font-size:11px;color:#8b95a3;font-weight:700;font-variant-numeric:tabular-nums;}",
+      ".step[hidden]{display:none;}",
       ".head{display:flex;align-items:flex-start;gap:4px;padding:10px 12px;background:#161616;color:#fff;}",
       ".titlebox{flex:1;min-width:0;}",
       ".title{font-size:14px;font-weight:700;margin:0;}",
@@ -1232,17 +1507,22 @@
       ".status{padding:8px 12px;border-bottom:1px solid #eef0f3;color:#5b6673;}",
       ".status.error{background:#fff1f1;color:#a2191f;font-weight:600;}",
       ".status.warning{background:#fff8e1;color:#684e00;}",
-      ".provenance{padding:6px 12px;border-bottom:1px solid #eef0f3;font-size:11px;color:#697077;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}",
-      ".provenance[hidden]{display:none;}",
-      ".intro{padding:8px 12px;border-bottom:1px solid #eef0f3;color:#5b6673;}",
-      ".intro[hidden]{display:none;}",
+      ".intro{padding:8px 12px;border-bottom:1px solid #eef0f3;color:#5b6673;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;}",
+      ".intro[hidden],.who[hidden],.filters[hidden]{display:none;}",
+      // Expanded gains width, so spend it: the expected result reads down the
+      // left while the answer sits on the right, which roughly halves how tall
+      // each step is and puts more of the checklist on screen at once.
+      ".panel.expanded .detail{display:grid;grid-template-columns:1fr 280px;gap:4px 16px;align-items:start;}",
+      ".panel.expanded .detail .expect,.panel.expanded .detail .go,.panel.expanded .detail .optional{grid-column:1;margin:0;}",
+      ".panel.expanded .detail .marks{grid-column:2;grid-row:1;}",
+      ".panel.expanded .detail .stepnote{grid-column:2;grid-row:2;margin-top:0;}",
       ".who{padding:8px 12px;border-bottom:1px solid #eef0f3;display:flex;align-items:center;gap:8px;}",
       ".who label{font-size:11px;color:#5b6673;font-weight:600;white-space:nowrap;}",
       "input[type=text],textarea{width:100%;box-sizing:border-box;border:1px solid #d0d5dd;border-radius:6px;padding:6px 8px;font:inherit;color:inherit;}",
       "input:focus-visible,textarea:focus-visible,button:focus-visible,a:focus-visible{outline:2px solid #0f62fe;outline-offset:1px;}",
       // Positioned so a row's offsetTop is measured against the scroller itself.
       ".body{position:relative;flex:1;min-height:0;overflow-y:auto;padding:4px 12px 10px;}",
-      ".sec{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:#8b95a3;font-weight:700;margin:12px 0 4px;}",
+      ".sec{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:#8b95a3;font-weight:700;margin:0;}",
       ".step{border:1px solid #eef0f3;border-radius:8px;margin-bottom:6px;background:#fafbfc;}",
       ".step.current{background:#fff;border-color:#c6d4ff;box-shadow:0 0 0 2px rgba(15,98,254,.12);}",
       ".steptop{display:flex;gap:8px;align-items:flex-start;width:100%;text-align:left;background:none;border:none;padding:8px 10px;font:inherit;color:inherit;cursor:pointer;min-height:24px;}",
