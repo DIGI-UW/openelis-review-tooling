@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { SCHEMA, planColumns } from "../grist/schema.mjs";
+import { PAGES, SCHEMA, planColumns, planPages } from "../grist/schema.mjs";
 
 // A live column as the Grist columns endpoint returns it.
 function live(id, fields = {}) {
@@ -88,4 +88,48 @@ test("explains every column an author has to fill in", () => {
       );
     }
   }
+});
+
+test("asks for a page only when the document has no authored one by that name", () => {
+  // A document with no pages still reports one view per table: Grist's raw-data
+  // fallback. Counting those as pages means never building any.
+  const live = [
+    { id: 3, fields: { name: "UAT_Steps", type: "raw_data" } },
+    { id: 4, fields: { name: "Checklist", type: "" } },
+  ];
+  const plan = planPages(live, [{ name: "Checklist" }, { name: "Reviews" }]);
+  assert.deepEqual(plan.create, ["Reviews"]);
+});
+
+test("does not rebuild a page that is already there", () => {
+  const live = [{ id: 9, fields: { name: "Checklist", type: "" } }];
+  assert.deepEqual(planPages(live, [{ name: "Checklist" }]).create, []);
+});
+
+test("every declared page names a table the schema declares", () => {
+  for (const page of PAGES) {
+    for (const section of page.sections) {
+      assert.ok(SCHEMA[section.table], `${page.name} uses undeclared table ${section.table}`);
+      if (section.sort) {
+        for (const col of section.sort) {
+          assert.ok(
+            SCHEMA[section.table].columns[col],
+            `${page.name} sorts ${section.table} by undeclared column ${col}`,
+          );
+        }
+      }
+    }
+  }
+});
+
+test("gives the step editor a card fed by the list beside it", () => {
+  // do and expect are paragraphs. Editing them in a grid cell is the single most
+  // common action in the tool and the worst place to do it.
+  const checklist = PAGES.find((p) => p.name === "Checklist");
+  assert.ok(checklist, "there must be a Checklist page");
+  const [list, card] = checklist.sections;
+  assert.equal(list.type, "record");
+  assert.equal(card.type, "single");
+  assert.equal(card.linkFrom, 0, "the card follows the list's cursor");
+  assert.deepEqual(list.sort, ["instance", "section_order", "step_order"]);
 });

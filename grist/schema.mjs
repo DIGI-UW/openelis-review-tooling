@@ -204,3 +204,43 @@ export function planColumns(liveColumns, declared) {
     extra: [...live.keys()].filter((colId) => !(colId in declared)),
   };
 }
+
+// The pages an author actually works in.
+//
+// A document with no pages is not empty in the left-hand nav: Grist falls back to
+// one raw-data view per table, which is why this looked like it had three pages
+// while having none. Raw data is a table dump — every column, every instance
+// interleaved, and a paragraph of instructions to be typed into a grid cell.
+export const PAGES = [
+  {
+    name: "Checklist",
+    sections: [
+      // Sorted the way a checklist reads rather than the order rows were typed.
+      { table: "UAT_Steps", type: "record", sort: ["instance", "section_order", "step_order"] },
+      // The same rows again as a card, following the list's cursor. do and expect
+      // are paragraphs, and a card gives them room; a grid cell gives them a line.
+      // Linking a section to another over the same table needs no reference
+      // column — it follows the cursor.
+      { table: "UAT_Steps", type: "single", linkFrom: 0 },
+    ],
+  },
+  {
+    name: "Reviews",
+    sections: [
+      { table: "UAT_Meta", type: "record", sort: ["instance"] },
+      { table: "UAT_Meta", type: "single", linkFrom: 0 },
+    ],
+  },
+];
+
+// Which declared pages the document is missing. Grist's raw-data views carry the
+// table's own name and are never a page somebody authored, so they cannot stand
+// in for one.
+export function planPages(liveViews, declared = PAGES) {
+  const authored = new Set(
+    (liveViews || [])
+      .filter((view) => (view.fields || {}).type !== "raw_data")
+      .map((view) => (view.fields || {}).name),
+  );
+  return { create: declared.filter((page) => !authored.has(page.name)).map((page) => page.name) };
+}

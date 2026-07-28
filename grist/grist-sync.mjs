@@ -15,7 +15,7 @@
 import { mkdirSync, readFileSync, writeFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { buildUatDocument, parseRequired } from "./mcp/uat-document.mjs";
-import { SCHEMA, planColumns } from "./schema.mjs";
+import { PAGES, SCHEMA, planColumns, planPages } from "./schema.mjs";
 
 const URL = process.env.GRIST_URL || "http://grist:8484";
 const KEY = process.env.GRIST_KEY;
@@ -103,6 +103,74 @@ async function ensureTables(doc, { dryRun = false } = {}) {
   }
 }
 
+
+// Pages are built with user actions rather than the records API: a page is a view,
+// its sections, and the links between them, and only the actions know how to make
+// those consistently.
+async function userActions(doc, actions) {
+  return await api(`/api/docs/${doc}/apply`, {
+    method: "POST",
+    body: JSON.stringify(actions),
+  });
+}
+
+async function metaRefs(doc) {
+  const tables = (await api(`/api/docs/${doc}/tables/_grist_Tables/records`)).records;
+  const columns = (await api(`/api/docs/${doc}/tables/_grist_Tables_column/records`)).records;
+  const tableRef = new Map(tables.map((t) => [t.fields.tableId, t.id]));
+  const colRef = new Map();
+  for (const column of columns) {
+    const table = tables.find((t) => t.id === column.fields.parentId);
+    if (table) colRef.set(`${table.fields.tableId}.${column.fields.colId}`, column.id);
+  }
+  return { tableRef, colRef };
+}
+
+async function ensurePages(doc, { dryRun = false } = {}) {
+  const views = (await api(`/api/docs/${doc}/tables/_grist_Views/records`)).records;
+  const plan = planPages(views, PAGES);
+  if (!plan.create.length) return;
+  const { tableRef, colRef } = await metaRefs(doc);
+
+  for (const name of plan.create) {
+    const page = PAGES.find((candidate) => candidate.name === name);
+    if (dryRun) {
+      console.log(`  would create page ${name} (${page.sections.length} widgets)`);
+      continue;
+    }
+    let viewRef = 0;
+    const sectionRefs = [];
+    for (const section of page.sections) {
+      const result = await userActions(doc, [
+        ["CreateViewSection", tableRef.get(section.table), viewRef, section.type, null, ""],
+      ]);
+      const created = result.retValues[0];
+      viewRef = created.viewRef;
+      sectionRefs.push(created.sectionRef);
+    }
+    const updates = [["UpdateRecord", "_grist_Views", viewRef, { name }]];
+    page.sections.forEach((section, index) => {
+      const fields = {};
+      if (section.sort) {
+        fields.sortColRefs = JSON.stringify(
+          section.sort.map((col) => colRef.get(`${section.table}.${col}`)).filter(Boolean),
+        );
+      }
+      // A section over the same table as its source follows that section's cursor,
+      // which is what makes the card show the row picked in the list.
+      if (section.linkFrom !== undefined) {
+        fields.linkSrcSectionRef = sectionRefs[section.linkFrom];
+        fields.linkSrcColRef = 0;
+        fields.linkTargetColRef = 0;
+      }
+      if (Object.keys(fields).length) {
+        updates.push(["UpdateRecord", "_grist_Views_section", sectionRefs[index], fields]);
+      }
+    });
+    await userActions(doc, updates);
+    console.log(`  created page ${name}`);
+  }
+}
 
 async function addRecords(doc, table, rows) {
   if (!rows.length) return;
@@ -267,6 +335,7 @@ if (mode === "apply") {
   const dryRun = process.argv.includes("--dry-run");
   const doc = await resolveDoc();
   await ensureTables(doc, { dryRun });
+  await ensurePages(doc, { dryRun });
   console.log(dryRun ? `dry run against ${doc}` : `applied schema to ${doc}`);
 } else if (mode === "migrate") await migrate();
 else if (mode === "seed") await seed(process.argv.includes("--replace-all"));
