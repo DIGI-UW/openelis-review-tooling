@@ -604,9 +604,10 @@ sudo -u '$OS_USER' bash grist/bootstrap.sh apply $flags"
 }
 
 cmd_grist() {
-  case "${2:-}" in
+  local action="${1:-}"
+  case "$action" in
     apply) cmd_grist_apply "$@" ;;
-    *) die "unknown grist action '${2:-}' (apply)" ;;
+    *) die "unknown grist action '$action' (apply)" ;;
   esac
 }
 
