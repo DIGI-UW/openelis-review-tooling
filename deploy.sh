@@ -588,6 +588,28 @@ cmd_review() {
   esac
 }
 
+# The document's schema, from the checkout on the box. Reuses the harness's own
+# bootstrap, so the runtime that runs is the one the repository ships rather than
+# whatever a caller happened to copy over.
+cmd_grist_apply() {
+  shift || true
+  require_aws
+  local flags="$*"
+  log "applying the Grist schema${flags:+ ($flags)}"
+  ssm_run "set -euo pipefail
+router_workdir=\$(docker inspect -f '{{index .Config.Labels \"com.docker.compose.project.working_dir\"}}' oe-edge-router)
+edge_dir=\${router_workdir%/router}
+cd \"\$edge_dir\"
+sudo -u '$OS_USER' bash grist/bootstrap.sh apply $flags"
+}
+
+cmd_grist() {
+  case "${2:-}" in
+    apply) cmd_grist_apply "$@" ;;
+    *) die "unknown grist action '${2:-}' (apply)" ;;
+  esac
+}
+
 cmd_data_seed() {
   local instance="${1:-}" fixture=""
   shift || true
@@ -704,9 +726,10 @@ main() {
     app) cmd_app "$@" ;;
     review) cmd_review "$@" ;;
     data) cmd_data "$@" ;;
+    grist) cmd_grist "$@" ;;
     up-to-certs) cmd_up_to_certs "$@" ;;
     help|-h|--help) sed -n '2,30p' "$0" | sed 's/^# \{0,1\}//' ;;
-    *) die "unknown subcommand '$sub' (status|connect|configure|deploy|certs|seed|app|review|data|up-to-certs|help)" ;;
+    *) die "unknown subcommand '$sub' (status|connect|configure|deploy|certs|seed|app|review|data|grist|up-to-certs|help)" ;;
   esac
 }
 main "$@"

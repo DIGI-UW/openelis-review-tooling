@@ -94,10 +94,12 @@ async function ensureTables(doc, { dryRun = false } = {}) {
         body: JSON.stringify({ columns: plan.add }),
       });
     }
-    if (plan.update.length) {
+    // One column per request: Grist refuses a PATCH whose records do not all carry
+    // the same fields, and a plan is by definition a set of different drifts.
+    for (const column of plan.update) {
       await api(`/api/docs/${doc}/tables/${id}/columns`, {
         method: "PATCH",
-        body: JSON.stringify({ columns: plan.update }),
+        body: JSON.stringify({ columns: [column] }),
       });
     }
   }
