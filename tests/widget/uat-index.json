@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "stories": [
+    {
+      "instance": "amr",
+      "title": "Microbiology MVP",
+      "jira": "OGC-782",
+      "steps": 10,
+      "required": 10,
+      "routes": [
+        "/Dashboard",
+        "/Microbiology/worklist"
+      ]
+    },
+    {
+      "instance": "orders",
+      "title": "Order entry",
+      "jira": "OGC-900",
+      "steps": 2,
+      "required": 2,
+      "routes": [
+        "/tests/widget/app-fixture.html"
+      ]
+    }
+  ]
+}

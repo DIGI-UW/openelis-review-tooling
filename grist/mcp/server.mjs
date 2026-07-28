@@ -10,7 +10,7 @@
 
 import express from "express";
 import { readFileSync } from "node:fs";
-import { buildUatDocument } from "./uat-document.mjs";
+import { buildUatDocument, buildUatIndex } from "./uat-document.mjs";
 
 const GRIST_URL = process.env.GRIST_URL || "http://grist:8484";
 const GRIST_ORG = process.env.GRIST_ORG || "openelis";
@@ -34,7 +34,14 @@ async function grist(path, opts = {}) {
     },
   });
   const text = await r.text();
-  if (!r.ok) throw new Error(`Grist ${opts.method || "GET"} ${path} -> ${r.status} ${text}`);
+  if (!r.ok) {
+    // Tagged so the handlers can tell an upstream failure — whose message quotes
+    // the document id and internal paths — from a checklist this service refused,
+    // whose message is what an author needs to fix the row.
+    const failure = new Error(`Grist ${opts.method || "GET"} ${path} -> ${r.status} ${text}`);
+    failure.upstream = true;
+    throw failure;
+  }
   return text ? JSON.parse(text) : null;
 }
 
@@ -67,7 +74,35 @@ async function uatDocument(instance) {
 const app = express();
 app.use(express.json({ limit: "1mb" }));
 
+// Grist's own errors quote the request path and the document id. Callers here are
+// anonymous, so the detail goes to the log and they are told the fact.
+function upstreamFailure(res, scope, error) {
+  console.error(`[grist-uat] ${scope}:`, (error && error.message) || error);
+  res.status(502).json({ error: "the checklist service could not read from Grist" });
+}
+
 app.get("/healthz", (_req, res) => res.json({ ok: true }));
+
+// Ahead of /uat/:file on purpose: "index" is a legal instance slug as far as the
+// router's pattern is concerned, and the catalog has to win. It rides the same
+// path shape so no deployment needs a new proxy rule to expose it.
+app.get("/uat/index.json", async (_req, res) => {
+  try {
+    const [metaRecs, stepRecs] = await Promise.all([
+      listRecords("UAT_Meta"),
+      listRecords("UAT_Steps"),
+    ]);
+    const index = buildUatIndex(metaRecs, stepRecs);
+    // Skipped routes are reported rather than fatal, so the only place anyone
+    // would notice a malformed row is here.
+    if (index.warnings.length) {
+      console.error("[grist-uat] catalog warnings:", index.warnings.join("; "));
+    }
+    res.set("Cache-Control", "no-store").json(index);
+  } catch (e) {
+    upstreamFailure(res, "catalog", e);
+  }
+});
 
 app.get("/uat/:file", async (req, res) => {
   const instance = req.params.file.replace(/\.json$/, "");
@@ -83,7 +118,11 @@ app.get("/uat/:file", async (req, res) => {
     }
     res.set("Cache-Control", "no-store").json(doc);
   } catch (e) {
-    res.status(502).json({ error: String(e.message || e) });
+    if (e && e.upstream) return upstreamFailure(res, `checklist ${instance}`, e);
+    // A checklist this service refused: the message names the offending row, and
+    // whoever is looking at this is the person who has to fix it.
+    console.error(`[grist-uat] checklist ${instance} rejected:`, e.message);
+    res.status(502).json({ error: e.message });
   }
 });
 

@@ -1,12 +1,13 @@
 // Grist UAT lifecycle:
 //   migrate   add missing schema columns and stable keys without clearing rows
+//   publish   list a story in the public catalog (or --unlist it again)
 //   seed      add missing checklist instances (use --replace-all intentionally)
 //   generate  export Grist checklists as schema-v2 JSON
 //
 // Env: GRIST_URL, GRIST_KEY, GRIST_ORG (default "openelis"),
 //      GRIST_DOC_NAME (default "UAT Checklists"), REVIEW_DIR (seed input,
 //      default ../widget/examples), EXPORT_DIR (generate output, default ../runtime/checklists).
-// Schema: UAT_Meta(instance,title,intro,jira), UAT_Steps(instance,step_key,
+// Schema: UAT_Meta(instance,title,intro,jira,published), UAT_Steps(instance,step_key,
 // required,section,section_order,step_order,do,expect,route), UAT_Results(reviewer,instance,
 // step_key,mark,note,page_url,at) — Results is created now, filled later.
 
@@ -34,6 +35,10 @@ const TABLES = {
     ["title", "Text"],
     ["intro", "Text"],
     ["jira", "Text"],
+    // Off by default, and deliberately not backfilled by migrate: /uat/index.json
+    // is readable by anyone, so a story is listed only once someone says so. Use
+    // the publish mode, which is an act rather than a side effect of migrating.
+    ["published", "Bool"],
   ],
   UAT_Steps: [
     ["instance", "Text"],
@@ -266,11 +271,39 @@ async function generate() {
   }
 }
 
+async function publish(instances, listed) {
+  if (!instances.length) throw new Error("publish needs at least one instance");
+  const doc = await resolveDoc();
+  await ensureTables(doc);
+  const meta = (await api(`/api/docs/${doc}/tables/UAT_Meta/records`)).records;
+  const wanted = new Set(instances);
+  const patches = meta
+    .filter((record) => wanted.has(String(record.fields.instance || "").trim()))
+    .map((record) => ({ id: record.id, fields: { published: listed } }));
+  const found = new Set(
+    meta
+      .map((record) => String(record.fields.instance || "").trim())
+      .filter((instance) => wanted.has(instance)),
+  );
+  const missing = instances.filter((instance) => !found.has(instance));
+  if (missing.length) throw new Error(`no UAT_Meta row for: ${missing.join(", ")}`);
+  await patchRecords(doc, "UAT_Meta", patches);
+  console.log(`${listed ? "listed" : "unlisted"} ${patches.length}: ${instances.join(", ")}`);
+}
+
 const mode = process.argv[2];
 if (mode === "migrate") await migrate();
 else if (mode === "seed") await seed(process.argv.includes("--replace-all"));
 else if (mode === "generate") await generate();
-else {
-  console.error("usage: grist-sync.mjs migrate|seed [--replace-all]|generate");
+else if (mode === "publish") {
+  const unlist = process.argv.includes("--unlist");
+  await publish(
+    process.argv.slice(3).filter((arg) => !arg.startsWith("--")),
+    !unlist,
+  );
+} else {
+  console.error(
+    "usage: grist-sync.mjs migrate|seed [--replace-all]|generate|publish <instance…> [--unlist]",
+  );
   process.exit(1);
 }

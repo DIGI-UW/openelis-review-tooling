@@ -128,7 +128,7 @@ test("full and targeted deployment runners share an exclusive host lock", () => 
   }
 });
 
-test("review widget deployment is exact-SHA, locked, and restart-free", () => {
+test("review deployment is exact-SHA and locked", () => {
   assert.match(deployScript, /cmd_review_deploy/);
   assert.match(deployScript, /repo_git fetch --depth 1 origin '\$ref'/);
   assert.match(deployScript, /flock -n 9/);
@@ -136,13 +136,36 @@ test("review widget deployment is exact-SHA, locked, and restart-free", () => {
     deployScript,
     /curl -fsSk 'https:\/\/\$AMR_DOMAIN\/__review\/oe-review-widget\.js' -o/,
   );
-  assert.doesNotMatch(
-    deployScript.slice(
-      deployScript.indexOf("cmd_review_deploy()"),
-      deployScript.indexOf("cmd_review()", deployScript.indexOf("cmd_review_deploy()")),
-    ),
-    /docker compose|docker restart/,
+});
+
+const reviewDeploy = deployScript.slice(
+  deployScript.indexOf("cmd_review_deploy()"),
+  deployScript.indexOf("cmd_review()", deployScript.indexOf("cmd_review_deploy()")),
+);
+
+test("shipping the widget touches no container", () => {
+  // The widget is served straight from the checkout, so publishing it is a file
+  // swap. Restarting anything for it would take the demo down for a change that
+  // never needed it.
+  const widgetScope = reviewDeploy.slice(
+    reviewDeploy.indexOf("= widget ]"),
+    reviewDeploy.indexOf("= service ]"),
   );
+  assert.ok(widgetScope.length > 0);
+  assert.doesNotMatch(widgetScope, /docker compose|docker restart/);
+});
+
+test("the checklist service rebuild is shipped as a script, not inlined", () => {
+  const serviceScope = reviewDeploy.slice(reviewDeploy.indexOf("= service ]"));
+  // What the rebuild does is asserted by running it, in
+  // rebuild-checklist-service.test.mjs. All this file can honestly check is that
+  // the deploy ships that script and hands it the values it needs — a command
+  // built as a string in a heredoc can only ever be grepped.
+  assert.match(serviceScope, /cat > \/tmp\/oe-rebuild-checklist-service\.sh/);
+  assert.match(serviceScope, /REMOTE_USER='\$OS_USER'/);
+  assert.match(serviceScope, /GRIST_DOMAIN='\$GRIST_DOMAIN'/);
+  assert.match(serviceScope, /\/tmp\/oe-rebuild-checklist-service\.sh/);
+  assert.doesNotMatch(serviceScope, /docker compose/);
 });
 
 test("ready metadata is published only after health and route smoke checks", () => {

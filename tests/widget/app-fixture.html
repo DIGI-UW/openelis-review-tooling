@@ -1,0 +1,195 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Dense application fixture</title>
+    <style>
+      /* Mirrors the layers measured on amr.openelis-global.org: Carbon puts the
+         header and side nav at 8000 and modals at 9000, and OpenELIS mounts its
+         own right-hand drawer inside a root at 1000. A widget injected over this
+         app has to survive all three, so the fixture reproduces the tiers rather
+         than approximating them. */
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        font: 14px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        color: #161616;
+      }
+      .cds--header {
+        position: fixed;
+        inset: 0 0 auto 0;
+        height: 48px;
+        z-index: 8000;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 0 16px;
+        background: #33507a;
+        color: #fff;
+        font-weight: 600;
+      }
+      .cds--side-nav {
+        position: fixed;
+        top: 48px;
+        bottom: 0;
+        left: 0;
+        width: 256px;
+        z-index: 8000;
+        padding: 16px;
+        background: #f4f4f4;
+        border-right: 1px solid #e0e0e0;
+      }
+      main {
+        margin: 48px 0 0 256px;
+        padding: 16px;
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+      }
+      th,
+      td {
+        border-bottom: 1px solid #e0e0e0;
+        padding: 8px 12px;
+        text-align: left;
+        white-space: nowrap;
+      }
+      .slide-over-root {
+        position: fixed;
+        inset: 0;
+        z-index: 1000;
+        visibility: hidden;
+      }
+      .slide-over-root.open {
+        visibility: visible;
+      }
+      .slide-over-panel {
+        position: fixed;
+        top: 48px;
+        right: 0;
+        bottom: 0;
+        width: 320px;
+        background: #fff;
+        border-left: 1px solid #e0e0e0;
+        padding: 16px;
+        transform: translateX(100%);
+      }
+      .slide-over-root.open .slide-over-panel {
+        transform: translateX(0);
+      }
+      .cds--modal {
+        position: fixed;
+        inset: 0;
+        z-index: 9000;
+        display: none;
+        align-items: center;
+        justify-content: center;
+        background: rgba(22, 22, 22, 0.5);
+      }
+      .cds--modal.is-visible {
+        display: flex;
+      }
+      .cds--modal-container {
+        width: 480px;
+        background: #fff;
+        padding: 24px;
+      }
+      #page-save {
+        position: fixed;
+        right: 16px;
+        bottom: 16px;
+        width: 128px;
+        height: 48px;
+      }
+      /* The application's side nav is persistent on desktop and an on-demand
+         drawer on smaller screens, so the fixture stops pinning it there too. */
+      @media (max-width: 640px) {
+        .cds--side-nav {
+          display: none;
+        }
+        main {
+          margin-left: 0;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header class="cds--header"><span>Test LIMS</span></header>
+    <nav class="cds--side-nav" aria-label="Main navigation">
+      <div>Dashboard</div>
+      <div>Microbiology</div>
+      <div>Sample entry</div>
+    </nav>
+    <main>
+      <h1>Microbiology worklist</h1>
+      <button id="open-drawer">Open drawer</button>
+      <button id="open-modal">Open modal</button>
+      <button id="route-worklist">Go to worklist</button>
+      <table>
+        <thead>
+          <tr>
+            <th>Lab number</th>
+            <th>Patient</th>
+            <th>Specimen</th>
+            <th>Workflow</th>
+            <th>State</th>
+            <th>Received</th>
+            <th>Assigned</th>
+          </tr>
+        </thead>
+        <tbody id="rows"></tbody>
+      </table>
+    </main>
+
+    <div class="slide-over-root" id="drawer-root">
+      <div class="slide-over-panel">
+        <h2>Case detail</h2>
+        <p>The application's own right-hand drawer.</p>
+        <button id="drawer-action">Drawer action</button>
+      </div>
+    </div>
+
+    <div class="cds--modal" id="modal">
+      <div class="cds--modal-container" role="dialog" aria-label="Confirm">
+        <h2>Confirm release</h2>
+        <button id="modal-action">Modal action</button>
+      </div>
+    </div>
+
+    <button id="page-save">Save</button>
+
+    <script>
+      const rows = document.getElementById("rows");
+      for (let i = 1; i <= 40; i++) {
+        rows.insertAdjacentHTML(
+          "beforeend",
+          `<tr><td>ORD-${1000 + i}</td><td>Patient ${i}</td><td>Blood culture</td>` +
+            `<td>Bacteriology</td><td>Received</td><td>2026-07-20</td><td>—</td></tr>`,
+        );
+      }
+      const drawer = document.getElementById("drawer-root");
+      const modal = document.getElementById("modal");
+      document.getElementById("open-drawer").onclick = () => drawer.classList.toggle("open");
+      // Client-side routing: the path changes with no page load, which is how a
+      // reviewer actually moves around the application under review.
+      document.getElementById("route-worklist").onclick = () =>
+        history.pushState({}, "", "/Microbiology/worklist");
+      // Carbon flags an open modal on <body>; the widget uses that flag to get
+      // out of the way, so the fixture has to set it the same way.
+      document.getElementById("open-modal").onclick = () => {
+        modal.classList.add("is-visible");
+        document.body.classList.add("cds--body--with-modal-open");
+      };
+    </script>
+    <script
+      src="/widget/oe-review-widget.js"
+      data-instance="amr"
+      data-label="Microbiology MVP"
+      data-src="/tests/widget/uat-amr.json"
+      data-build-src="/tests/widget/target-amr.json"
+    ></script>
+  </body>
+</html>

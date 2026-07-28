@@ -18,6 +18,18 @@ export function parseRequired(value) {
   return Boolean(value);
 }
 
+// The mirror of parseRequired, with deliberately the opposite default. A story
+// is listed only once somebody has said it should be: the catalog is readable by
+// anyone, so an unset flag has to mean "not yet", not "sure". Grist backfills a
+// new Bool column with false, which lands on the safe side by itself.
+export function parsePublished(value) {
+  if (value === undefined || value === null) return false;
+  if (typeof value === "string") {
+    return ["true", "1", "yes", "y", "on"].includes(value.trim().toLowerCase());
+  }
+  return Boolean(value);
+}
+
 // A prefix test is not enough: "/\evil.com" starts with a single slash, but the
 // URL parser treats the backslash as an authority separator and resolves it to
 // another origin. Anyone who can edit a checklist row could otherwise put an
@@ -42,6 +54,71 @@ function validateRoute(route, stepKey) {
 
 function contentHash(value) {
   return createHash("sha256").update(JSON.stringify(value)).digest("hex");
+}
+
+// The catalog of stories reviewable on a deployment. The widget uses it to offer
+// a switcher and to say which stories have anything to say about the page the
+// reviewer is currently looking at, so `routes` carries paths only — a step's
+// query string selects a filter, it does not identify a different page.
+export function buildUatIndex(metaRecords, stepRecords) {
+  const titles = new Map();
+  for (const record of metaRecords || []) {
+    const fields = record.fields || {};
+    const instance = String(fields.instance || "").trim();
+    if (instance) titles.set(instance, fields);
+  }
+
+  const stories = new Map();
+  const warnings = [];
+  for (const record of stepRecords || []) {
+    const fields = record.fields || {};
+    const instance = String(fields.instance || "").trim();
+    if (!instance) continue;
+    let story = stories.get(instance);
+    if (!story) {
+      story = { instance, steps: 0, required: 0, routes: new Set() };
+      stories.set(instance, story);
+    }
+    story.steps += 1;
+    if (parseRequired(fields.required)) story.required += 1;
+    if (fields.route) {
+      // Reported and skipped rather than thrown. The catalog spans every story on
+      // the deployment, so one bad row in somebody's draft would otherwise take
+      // the whole thing down — and the deploy that is gated on this endpoint with
+      // it. The checklist document still refuses the route outright, which is
+      // where the reviewer would actually be sent.
+      try {
+        const route = validateRoute(String(fields.route).trim(), fields.step_key || instance);
+        story.routes.add(new URL(route, ROUTE_BASE).pathname);
+      } catch (error) {
+        warnings.push(`${instance}: ${error.message}`);
+      }
+    }
+  }
+
+  return {
+    schemaVersion: 1,
+    warnings,
+    // A story with a meta row but no steps is not reviewable; listing it would
+    // offer the reviewer an empty checklist.
+    stories: [...stories.values()]
+      // Unpublished stories are left out silently. Naming them here would put the
+      // slugs and titles of unreleased work into the very document this flag
+      // exists to keep them out of; grist/mcp/README.md says how to publish one.
+      .filter((story) => parsePublished((titles.get(story.instance) || {}).published))
+      .sort((a, b) => a.instance.localeCompare(b.instance))
+      .map((story) => {
+        const meta = titles.get(story.instance) || {};
+        return {
+          instance: story.instance,
+          title: meta.title || `${story.instance} review`,
+          jira: meta.jira || "",
+          steps: story.steps,
+          required: story.required,
+          routes: [...story.routes].sort(),
+        };
+      }),
+  };
 }
 
 export function buildUatDocument(instance, meta, records) {

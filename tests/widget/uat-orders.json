@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 2,
+  "checklistRevision": "orders-revision-one",
+  "title": "Order entry review",
+  "instance": "orders",
+  "jira": "OGC-900",
+  "intro": "Check the order entry slice.",
+  "sections": [
+    {
+      "title": "Add an order",
+      "steps": [
+        {
+          "key": "ORD-1",
+          "required": true,
+          "do": "Open add order",
+          "expect": "The form opens with an empty patient",
+          "route": "/tests/widget/app-fixture.html"
+        },
+        {
+          "key": "ORD-2",
+          "required": true,
+          "do": "Save the order",
+          "expect": "A lab number is issued"
+        }
+      ]
+    }
+  ]
+}

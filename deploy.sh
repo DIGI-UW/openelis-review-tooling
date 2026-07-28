@@ -31,7 +31,7 @@
 #   ./deploy.sh app status <instance> [--deployment <id>]
 #   ./deploy.sh app verify <instance>
 #   ./deploy.sh app rollback <instance>
-#   ./deploy.sh review deploy --ref <sha> --scope widget
+#   ./deploy.sh review deploy --ref <sha> --scope widget|service|all
 #   ./deploy.sh data seed amr --fixture microbiology-mvp
 #   ./deploy.sh up-to-certs --yes   # configure -> deploy -> certs -> seed
 set -euo pipefail
@@ -527,15 +527,21 @@ cmd_review_deploy() {
     esac
   done
   validate_sha "$ref"
-  [ "$scope" = widget ] || die "--scope must be widget"
+  case "$scope" in
+    widget | service | all) ;;
+    *) die "--scope must be widget, service or all" ;;
+  esac
   require_aws
-  log "deploying review widget at exact harness SHA $ref"
+  log "deploying review $scope at exact harness SHA $ref"
   ssm_run "set -euo pipefail
 exec 9>/var/lock/openelis-review-deploy.lock
 flock -n 9 || { echo 'another review-host deployment is already running' >&2; exit 1; }
 router_workdir=\$(docker inspect -f '{{index .Config.Labels \"com.docker.compose.project.working_dir\"}}' oe-edge-router)
 edge_dir=\${router_workdir%/router}
 repo_git() { sudo -u '$OS_USER' git -c safe.directory=\"\$edge_dir\" -C \"\$edge_dir\" \"\$@\"; }
+# Only the repository metadata: the checkout also holds Let's Encrypt private
+# keys that have no business being readable by the application user.
+sudo chown -R '$OS_USER':'$OS_USER' \"\$edge_dir/.git\"
 if ! repo_git diff --quiet || ! repo_git diff --cached --quiet; then
   echo \"refusing to overwrite tracked changes in \$edge_dir\" >&2
   repo_git status --short >&2
@@ -553,11 +559,25 @@ for instance in amr analyzers; do
   chmod 0644 \"\$tmp\"
   mv \"\$tmp\" \"\$target\"
 done
-widget_tmp=\$(mktemp)
-trap 'rm -f \"\$widget_tmp\"' EXIT
-curl -fsSk 'https://$AMR_DOMAIN/__review/oe-review-widget.js' -o \"\$widget_tmp\"
-grep -q 'attachShadow({ mode: \"open\" })' \"\$widget_tmp\"
-echo 'review widget ready at $ref'"
+scope='$scope'
+probe=\$(mktemp)
+trap 'rm -f \"\$probe\"' EXIT
+if [ \"\$scope\" = widget ] || [ \"\$scope\" = all ]; then
+  curl -fsSk 'https://$AMR_DOMAIN/__review/oe-review-widget.js' -o \"\$probe\"
+  grep -q 'attachShadow({ mode: \"open\" })' \"\$probe\"
+  echo 'review widget ready at $ref'
+fi
+if [ \"\$scope\" = service ] || [ \"\$scope\" = all ]; then
+  # Shipped as a real script rather than inlined here, so it is covered by
+  # shellcheck and by tests that actually run it against stubs — a string built
+  # inside this heredoc can only ever be grepped.
+  cat > /tmp/oe-rebuild-checklist-service.sh <<'SVCEOF'
+$(cat "$HERE/scripts/rebuild-checklist-service.sh")
+SVCEOF
+  chmod +x /tmp/oe-rebuild-checklist-service.sh
+  REMOTE_USER='$OS_USER' GRIST_DOMAIN='$GRIST_DOMAIN' /tmp/oe-rebuild-checklist-service.sh
+  echo 'checklist service ready at $ref'
+fi"
 }
 
 cmd_review() {
@@ -626,7 +646,11 @@ cmd_drift() {
   local script
   script="$(cat <<'DRIFT'
 cd EDGE_DIR_PLACEHOLDER 2>/dev/null || { echo "checkout missing"; exit 0; }
-G="git -c safe.directory=*"
+# SSM runs as root and the fetch below writes loose objects. Fetching as root
+# leaves root-owned fanout directories under .git/objects that the deploy path —
+# which correctly runs as the checkout's owner — can no longer write into, so a
+# read-only drift check would break the next deploy.
+G="sudo -u OS_USER_PLACEHOLDER git -c safe.directory=*"
 $G fetch -q origin BRANCH_PLACEHOLDER 2>/dev/null || true
 head=$($G rev-parse --short HEAD)
 want=$($G rev-parse --short FETCH_HEAD 2>/dev/null || echo unknown)
@@ -657,6 +681,7 @@ DRIFT
 )"
   script="${script//EDGE_DIR_PLACEHOLDER/$EDGE_DIR}"
   script="${script//BRANCH_PLACEHOLDER/$HARNESS_BRANCH}"
+  script="${script//OS_USER_PLACEHOLDER/$OS_USER}"
   ssm_run "$script" | sed 's/^/     /' || warn "drift check failed"
 }
 
