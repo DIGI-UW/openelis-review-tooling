@@ -45,9 +45,9 @@ export const SCHEMA = {
     title: "One row per story: a thing being reviewed, with the steps that check it.",
     columns: {
       instance: {
-        type: "Text",
+        type: "Ref:UAT_Meta",
         description:
-          "Which review this story belongs to. Must match an instance in UAT_Meta.",
+          "The review this story belongs to. Pick one — typing a name that matches nothing used to create a second, empty checklist instead of an error.",
       },
       story_key: {
         type: "Text",
@@ -114,7 +114,12 @@ export const SCHEMA = {
   },
 
   UAT_Steps: {
-    title: "One row per step. Every step belongs to an instance in UAT_Meta.",
+    title: "One row per step. Every step belongs to a story.",
+    // Retired by name rather than by leaving them out: apply never removes a
+    // column it was not told about, because Grist keeps its own bookkeeping
+    // columns in these tables and people add their own. Which story a step is in
+    // is the reference now; these two said it by repeating a title on every row.
+    retired: ["section", "section_order"],
     columns: {
       instance: {
         type: "Text",
@@ -213,7 +218,7 @@ function same(a, b) {
 // What it would take to bring `liveColumns` in line with `declared`. Returns the
 // columns to add, the narrowest patch for the ones that have drifted, and the
 // ones nobody declared — reported rather than removed.
-export function planColumns(liveColumns, declared) {
+export function planColumns(liveColumns, declared, retired = []) {
   const live = new Map((liveColumns || []).map((column) => [column.id, column.fields || {}]));
   const add = [];
   const update = [];
@@ -232,10 +237,14 @@ export function planColumns(liveColumns, declared) {
     if (Object.keys(drifted).length) update.push({ id: colId, fields: drifted });
   }
 
+  const retire = retired.filter((colId) => live.has(colId));
   return {
     add,
     update,
-    extra: [...live.keys()].filter((colId) => !(colId in declared)),
+    retire,
+    extra: [...live.keys()].filter(
+      (colId) => !(colId in declared) && !retired.includes(colId),
+    ),
   };
 }
 
@@ -265,10 +274,12 @@ export const PAGES = [
     ],
   },
   {
+    // One review, whole: its stories, and the steps of whichever story is picked.
     name: "Reviews",
     sections: [
       { table: "UAT_Meta", type: "record", sort: ["instance"] },
-      { table: "UAT_Meta", type: "single", linkFrom: 0 },
+      { table: "UAT_Stories", type: "record", linkFrom: 0, linkVia: "instance", sort: ["story_order"] },
+      { table: "UAT_Steps", type: "record", linkFrom: 1, linkVia: "story", sort: ["step_order"] },
     ],
   },
 ];
@@ -318,4 +329,30 @@ export function planStoryMigration(stepRecords) {
   }
 
   return { stories, assign };
+}
+
+// Turning the review name a story typed into the review it points at.
+//
+// Captured before the column becomes a reference: once it does, the text is no
+// longer something the document can resolve, so the mapping has to be taken from
+// the rows as they still are.
+export function planInstanceRefs(storyRecords, metaRecords) {
+  const byName = new Map(
+    (metaRecords || []).map((record) => [String((record.fields || {}).instance || "").trim(), record.id]),
+  );
+  const assign = [];
+  const unmatched = [];
+  for (const record of storyRecords || []) {
+    const value = (record.fields || {}).instance;
+    // Already a reference: a row id is a number, a name is not.
+    if (typeof value === "number") continue;
+    const name = String(value || "").trim();
+    if (!name) continue;
+    const id = byName.get(name);
+    // Reported rather than zeroed. Emptying it would detach the story from its
+    // review, and its steps would leave the checklist with nothing saying why.
+    if (!id) { unmatched.push(name); continue; }
+    assign.push({ id: record.id, instance: id });
+  }
+  return { assign, unmatched };
 }

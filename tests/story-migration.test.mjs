@@ -60,3 +60,34 @@ test("gives a section that lost its title something a reviewer can read", () => 
   const plan = planStoryMigration([step(1, { section: "", section_order: 2 })]);
   assert.equal(plan.stories[0].title, "Section 2");
 });
+
+import { planInstanceRefs } from "../grist/schema.mjs";
+
+const review = (id, instance) => ({ id, fields: { instance } });
+const stored = (id, instance) => ({ id, fields: { instance } });
+
+test("repoints a story from the name it typed to the review it meant", () => {
+  const plan = planInstanceRefs(
+    [stored(10, "amr"), stored(11, "analyzers")],
+    [review(3, "amr"), review(4, "analyzers")],
+  );
+  assert.deepEqual(plan.assign, [
+    { id: 10, instance: 3 },
+    { id: 11, instance: 4 },
+  ]);
+  assert.deepEqual(plan.unmatched, []);
+});
+
+test("leaves a story that already points at a review alone", () => {
+  // Row ids arrive as numbers; a second run must not try to look one up as a name.
+  const plan = planInstanceRefs([stored(10, 3)], [review(3, "amr")]);
+  assert.deepEqual(plan.assign, []);
+});
+
+test("reports a name matching no review instead of quietly emptying it", () => {
+  // Silently zeroing it would detach the story from its review and its steps
+  // would vanish from the checklist with nothing to say why.
+  const plan = planInstanceRefs([stored(10, "typo")], [review(3, "amr")]);
+  assert.deepEqual(plan.assign, []);
+  assert.deepEqual(plan.unmatched, ["typo"]);
+});
