@@ -191,39 +191,6 @@ export const SCHEMA = {
     },
   },
 
-  UAT_Results: {
-    title: "Where a returned review lands. Reviewers answer in their own browser; nothing arrives here until a report is imported.",
-    columns: {
-      reviewer: {
-        type: "Text",
-        description: "Who ran the review, as they typed it into the panel's name field.",
-      },
-      instance: {
-        type: "Text",
-        description: "The review this answer belongs to. Matches UAT_Meta.instance.",
-      },
-      step_key: {
-        type: "Text",
-        description: "The step this answers, by its stable key rather than its position.",
-      },
-      mark: {
-        type: "Text",
-        description: "pass, fail or na — exactly as the reviewer's panel recorded it.",
-      },
-      note: {
-        type: "Text",
-        description: "What the reviewer wrote against this step. The most useful column here.",
-      },
-      page_url: {
-        type: "Text",
-        description: "The page the reviewer was actually looking at when they marked it.",
-      },
-      at: {
-        type: "Text",
-        description: "When the step was marked, as an ISO timestamp from the reviewer's browser.",
-      },
-    },
-  },
 };
 
 // Fields that describe a column rather than a row of data. `computed` and

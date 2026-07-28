@@ -8,9 +8,9 @@
 // Env: GRIST_URL, GRIST_KEY, GRIST_ORG (default "openelis"),
 //      GRIST_DOC_NAME (default "UAT Checklists"), REVIEW_DIR (seed input,
 //      default ../widget/examples), EXPORT_DIR (generate output, default ../runtime/checklists).
-// Schema: UAT_Meta(instance,title,intro,jira,published), UAT_Steps(instance,step_key,
-// required,section,section_order,step_order,do,expect,route), UAT_Results(reviewer,instance,
-// step_key,mark,note,page_url,at) — Results is created now, filled later.
+// Schema: declared in schema.mjs — UAT_Meta (one row per review), UAT_Stories
+// (one per story, with its links and the hosts it applies to) and UAT_Steps (one
+// per step, pointing at its story).
 
 import { mkdirSync, readFileSync, writeFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
