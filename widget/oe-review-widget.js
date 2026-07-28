@@ -904,7 +904,7 @@
     if (anchor === "left") return { left: 16, top: top, width: width, height: height };
     return { left: (window.innerWidth - width) / 2, top: top, width: width, height: height };
   }
-  var EDGE_GAP = 80;
+  var EDGE_GAP = 64;
   function autoAnchor() {
     if (!ui || state.minimized) return "right";
     var width = ui.panel.offsetWidth;
@@ -1992,7 +1992,7 @@
         "--layer:#f4f4f4;--border:#e0e0e0;--border-strong:#8d8d8d;" +
         // blue-60 / blue-70 / blue-40 / blue-10
         "--blue:#0f62fe;--blue-dark:#0043ce;--blue-soft:#a6c8ff;--blue-bg:#edf5ff;" +
-        "position:fixed;bottom:80px;z-index:8500;" +
+        "position:fixed;bottom:64px;z-index:8500;" +
         "font-family:var(--font);font-size:var(--body);line-height:1.4;color:var(--text);}",
       // Above the host application's own header and side nav, which Carbon puts
       // at 8000, but below its modals at 9000: a dialog the checklist is asking
@@ -2012,17 +2012,22 @@
       ".wrap.standalone{position:static;inset:auto;transform:none;display:block;}",
       ".wrap.standalone .panel{width:100%;max-width:none;height:100vh;max-height:none;border:none;border-radius:0;box-shadow:none;}",
       ".wrap.standalone .panel.expanded{width:100%;max-height:none;}",
-      // The panel is anchored 80px off the bottom, and reserves 56px at the top:
-      // enough to clear a 48px Carbon application header with a little air. Without
-      // that reserve a tall panel on a short screen pushes its own header off the
-      // top of the viewport, under the application's, and the close button cannot
-      // be reached. Reserving a whole 80px there was 24px the checklist could have
-      // been using.
-      ".panel{box-sizing:border-box;width:min(480px,calc(100vw - 32px));max-height:min(620px,calc(100vh - 136px));display:flex;flex-direction:column;background:#fff;border:1px solid var(--border);border-radius:8px;box-shadow:0 10px 40px rgba(0,0,0,.28);overflow:hidden;}",
+      // Anchored 64px off the bottom and reserving 56px at the top: enough to
+      // clear a 48px Carbon application header with a little air. Without that
+      // reserve a tall panel on a short screen pushes its own header off the top of
+      // the viewport, under the application's, and the close button cannot be
+      // reached.
+      //
+      // The width is what keeps a step inside the scroll window. Only the first
+      // font in the stack is a known quantity — everywhere it is missing the text
+      // falls back to whatever the platform has, and a wider face costs whole lines
+      // of wrapping. A narrow column turns that into a step taller than the window
+      // it has to fit; the extra width absorbs it.
+      ".panel{box-sizing:border-box;width:min(560px,calc(100vw - 32px));max-height:min(620px,calc(100vh - 120px));display:flex;flex-direction:column;background:#fff;border:1px solid var(--border);border-radius:8px;box-shadow:0 10px 40px rgba(0,0,0,.28);overflow:hidden;}",
       // Only the checklist scrolls. Without this the fixed rows shrink to absorb
       // a long checklist and clip their own text.
       ".head,.statusbox,.stories,.who,.filters,.fb,.foot{flex:none;}",
-      ".panel.expanded{width:min(840px,92vw);max-height:min(760px,calc(100vh - 136px));}",
+      ".panel.expanded{width:min(840px,92vw);max-height:min(760px,calc(100vh - 120px));}",
       ".stories{display:flex;align-items:center;gap:var(--sp3);padding:var(--sp3) var(--sp4);border-bottom:1px solid var(--border);}",
       ".stories label,.who label{font-size:var(--label);color:var(--text2);white-space:nowrap;}",
       ".stories select{flex:1;min-width:0;border:1px solid var(--border-strong);border-radius:4px;padding:4px 6px;font:inherit;color:inherit;background:#fff;min-height:24px;}",
