@@ -1984,7 +1984,7 @@
       ".wrap{" +
         "--font:'IBM Plex Sans',system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;" +
         // type: label-01 / body-compact-01 / heading-02
-        "--label:12px;--body:14px;--heading:16px;" +
+        "--label:14px;--body:16px;--heading:20px;" +
         // spacing-02 … spacing-05
         "--sp2:4px;--sp3:8px;--sp4:12px;--sp5:16px;" +
         // text-primary / text-secondary / text-helper, and the layer + border pair
@@ -2012,15 +2012,17 @@
       ".wrap.standalone{position:static;inset:auto;transform:none;display:block;}",
       ".wrap.standalone .panel{width:100%;max-width:none;height:100vh;max-height:none;border:none;border-radius:0;box-shadow:none;}",
       ".wrap.standalone .panel.expanded{width:100%;max-height:none;}",
-      // The panel is anchored 80px off the bottom, so its height has to leave the
-      // same again at the top. Without that reserve an expanded panel on a short
-      // screen pushes its own header off the top of the viewport, under the host
-      // application's fixed header, and the close button cannot be reached.
-      ".panel{box-sizing:border-box;width:min(420px,calc(100vw - 32px));max-height:min(560px,calc(100vh - 160px));display:flex;flex-direction:column;background:#fff;border:1px solid var(--border);border-radius:8px;box-shadow:0 10px 40px rgba(0,0,0,.28);overflow:hidden;}",
+      // The panel is anchored 80px off the bottom, and reserves 56px at the top:
+      // enough to clear a 48px Carbon application header with a little air. Without
+      // that reserve a tall panel on a short screen pushes its own header off the
+      // top of the viewport, under the application's, and the close button cannot
+      // be reached. Reserving a whole 80px there was 24px the checklist could have
+      // been using.
+      ".panel{box-sizing:border-box;width:min(480px,calc(100vw - 32px));max-height:min(620px,calc(100vh - 136px));display:flex;flex-direction:column;background:#fff;border:1px solid var(--border);border-radius:8px;box-shadow:0 10px 40px rgba(0,0,0,.28);overflow:hidden;}",
       // Only the checklist scrolls. Without this the fixed rows shrink to absorb
       // a long checklist and clip their own text.
       ".head,.statusbox,.stories,.who,.filters,.fb,.foot{flex:none;}",
-      ".panel.expanded{width:min(760px,92vw);max-height:min(720px,calc(100vh - 160px));}",
+      ".panel.expanded{width:min(840px,92vw);max-height:min(760px,calc(100vh - 136px));}",
       ".stories{display:flex;align-items:center;gap:var(--sp3);padding:var(--sp3) var(--sp4);border-bottom:1px solid var(--border);}",
       ".stories label,.who label{font-size:var(--label);color:var(--text2);white-space:nowrap;}",
       ".stories select{flex:1;min-width:0;border:1px solid var(--border-strong);border-radius:4px;padding:4px 6px;font:inherit;color:inherit;background:#fff;min-height:24px;}",
@@ -2063,9 +2065,9 @@
       "input:focus-visible,textarea:focus-visible,button:focus-visible,a:focus-visible{outline:2px solid var(--blue);outline-offset:1px;}",
       // Positioned so a row's offsetTop is measured against the scroller itself.
       ".body{position:relative;flex:1;min-height:0;overflow-y:auto;padding:0 var(--sp4) 10px;}",
-      ".step{border:1px solid var(--border);border-radius:6px;margin-bottom:6px;background:var(--layer);}",
+      ".step{border:1px solid var(--border);border-radius:6px;margin-bottom:var(--sp4);background:var(--layer);}",
       ".step.current{background:#fff;border-color:var(--blue-soft);box-shadow:0 0 0 2px rgba(15,98,254,.12);}",
-      ".steptop{display:flex;gap:var(--sp3);align-items:flex-start;width:100%;text-align:left;background:none;border:none;padding:6px 10px;font:inherit;color:inherit;cursor:pointer;min-height:24px;}",
+      ".steptop{display:flex;gap:var(--sp3);align-items:flex-start;width:100%;text-align:left;background:none;border:none;padding:10px var(--sp4);font:inherit;color:inherit;cursor:pointer;min-height:24px;}",
       ".num{flex:none;width:22px;height:22px;border-radius:50%;border:1.5px solid var(--border-strong);background:#fff;color:var(--text2);display:inline-flex;align-items:center;justify-content:center;font-size:var(--label);font-weight:600;font-variant-numeric:tabular-nums;}",
       ".step[data-state=pass] .num{background:#24a148;border-color:#24a148;color:#fff;}",
       ".step[data-state=fail] .num{background:#da1e28;border-color:#da1e28;color:#fff;}",
@@ -2086,7 +2088,7 @@
       // Flush in the compact panel, where the indent costs a line of wrapping in a
       // narrow column; aligned under the instruction once there is width for the
       // alignment to be worth it.
-      ".detail{padding:0 10px var(--sp3);}",
+      ".detail{padding:0 var(--sp4) var(--sp4);}",
       ".panel.expanded .detail{padding-left:44px;}",
       // Set apart from the instruction and labelled, so the thing to do and the
       // thing to check stop reading as one long sentence. The label rides beside

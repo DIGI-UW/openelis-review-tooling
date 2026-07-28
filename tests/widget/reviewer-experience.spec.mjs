@@ -59,15 +59,21 @@ test("shows one step at a time instead of a keyhole onto all of them", async ({
   await expect(expectations).toHaveCount(1);
   await expect(expectations.first()).toContainText("/Microbiology/worklist");
 
-  // The step being worked has to fit in the scroll window in one piece.
+  // The step being worked has to fit the scroll window, and the reviewer has to be
+  // able to read it and answer it without going looking. The optional note field
+  // is allowed to need a nudge — that is the panel's own stated tolerance, and on
+  // a short screen it is what pays for a readable type scale.
   const scroller = widget.locator(".body");
-  const [current, view] = await Promise.all([
+  const [current, view, label, marks] = await Promise.all([
     widget.locator(".step.current").boundingBox(),
     scroller.boundingBox(),
+    widget.locator(".step.current .steplabel").boundingBox(),
+    widget.locator(".step.current .marks").boundingBox(),
   ]);
   expect(current.height).toBeLessThanOrEqual(view.height);
   expect(current.y).toBeGreaterThanOrEqual(view.y - 1);
-  expect(current.y + current.height).toBeLessThanOrEqual(view.y + view.height + 1);
+  expect(label.y).toBeGreaterThanOrEqual(view.y - 1);
+  expect(marks.y + marks.height).toBeLessThanOrEqual(view.y + view.height + 1);
 });
 
 test("answering a step moves the reviewer on to the next one", async ({ page }) => {
