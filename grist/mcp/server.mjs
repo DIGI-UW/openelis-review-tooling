@@ -65,10 +65,16 @@ async function listRecords(table, filter) {
 }
 // Grist rows -> the widget's checklist shape (title/intro/sections[].steps[]).
 async function uatDocument(instance) {
-  const metaRecs = await listRecords("UAT_Meta", { instance: [instance] });
-  const stepRecs = await listRecords("UAT_Steps", { instance: [instance] });
+  const [metaRecs, stepRecs, storyRecs] = await Promise.all([
+    listRecords("UAT_Meta", { instance: [instance] }),
+    listRecords("UAT_Steps", { instance: [instance] }),
+    // Not filtered by instance in the request: a step points at a story by row
+    // id, and a story filtered out here would read as a step belonging to no
+    // story — which the builder refuses, correctly but unhelpfully.
+    listRecords("UAT_Stories"),
+  ]);
   const m = (metaRecs[0] && metaRecs[0].fields) || {};
-  return buildUatDocument(instance, m, stepRecs);
+  return buildUatDocument(instance, m, stepRecs, storyRecs);
 }
 
 const app = express();

@@ -8,6 +8,11 @@ const meta = {
   intro: "Review the analyzer workflow.",
 };
 
+const stories = [
+  { id: 1, fields: { instance: "analyzers", story_key: "AN-PROFILES", title: "Profiles", story_order: 0 } },
+  { id: 2, fields: { instance: "analyzers", story_key: "AN-SETUP", title: "Setup", story_order: 1 } },
+];
+
 const rows = [
   {
     id: 42,
@@ -15,8 +20,7 @@ const rows = [
       instance: "analyzers",
       step_key: "AN-QC-001",
       required: true,
-      section: "Profiles",
-      section_order: 0,
+      story: 1,
       step_order: 0,
       do: "Find a shipped profile",
       expect: "Protocol and readiness are visible",
@@ -29,8 +33,7 @@ const rows = [
       instance: "analyzers",
       step_key: "AN-QC-002",
       required: false,
-      section: "Setup",
-      section_order: 1,
+      story: 2,
       step_order: 0,
       do: "Create an analyzer",
       expect: "Setup opens inline",
@@ -40,7 +43,7 @@ const rows = [
 ];
 
 test("emits schema v2, stable step keys, required flags, and a revision", () => {
-  const document = buildUatDocument("analyzers", meta, rows);
+  const document = buildUatDocument("analyzers", meta, rows, stories);
 
   assert.equal(document.schemaVersion, 2);
   assert.match(document.checklistRevision, /^[a-f0-9]{64}$/);
@@ -50,11 +53,11 @@ test("emits schema v2, stable step keys, required flags, and a revision", () => 
 });
 
 test("revision is deterministic and changes when reviewed content changes", () => {
-  const first = buildUatDocument("analyzers", meta, rows);
-  const same = buildUatDocument("analyzers", { ...meta }, structuredClone(rows));
+  const first = buildUatDocument("analyzers", meta, rows, stories);
+  const same = buildUatDocument("analyzers", { ...meta }, structuredClone(rows), stories);
   const changedRows = structuredClone(rows);
   changedRows[0].fields.expect = "Updated expectation";
-  const changed = buildUatDocument("analyzers", meta, changedRows);
+  const changed = buildUatDocument("analyzers", meta, changedRows, stories);
 
   assert.equal(first.checklistRevision, same.checklistRevision);
   assert.notEqual(first.checklistRevision, changed.checklistRevision);
@@ -64,27 +67,26 @@ test("rejects duplicate or missing stable step keys", () => {
   const duplicate = structuredClone(rows);
   duplicate[1].fields.step_key = "AN-QC-001";
   assert.throws(
-    () => buildUatDocument("analyzers", meta, duplicate),
+    () => buildUatDocument("analyzers", meta, duplicate, stories),
     /duplicate step_key AN-QC-001/,
   );
 
   const missing = structuredClone(rows);
   missing[0].fields.step_key = "";
   assert.throws(
-    () => buildUatDocument("analyzers", meta, missing),
+    () => buildUatDocument("analyzers", meta, missing, stories),
     /missing step_key/,
   );
 });
 
-test("rejects duplicate step ordering within a section", () => {
+test("rejects two steps claiming the same place in a story", () => {
   const duplicateOrder = structuredClone(rows);
-  duplicateOrder[1].fields.section = "Profiles";
-  duplicateOrder[1].fields.section_order = 0;
+  duplicateOrder[1].fields.story = 1;
   duplicateOrder[1].fields.step_order = 0;
 
   assert.throws(
-    () => buildUatDocument("analyzers", meta, duplicateOrder),
-    /duplicate step order 0:0/,
+    () => buildUatDocument("analyzers", meta, duplicateOrder, stories),
+    /duplicate step order 0 in story AN-PROFILES/,
   );
 });
 
@@ -102,8 +104,7 @@ function row(id, fields) {
     id,
     fields: {
       instance: "analyzers",
-      section: "Setup",
-      section_order: 0,
+      story: 2,
       step_order: 0,
       do: "do it",
       expect: "it happened",
@@ -111,7 +112,7 @@ function row(id, fields) {
     },
   };
 }
-const build = (rows, m = meta) => buildUatDocument("analyzers", m, rows);
+const build = (rows, m = meta) => buildUatDocument("analyzers", m, rows, stories);
 const allSteps = (doc) => doc.sections.flatMap((section) => section.steps);
 
 test("rejects routes that resolve off-origin", () => {
@@ -138,14 +139,15 @@ test("accepts an ordinary same-origin path", () => {
 
 test("orders sections and steps by their order columns, not input order", () => {
   const doc = build([
-    row(1, { step_key: "B2", section: "Later", section_order: 1, step_order: 1, do: "b2" }),
-    row(2, { step_key: "A2", section: "First", section_order: 0, step_order: 1, do: "a2" }),
-    row(3, { step_key: "B1", section: "Later", section_order: 1, step_order: 0, do: "b1" }),
-    row(4, { step_key: "A1", section: "First", section_order: 0, step_order: 0, do: "a1" }),
+    row(1, { step_key: "B2", story: 2, step_order: 1, do: "b2" }),
+    row(2, { step_key: "A2", story: 1, step_order: 1, do: "a2" }),
+    row(3, { step_key: "B1", story: 2, step_order: 0, do: "b1" }),
+    row(4, { step_key: "A1", story: 1, step_order: 0, do: "a1" }),
   ]);
+  // Story order, then step order — not the order the rows came back in.
   assert.deepEqual(
     doc.sections.map((s) => s.title),
-    ["First", "Later"],
+    ["Profiles", "Setup"],
   );
   assert.deepEqual(
     allSteps(doc).map((s) => s.key),
@@ -157,13 +159,13 @@ test("maps each column to its own field", () => {
   const doc = build([
     row(1, {
       step_key: "K1",
-      section: "The section",
+      story: 1,
       do: "the action",
       expect: "the expectation",
       route: "/the/route",
     }),
   ]);
-  assert.equal(doc.sections[0].title, "The section");
+  assert.equal(doc.sections[0].title, "Profiles");
   const step = allSteps(doc)[0];
   assert.equal(step.do, "the action");
   assert.equal(step.expect, "the expectation");
@@ -202,7 +204,10 @@ test("does not leak internal ordering keys into the document", () => {
   const doc = build([row(1, { step_key: "K1" })]);
   const serialized = JSON.stringify(doc);
   assert.equal(serialized.includes("_order"), false);
-  assert.deepEqual(Object.keys(doc.sections[0]).sort(), ["steps", "title"]);
+  // A story carries bookkeeping while the document is being built — the orders it
+  // has already seen — and none of it belongs on the wire.
+  assert.equal(serialized.includes("_seen"), false);
+  assert.deepEqual(Object.keys(doc.sections[0]).sort(), ["key", "steps", "title"]);
 });
 
 test("the revision is content identity: stable under reorder, changed by edits", () => {
