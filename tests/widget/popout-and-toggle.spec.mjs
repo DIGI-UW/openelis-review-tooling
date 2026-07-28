@@ -282,7 +282,14 @@ test.describe("popping the panel out", () => {
     await popup
       .locator("#oe-review-host")
       .getByRole("button", { name: "Return the checklist to the page" })
-      .click();
+      .click()
+      // The button closes the window it is in, so the click can lose the page
+      // before Playwright finishes confirming the action. That is the behaviour
+      // under test rather than a failure of it; anything else still throws, and
+      // what the click actually left behind is asserted below.
+      .catch((error) => {
+        if (!/closed/i.test(error.message)) throw error;
+      });
     // isClosed is polled rather than awaited as an event: the click closes the
     // window synchronously, so a waitForEvent subscribed afterwards never fires.
     await expect.poll(() => popup.isClosed()).toBe(true);
