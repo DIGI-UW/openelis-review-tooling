@@ -539,9 +539,29 @@ flock -n 9 || { echo 'another review-host deployment is already running' >&2; ex
 router_workdir=\$(docker inspect -f '{{index .Config.Labels \"com.docker.compose.project.working_dir\"}}' oe-edge-router)
 edge_dir=\${router_workdir%/router}
 repo_git() { sudo -u '$OS_USER' git -c safe.directory=\"\$edge_dir\" -C \"\$edge_dir\" \"\$@\"; }
-# Only the repository metadata: the checkout also holds Let's Encrypt private
-# keys that have no business being readable by the application user.
+# The repository metadata, and the files git tracks. Never the whole directory:
+# the checkout also holds Let's Encrypt private keys that have no business being
+# readable by the application user, and ls-files never names them.
+#
+# Tracked files matter because the checkout below runs as this user. A file owned
+# by root cannot be rewritten, so git leaves the old content in place — and the
+# worktree is then dirty forever, which the guard reads as somebody's uncommitted
+# work and refuses every later deploy over it.
 sudo chown -R '$OS_USER':'$OS_USER' \"\$edge_dir/.git\"
+# The directories too, not only the files in them: replacing a file means
+# unlinking it, and that is permission on the directory rather than on the file.
+# A tracked file inside a root-owned directory cannot be replaced however it is
+# owned itself.
+#
+# cd first: ls-files names paths relative to the repository, and chown resolves
+# them against wherever it happens to be running. Untracked directories are never
+# named, so the Let's Encrypt material keeps the ownership it has.
+(
+  cd \"\$edge_dir\"
+  repo_git ls-files -z | sudo xargs -0 -r chown '$OS_USER':'$OS_USER'
+  repo_git ls-files -z | xargs -0 -r -n1 dirname | sort -u \
+    | sudo xargs -r chown '$OS_USER':'$OS_USER'
+)
 if ! repo_git diff --quiet || ! repo_git diff --cached --quiet; then
   echo \"refusing to overwrite tracked changes in \$edge_dir\" >&2
   repo_git status --short >&2
