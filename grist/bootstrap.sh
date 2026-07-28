@@ -58,7 +58,11 @@ require_box_config() {
 }
 
 copy_runtime_scripts() {
-  cp "$HERE/grist-sync.mjs" "$STATE_DIR/grist-sync.mjs"
+  # Every module beside the sync tool, rather than the ones it happened to import
+  # when this was written. Naming them one by one made this a second copy of the
+  # import graph that nobody updates: a new import resolves here and is simply
+  # absent on the box, where the first thing anyone sees is every command failing.
+  cp "$HERE"/*.mjs "$STATE_DIR/"
   mkdir -p "$STATE_DIR/mcp"
   cp "$HERE/mcp/uat-document.mjs" "$STATE_DIR/mcp/uat-document.mjs"
 }

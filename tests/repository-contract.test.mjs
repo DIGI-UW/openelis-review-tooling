@@ -112,3 +112,23 @@ test("static checklist examples have complete stable steps", async () => {
     }
   }
 });
+
+test("bootstrap ships every module grist-sync imports", async () => {
+  // bootstrap.sh copies the sync tool into a state directory and runs it there
+  // from a container, so a module it does not copy is simply absent: every
+  // command fails on the box with a resolution error, and nothing here would
+  // notice, because nothing here runs bootstrap.
+  const sync = await read("grist/grist-sync.mjs");
+  const bootstrap = await read("grist/bootstrap.sh");
+  const imports = [...sync.matchAll(/from\s+"\.\/([^"]+)"/g)].map((match) => match[1]);
+  assert.ok(imports.length >= 2, "expected grist-sync to import its helpers");
+
+  for (const relative of imports) {
+    const shippedByName = bootstrap.includes(`/${relative}"`);
+    const shippedByGlob = !relative.includes("/") && /\$HERE"\/\*\.mjs/.test(bootstrap);
+    assert.ok(
+      shippedByName || shippedByGlob,
+      `bootstrap.sh must copy ${relative} — without it grist-sync cannot start`,
+    );
+  }
+});
