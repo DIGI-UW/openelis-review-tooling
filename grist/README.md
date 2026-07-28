@@ -37,8 +37,29 @@ bash bootstrap.sh generate
 bash bootstrap.sh seed-examples --replace-all
 ```
 
-`grist-sync.mjs` (`migrate` | `seed` | `generate`) does the API work; `bootstrap.sh` wraps it
-with the container lifecycle + the headless API-key step.
+`grist-sync.mjs` (`apply` | `migrate` | `seed` | `generate` | `publish`) does the API
+work; `bootstrap.sh` wraps it with the container lifecycle + the headless API-key
+step.
+
+## The schema is declared, not remembered
+
+[`schema.mjs`](schema.mjs) holds the tables, their columns, every column
+description an author reads while writing a checklist, and the defaults that fire
+when a row is created. `apply` reconciles a document to it:
+
+```bash
+node grist-sync.mjs apply --dry-run   # name the drift, change nothing
+node grist-sync.mjs apply             # close it
+```
+
+All of that used to exist only in the running document, where nothing could tell
+you whether it still matched what this repository expected — and losing the
+document lost the authoring experience with it.
+
+Reconciling is not owning. A column the declaration says nothing about is left
+alone: Grist keeps its own bookkeeping columns in these tables, and people add
+their own. Only the fields that have drifted are patched, so a label or a
+description set in the document survives unless the declaration speaks to it.
 
 `up` reads Dex secrets from the untracked `${EDGE_DIR}/.env` on the host,
 migrates without clearing rows, and seeds only instances not yet present.

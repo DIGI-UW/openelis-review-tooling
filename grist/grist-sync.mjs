@@ -1,4 +1,5 @@
 // Grist UAT lifecycle:
+//   apply     reconcile the document to grist/schema.mjs (--dry-run to just look)
 //   migrate   add missing schema columns and stable keys without clearing rows
 //   publish   list a story in the public catalog (or --unlist it again)
 //   seed      add missing checklist instances (use --replace-all intentionally)
@@ -14,6 +15,7 @@
 import { mkdirSync, readFileSync, writeFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { buildUatDocument, parseRequired } from "./mcp/uat-document.mjs";
+import { SCHEMA, planColumns } from "./schema.mjs";
 
 const URL = process.env.GRIST_URL || "http://grist:8484";
 const KEY = process.env.GRIST_KEY;
@@ -29,38 +31,6 @@ const EXPORT_DIR =
   process.env.EXPORT_DIR || join(import.meta.dirname, "..", "runtime", "checklists");
 if (!KEY) throw new Error("GRIST_KEY is required");
 
-const TABLES = {
-  UAT_Meta: [
-    ["instance", "Text"],
-    ["title", "Text"],
-    ["intro", "Text"],
-    ["jira", "Text"],
-    // Off by default, and deliberately not backfilled by migrate: /uat/index.json
-    // is readable by anyone, so a story is listed only once someone says so. Use
-    // the publish mode, which is an act rather than a side effect of migrating.
-    ["published", "Bool"],
-  ],
-  UAT_Steps: [
-    ["instance", "Text"],
-    ["step_key", "Text"],
-    ["required", "Bool"],
-    ["section", "Text"],
-    ["section_order", "Int"],
-    ["step_order", "Int"],
-    ["do", "Text"],
-    ["expect", "Text"],
-    ["route", "Text"],
-  ],
-  UAT_Results: [
-    ["reviewer", "Text"],
-    ["instance", "Text"],
-    ["step_key", "Text"],
-    ["mark", "Text"],
-    ["note", "Text"],
-    ["page_url", "Text"],
-    ["at", "Text"],
-  ],
-};
 
 async function api(path, opts = {}) {
   const r = await fetch(URL + path, {
@@ -89,49 +59,50 @@ async function resolveDoc() {
   });
 }
 
-async function ensureTables(doc) {
+async function ensureTables(doc, { dryRun = false } = {}) {
   const existing = new Set(
     (await api(`/api/docs/${doc}/tables`)).tables.map((t) => t.id),
   );
-  for (const [id, cols] of Object.entries(TABLES)) {
+  for (const [id, spec] of Object.entries(SCHEMA)) {
     if (!existing.has(id)) {
+      const columns = planColumns([], spec.columns).add;
+      if (dryRun) {
+        console.log(`  would create table ${id} (${columns.length} columns)`);
+        continue;
+      }
       await api(`/api/docs/${doc}/tables`, {
         method: "POST",
-        body: JSON.stringify({
-          tables: [
-            {
-              id,
-              columns: cols.map(([c, type]) => ({
-                id: c,
-                fields: { label: c, type },
-              })),
-            },
-          ],
-        }),
+        body: JSON.stringify({ tables: [{ id, columns }] }),
       });
       console.log(`  created table ${id}`);
       continue;
     }
-    const current = new Set(
-      (await api(`/api/docs/${doc}/tables/${id}/columns`)).columns.map(
-        (column) => column.id,
-      ),
-    );
-    const missing = cols.filter(([column]) => !current.has(column));
-    if (missing.length) {
+    const live = (await api(`/api/docs/${doc}/tables/${id}/columns`)).columns;
+    const plan = planColumns(live, spec.columns);
+    for (const column of plan.add) {
+      console.log(`  ${dryRun ? "would add" : "add"} ${id}.${column.id}`);
+    }
+    for (const column of plan.update) {
+      console.log(
+        `  ${dryRun ? "would update" : "update"} ${id}.${column.id}: ${Object.keys(column.fields).join(", ")}`,
+      );
+    }
+    if (dryRun) continue;
+    if (plan.add.length) {
       await api(`/api/docs/${doc}/tables/${id}/columns`, {
         method: "POST",
-        body: JSON.stringify({
-          columns: missing.map(([column, type]) => ({
-            id: column,
-            fields: { label: column, type },
-          })),
-        }),
+        body: JSON.stringify({ columns: plan.add }),
       });
-      console.log(`  added ${missing.map(([column]) => column).join(", ")} to ${id}`);
+    }
+    if (plan.update.length) {
+      await api(`/api/docs/${doc}/tables/${id}/columns`, {
+        method: "PATCH",
+        body: JSON.stringify({ columns: plan.update }),
+      });
     }
   }
 }
+
 
 async function addRecords(doc, table, rows) {
   if (!rows.length) return;
@@ -292,7 +263,12 @@ async function publish(instances, listed) {
 }
 
 const mode = process.argv[2];
-if (mode === "migrate") await migrate();
+if (mode === "apply") {
+  const dryRun = process.argv.includes("--dry-run");
+  const doc = await resolveDoc();
+  await ensureTables(doc, { dryRun });
+  console.log(dryRun ? `dry run against ${doc}` : `applied schema to ${doc}`);
+} else if (mode === "migrate") await migrate();
 else if (mode === "seed") await seed(process.argv.includes("--replace-all"));
 else if (mode === "generate") await generate();
 else if (mode === "publish") {
@@ -303,7 +279,7 @@ else if (mode === "publish") {
   );
 } else {
   console.error(
-    "usage: grist-sync.mjs migrate|seed [--replace-all]|generate|publish <instance…> [--unlist]",
+    "usage: grist-sync.mjs apply [--dry-run]|migrate|seed [--replace-all]|generate|publish <instance…> [--unlist]",
   );
   process.exit(1);
 }
