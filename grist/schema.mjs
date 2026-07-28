@@ -317,3 +317,38 @@ export function planPages(liveViews, declared = PAGES) {
   );
   return { create: declared.filter((page) => !authored.has(page.name)).map((page) => page.name) };
 }
+
+// Turning the section a step names into a story it points at.
+//
+// The section title and its order were repeated on every step in the group, so
+// the distinct pairs are the stories. Grouped per instance: two reviews both
+// opening with "Sign in" are two stories, and merging them would file one
+// review's steps under the other's heading.
+//
+// A step that already points at a story is left alone, so running this a second
+// time does not build another set of stories over the first.
+export function planStoryMigration(stepRecords) {
+  const stories = [];
+  const index = new Map();
+  const assign = [];
+
+  for (const record of stepRecords || []) {
+    const fields = record.fields || {};
+    if (fields.story) continue;
+    const instance = String(fields.instance || "").trim();
+    const order = Number(fields.section_order) || 0;
+    const group = `${instance} ${order}`;
+    if (!index.has(group)) {
+      index.set(group, stories.length);
+      stories.push({
+        instance,
+        // A section that lost its title still needs a heading a reviewer can read.
+        title: String(fields.section || "").trim() || `Section ${order}`,
+        story_order: order,
+      });
+    }
+    assign.push({ id: record.id, story: index.get(group) });
+  }
+
+  return { stories, assign };
+}

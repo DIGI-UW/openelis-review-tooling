@@ -15,7 +15,7 @@
 import { mkdirSync, readFileSync, writeFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { buildUatDocument, parseRequired } from "./mcp/uat-document.mjs";
-import { PAGES, SCHEMA, planColumns, planPages } from "./schema.mjs";
+import { PAGES, SCHEMA, planColumns, planPages, planStoryMigration } from "./schema.mjs";
 
 const URL = process.env.GRIST_URL || "http://grist:8484";
 const KEY = process.env.GRIST_KEY;
@@ -124,6 +124,31 @@ async function metaRefs(doc) {
     if (table) colRef.set(`${table.fields.tableId}.${column.fields.colId}`, column.id);
   }
   return { tableRef, colRef };
+}
+
+// Section titles were the only record of which story a step belonged to, so this
+// has to run before anything drops them.
+async function ensureStories(doc, { dryRun = false } = {}) {
+  const steps = (await api(`/api/docs/${doc}/tables/UAT_Steps/records`)).records;
+  const plan = planStoryMigration(steps);
+  if (!plan.stories.length) return;
+  console.log(
+    `  ${dryRun ? "would convert" : "convert"} ${plan.assign.length} steps into ${plan.stories.length} stories`,
+  );
+  if (dryRun) return;
+
+  const created = await api(`/api/docs/${doc}/tables/UAT_Stories/records`, {
+    method: "POST",
+    body: JSON.stringify({ records: plan.stories.map((fields) => ({ fields })) }),
+  });
+  const ids = created.records.map((record) => record.id);
+  await api(`/api/docs/${doc}/tables/UAT_Steps/records`, {
+    method: "PATCH",
+    body: JSON.stringify({
+      records: plan.assign.map((row) => ({ id: row.id, fields: { story: ids[row.story] } })),
+    }),
+  });
+  console.log(`  converted ${plan.assign.length} steps`);
 }
 
 async function ensurePages(doc, { dryRun = false, rebuild = false } = {}) {
@@ -361,6 +386,7 @@ if (mode === "apply") {
   const rebuild = process.argv.includes("--rebuild-pages");
   const doc = await resolveDoc();
   await ensureTables(doc, { dryRun });
+  await ensureStories(doc, { dryRun });
   await ensurePages(doc, { dryRun, rebuild });
   console.log(dryRun ? `dry run against ${doc}` : `applied schema to ${doc}`);
 } else if (mode === "migrate") await migrate();

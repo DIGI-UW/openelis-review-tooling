@@ -47,7 +47,7 @@ test("keys answers by stable step key and includes provenance in reports", async
 
   const stored = await savedState(page);
   expect(stored.key).toContain(
-    "oe-review:v2:analyzers:abc123:revision-one",
+    "oe-review:v2:analyzers:abc123:revision-two",
   );
   expect(stored.value.steps["AN-QC-001"].mark).toBe("pass");
   expect(stored.value.steps["0.0"]).toBeUndefined();
@@ -55,7 +55,7 @@ test("keys answers by stable step key and includes provenance in reports", async
   const report = await page.evaluate(() => window.__OE_REVIEW_TEST__.buildReport());
   const json = JSON.parse(report.json);
   expect(json.schemaVersion).toBe(2);
-  expect(json.checklistRevision).toBe("revision-one");
+  expect(json.checklistRevision).toBe("revision-two");
   expect(json.deploymentId).toBe("deploy-analyzers-001");
   expect(json.build.appSha).toBe("abc123");
   expect(json.checklist[0].steps[0].key).toBe("AN-QC-001");

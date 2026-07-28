@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "checklistRevision": "revision-one",
+  "checklistRevision": "revision-two",
   "title": "Analyzer QC review",
   "instance": "analyzers",
   "jira": "OGC-1054",
@@ -22,6 +22,27 @@
           "do": "Create an analyzer",
           "expect": "Setup opens inline",
           "route": "/analyzers?add=1"
+        }
+      ],
+      "key": "AN-PROFILES",
+      "links": {
+        "jira": "OGC-1054",
+        "pr": "https://github.com/DIGI-UW/OpenELIS-Global-2/pull/3195",
+        "mock": "https://www.figma.com/file/abc/analyzer-qc",
+        "userStory": "As a lab tech I want shipped profiles visible before I configure one"
+      }
+    },
+    {
+      "title": "Only on the analyzer host",
+      "key": "AN-HOSTBOUND",
+      "hosts": [
+        "analyzers.openelis-global.org"
+      ],
+      "steps": [
+        {
+          "key": "AN-QC-900",
+          "required": true,
+          "do": "Something only that deployment can show"
         }
       ]
     }
