@@ -41,6 +41,78 @@ export const SCHEMA = {
     },
   },
 
+  UAT_Stories: {
+    title: "One row per story: a thing being reviewed, with the steps that check it.",
+    columns: {
+      instance: {
+        type: "Text",
+        description:
+          "Which review this story belongs to. Must match an instance in UAT_Meta.",
+      },
+      story_key: {
+        type: "Text",
+        description:
+          "REQUIRED and unique within the instance. What anything pointing at this story uses, so it survives a retitle — rename the title freely, leave this alone.",
+        formula: '"{}-S{:02d}".format((($instance or "uat").split("-")[0][:4] or "uat").upper(), $id)',
+        isFormula: false,
+        recalcWhen: 0,
+      },
+      title: {
+        type: "Text",
+        description:
+          "The heading a reviewer reads above this story's steps. Say what is being reviewed, not what to do — the steps say that.",
+      },
+      story_order: {
+        type: "Int",
+        description:
+          "0-based position of this story in the checklist. Reordering is free; answers follow step_key, not position.",
+      },
+      jira: {
+        type: "Text",
+        description: "The ticket this story is about — a key like OGC-1234, or its full URL.",
+      },
+      pr: {
+        type: "Text",
+        description: "The pull request implementing it, as a URL. One; link the rest from there.",
+      },
+      mock: {
+        type: "Text",
+        description: "The design or mock this was built against, as a URL — Figma, an image, a doc.",
+      },
+      user_story: {
+        type: "Text",
+        description:
+          "The user story in words. Prose rather than a link, because plenty of them are not written down anywhere with an address.",
+      },
+      hosts: {
+        type: "Text",
+        description:
+          "Limit this story to particular deployments: one host per line (amr.openelis-global.org, 10.0.0.4:8443). Leave blank and it shows wherever the widget runs, which is what most stories want.",
+      },
+      problems: {
+        type: "Any",
+        computed: true,
+        description:
+          "Everything wrong with this story, checked as you type. Empty means it is publishable.",
+        isFormula: true,
+        formula: [
+          "problems = []",
+          'k = ($story_key or "").strip()',
+          'if not k: problems.append("missing story_key")',
+          "else:",
+          '  dupes = [s for s in UAT_Stories.lookupRecords(instance=$instance) if (s.story_key or "").strip() == k and s.id != $id]',
+          '  if dupes: problems.append("duplicate story_key")',
+          'if not ($title or "").strip(): problems.append("missing title")',
+          "clash = [s for s in UAT_Stories.lookupRecords(instance=$instance, story_order=$story_order) if s.id != $id]",
+          'if clash: problems.append("another story already has this story_order")',
+          "if not UAT_Steps.lookupRecords(story=$id):",
+          '  problems.append("no steps — this story is a heading with nothing under it")',
+          'return ", ".join(problems)',
+        ].join("\n"),
+      },
+    },
+  },
+
   UAT_Steps: {
     title: "One row per step. Every step belongs to an instance in UAT_Meta.",
     columns: {
@@ -68,20 +140,15 @@ export const SCHEMA = {
         isFormula: false,
         recalcWhen: 0,
       },
-      section: {
-        type: "Text",
-        description:
-          "Group heading shown to the reviewer. Every row sharing a section_order must use the identical title, or the checklist is rejected.",
-      },
-      section_order: {
-        type: "Int",
-        description:
-          "0-based order of this section within the checklist. Rows sharing it form one section.",
-      },
       step_order: {
         type: "Int",
         description:
-          "0-based order of this step inside its section. Reordering is free — the answer follows step_key, not position.",
+          "0-based position of this step within its story. Reordering is free — a reviewer's answer follows step_key, not position.",
+      },
+      story: {
+        type: "Ref:UAT_Stories",
+        description:
+          "The story this step belongs to. Pick one — a step with no story has no heading to appear under, and the checklist is refused.",
       },
       do: {
         type: "Text",
@@ -109,15 +176,15 @@ export const SCHEMA = {
           'k = ($step_key or "").strip()',
           'if not k: problems.append("missing step_key — this breaks the WHOLE checklist")',
           "else:",
-          "  dupes = [s for s in UAT_Steps.lookupRecords(instance=$instance) if (s.step_key or \"\").strip() == k and s.id != $id]",
+          '  dupes = [s for s in UAT_Steps.lookupRecords(instance=$instance) if (s.step_key or "").strip() == k and s.id != $id]',
           '  if dupes: problems.append("duplicate step_key")',
           'if not ($do or "").strip(): problems.append("missing do")',
           'r = ($route or "").strip()',
           'if r and (not r.startswith("/") or r.startswith("//") or "\\\\" in r): problems.append("route must be a same-origin path starting with /")',
-          'clash = [s for s in UAT_Steps.lookupRecords(instance=$instance, section_order=$section_order) if (s.section or "") != ($section or "")]',
-          'if clash: problems.append("section title disagrees with others at this section_order")',
-          "order = [s for s in UAT_Steps.lookupRecords(instance=$instance, section_order=$section_order, step_order=$step_order) if s.id != $id]",
-          'if order: problems.append("duplicate section_order/step_order")',
+          'if not $story: problems.append("no story — pick the story this step belongs to")',
+          "else:",
+          "  order = [s for s in UAT_Steps.lookupRecords(story=$story, step_order=$step_order) if s.id != $id]",
+          '  if order: problems.append("another step in this story already has this step_order")',
           'return ", ".join(problems)',
         ].join("\n"),
       },
@@ -213,14 +280,12 @@ export function planColumns(liveColumns, declared) {
 // interleaved, and a paragraph of instructions to be typed into a grid cell.
 export const PAGES = [
   {
-    // One story at a time. The picker is a summary of the steps themselves,
-    // grouped by instance: Grist links a summary to its own detail table on the
-    // group-by column, so this needs no reference column and is not waiting on
-    // instance becoming one.
+    // One story at a time: pick it, see its steps, edit one. The steps follow the
+    // story through the reference the step already carries.
     name: "Story",
     sections: [
-      { table: "UAT_Steps", type: "record", groupBy: ["instance"] },
-      { table: "UAT_Steps", type: "record", linkFrom: 0, sort: ["section_order", "step_order"] },
+      { table: "UAT_Stories", type: "record", sort: ["instance", "story_order"] },
+      { table: "UAT_Steps", type: "record", linkFrom: 0, linkVia: "story", sort: ["step_order"] },
       { table: "UAT_Steps", type: "single", linkFrom: 1 },
     ],
   },
@@ -229,7 +294,7 @@ export const PAGES = [
     // expected result, what the last edit touched.
     name: "All steps",
     sections: [
-      { table: "UAT_Steps", type: "record", sort: ["instance", "section_order", "step_order"] },
+      { table: "UAT_Steps", type: "record", sort: ["instance", "step_order"] },
     ],
   },
   {

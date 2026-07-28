@@ -178,12 +178,15 @@ async function ensurePages(doc, { dryRun = false, rebuild = false } = {}) {
           section.sort.map((col) => colRef.get(`${section.table}.${col}`)).filter(Boolean),
         );
       }
-      // A section over the same table as its source follows that section's cursor,
-      // which is what makes the card show the row picked in the list.
       if (section.linkFrom !== undefined) {
         fields.linkSrcSectionRef = sectionRefs[section.linkFrom];
         fields.linkSrcColRef = 0;
-        fields.linkTargetColRef = 0;
+        // linkVia names the reference the target carries back to the source, which
+        // is how one table's rows filter another's. Without it the two sections
+        // are over the same table and the link is a shared cursor instead.
+        fields.linkTargetColRef = section.linkVia
+          ? colRef.get(`${section.table}.${section.linkVia}`) || 0
+          : 0;
       }
       if (Object.keys(fields).length) {
         updates.push(["UpdateRecord", "_grist_Views_section", sectionRefs[index], fields]);

@@ -67,8 +67,12 @@ test("leaves a column the declaration says nothing about alone", () => {
 
 test("declares every column the read service and the widget rely on", () => {
   // The endpoint reads these by name; a rename here is a broken checklist there.
-  for (const col of ["instance", "step_key", "required", "section", "section_order", "step_order", "do", "expect", "route"]) {
+  for (const col of ["instance", "step_key", "required", "story", "step_order", "do", "expect", "route"]) {
     assert.ok(SCHEMA.UAT_Steps.columns[col], `UAT_Steps.${col} must be declared`);
+  }
+  // A story is a row of its own now, and these are what the endpoint reads off it.
+  for (const col of ["instance", "story_key", "title", "story_order", "jira", "pr", "mock", "user_story", "hosts"]) {
+    assert.ok(SCHEMA.UAT_Stories.columns[col], `UAT_Stories.${col} must be declared`);
   }
   for (const col of ["instance", "title", "intro", "jira", "published"]) {
     assert.ok(SCHEMA.UAT_Meta.columns[col], `UAT_Meta.${col} must be declared`);
@@ -129,13 +133,10 @@ test("puts one story and its steps on a single page", () => {
   assert.ok(story, "there must be a Story page");
   const [picker, steps, card] = story.sections;
 
-  // A summary of the steps grouped by instance. Grist links a summary to its own
-  // detail table on the group-by column, so the picker needs no reference column
-  // — which is what keeps this off the breaking change.
-  assert.deepEqual(picker.groupBy, ["instance"]);
-  assert.equal(picker.table, "UAT_Steps");
+  assert.equal(picker.table, "UAT_Stories");
   assert.equal(steps.table, "UAT_Steps");
   assert.equal(steps.linkFrom, 0, "the step list follows the story picked");
+  assert.equal(steps.linkVia, "story", "…through the reference the step already carries");
   assert.equal(card.linkFrom, 1, "the card follows the step picked");
-  assert.deepEqual(steps.sort, ["section_order", "step_order"]);
+  assert.deepEqual(steps.sort, ["step_order"]);
 });
