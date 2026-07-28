@@ -59,6 +59,20 @@ FROM UAT_Steps WHERE instance='amr' ORDER BY section_order, step_order
 Reading first also tells you the section names and ordering already in use, so a
 new step lands where a reviewer expects it rather than in a section of one.
 
+People work on the same rows through the document's **Checklist** and **Reviews**
+pages, so point them there rather than at the raw tables when you hand something
+over. Same data, a different way in — nothing you write here is a separate copy,
+and nothing they change there needs importing.
+
+`UAT_Steps` also carries a **problems** column, computed live: it names whatever
+is wrong with a row — a missing or duplicated `step_key`, a route that is not a
+same-origin path, a section title that disagrees with its neighbours. Select it
+after writing and you will know what the endpoint is about to refuse:
+
+```sql
+SELECT step_key, problems FROM UAT_Steps WHERE instance='amr' AND problems != ''
+```
+
 ## The rules that actually bite
 
 These are not style preferences — each one has broken a live checklist.

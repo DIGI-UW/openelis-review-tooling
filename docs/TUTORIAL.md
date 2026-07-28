@@ -19,11 +19,22 @@ an **instance slug** (`amr`, `analyzers`, `my-feature-1234`). Pick a slug now �
 ties the checklist, the widget, and the reviewer's saved answers together.
 
 ### As a person
-Sign in at `https://grist.openelis-global.org`, open **UAT Checklists**, and add rows:
+Sign in at `https://grist.openelis-global.org` and open **UAT Checklists**. Two
+pages there are the ones to work in:
 
-- **`UAT_Meta`** — one row: `instance`, `title`, `intro`, `jira`.
-- **`UAT_Steps`** — one row per step: `instance`, **`step_key`**, **`required`**,
-  `section`, `section_order`, `step_order`, `do`, `expect`, `route`.
+- **Reviews** — one row per review: `instance`, `title`, `intro`, `jira`. Start
+  here; a step has to belong to a review that exists.
+- **Checklist** — one row per step: `instance`, **`step_key`**, **`required`**,
+  `section`, `section_order`, `step_order`, `do`, `expect`, `route`. The list is
+  already in checklist order, and the card beside it edits whichever step is
+  selected — `do` and `expect` are paragraphs and want the room.
+
+Every column carries a description, so hover a header when a field is not
+obvious. The **problems** column says what is wrong with the row as you type, and
+is empty when the row is publishable.
+
+The `UAT_*` entries further down are Grist's raw tables: every review at once,
+which is useful for a sweep and awkward for authoring.
 
 Reviewers see steps grouped by `section`, ordered by `section_order` then
 `step_order`.
