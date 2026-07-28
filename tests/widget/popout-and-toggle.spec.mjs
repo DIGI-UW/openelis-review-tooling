@@ -129,6 +129,85 @@ test.describe("popping the panel out", () => {
     await expect(widget.locator(".panel")).toHaveCount(0);
   });
 
+  test("opens a sized window by default, and a tab only on ⌘/Ctrl", async ({
+    page,
+  }) => {
+    // A window is asked for with explicit dimensions; a tab is asked for by
+    // passing no features at all and inherits the browser's. Measuring the width
+    // is therefore the difference between the two.
+    const widthFor = async (modifiers) => {
+      await page.goto(APP);
+      const widget = widgetOf(page);
+      await widget.getByRole("button", { name: /review/i }).click();
+      await expect(widget.locator(".panel")).toBeVisible();
+      const [popup] = await Promise.all([
+        page.waitForEvent("popup"),
+        widget.getByRole("button", { name: /pop out/i }).click({ modifiers }),
+      ]);
+      await expect(popup.locator("#oe-review-host .panel")).toBeVisible();
+      const width = await popup.evaluate(() => innerWidth);
+      await popup.close();
+      await expect(widgetOf(page).locator(".tab.away")).toHaveCount(0);
+      return width;
+    };
+
+    const plain = await widthFor([]);
+    expect(plain).toBe(460);
+    // Shift means "new window" everywhere else in the browser, which is what a
+    // plain click already does — so it must not be a second way to ask for a tab.
+    expect(await widthFor(["Shift"])).toBe(plain);
+    expect(await widthFor(["ControlOrMeta"])).not.toBe(plain);
+  });
+
+  test("keeps the pop-out glyph out of the launcher's name", async ({ page }) => {
+    const { widget } = await popOut(page);
+    // ⧉ says "elsewhere" to the eye. To a screen reader it is an unpronounceable
+    // character in the middle of the button's name, and the title already says
+    // where the review went.
+    await expect(
+      widget.getByRole("button", { name: "Review 0/2", exact: true }),
+    ).toBeVisible();
+  });
+
+  test("comes back to the launcher when the window is restored, not just opened", async ({
+    page,
+  }) => {
+    const { widget, popup } = await popOut(page);
+    await expect(widget.locator(".tab.away")).toHaveCount(1);
+
+    // Simulates the browser putting the popped-out tab into the back/forward
+    // cache and taking it out again. A restore does not re-run the script, so
+    // whatever pagehide cleared has to be re-asserted on pageshow — otherwise the
+    // page offers to open a second panel over a review that is still on screen.
+    await popup.evaluate(() => {
+      window.dispatchEvent(new PageTransitionEvent("pagehide", { persisted: true }));
+    });
+    await expect(widget.locator(".tab.away")).toHaveCount(0);
+
+    await popup.evaluate(() => {
+      window.dispatchEvent(new PageTransitionEvent("pageshow", { persisted: true }));
+    });
+    await expect(widget.locator(".tab.away")).toHaveCount(1);
+  });
+
+  test("severs the opener on the link it can only open blind", async ({ page }) => {
+    const { popup } = await popOut(page);
+    const go = popup.locator("#oe-review-host").getByRole("link", { name: /Go to/ });
+    // Only reached when the opener is gone, so the tab it opens has no business
+    // holding a handle back to this window.
+    await expect(go).toHaveAttribute("target", "_blank");
+    await expect(go).toHaveAttribute("rel", /noopener/);
+  });
+
+  test("leaves the in-page route link an ordinary same-window link", async ({
+    page,
+  }) => {
+    const widget = await openPanel(page);
+    const go = widget.getByRole("link", { name: /Go to/ });
+    await expect(go).toHaveAttribute("href", "/analyzers/types");
+    await expect(go).not.toHaveAttribute("target", "_blank");
+  });
+
   test("carries a mark back to the page it was popped out of", async ({ page }) => {
     const { widget, popup } = await popOut(page);
     await popup

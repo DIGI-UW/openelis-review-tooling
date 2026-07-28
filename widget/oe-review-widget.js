@@ -378,10 +378,16 @@
     window.addEventListener("storage", adoptOtherWindow);
     if (STANDALONE) {
       markPoppedOut(true);
-      // pagehide rather than beforeunload: it fires for a window put into the
-      // back/forward cache too, and it is the one the browser guarantees on close.
+      // pagehide rather than beforeunload: it is the one the browser guarantees on
+      // close. It also fires for a window going into the back/forward cache, which
+      // is why pageshow has to claim the flag back — a restore from that cache
+      // does not re-run this script, so the page would otherwise go on offering to
+      // open a second panel over a review that is still on screen.
       window.addEventListener("pagehide", function () {
         markPoppedOut(false);
+      });
+      window.addEventListener("pageshow", function () {
+        markPoppedOut(true);
       });
     }
 
@@ -529,8 +535,10 @@
 
   function openPopout(event) {
     // A window by default, because the point is to see it beside the application;
-    // a tab on the modifier that means "somewhere else" everywhere else.
-    var asTab = Boolean(event && (event.metaKey || event.ctrlKey || event.shiftKey));
+    // a tab on ⌘/Ctrl, the modifier that opens a link in a tab everywhere else.
+    // Shift is deliberately not in that list: everywhere else it means a new
+    // window, which is what a plain click here already does.
+    var asTab = Boolean(event && (event.metaKey || event.ctrlKey));
     var features = "";
     if (!asTab) {
       var width = 460;
@@ -998,6 +1006,10 @@
       button.classList.add("away");
       var glyph = el("span", "awaymark");
       glyph.textContent = "⧉";
+      // Decorative: it says "elsewhere" to the eye, but inside the button it would
+      // land in the middle of the accessible name as a character with no reading.
+      // The title says where the review went in words.
+      glyph.setAttribute("aria-hidden", "true");
       button.appendChild(glyph);
       button.title = "Bring the " + LABEL + " review window to the front";
       button.onclick = openPopout;
@@ -1335,6 +1347,11 @@
       go.title = step.route;
       if (STANDALONE) {
         go.target = "_blank";
+        // Only followed when the opener is gone, so whatever it opens is being
+        // opened blind. A checklist route is validated same-origin before it gets
+        // here, but severing the handle costs nothing and does not depend on that
+        // validation staying where it is.
+        go.rel = "noopener noreferrer";
         go.onclick = function (event) {
           var live = openerWindow();
           if (!live) return;
@@ -1344,7 +1361,7 @@
             live.focus();
           } catch (e) {
             // Opener now cross-origin: let the link do what it says instead.
-            window.open(go.href, "_blank");
+            window.open(go.href, "_blank", "noopener,noreferrer");
           }
         };
       }
