@@ -97,7 +97,6 @@
 
   // ---- persisted state ------------------------------------------------------
   var state = fresh();
-  var legacyStatePresent = false;
   function normalized(value) {
     if (!value || typeof value !== "object") return fresh();
     value.steps = value.steps && typeof value.steps === "object" ? value.steps : {};
@@ -248,12 +247,16 @@
   function loadContext(target, checklist) {
     STORE_KEY = contextKey(target, checklist);
     try {
-      legacyStatePresent = Boolean(localStorage.getItem(LEGACY_STORE_KEY));
+      // Answers from before stable step keys, kept under the pre-v2 key. They are
+      // keyed by position, so not one of them can be matched to a step: there is
+      // nothing to migrate and nothing to tell the reviewer. Dropped on sight,
+      // because nothing writes this key any more and a leftover that is only
+      // reported never goes away.
+      localStorage.removeItem(LEGACY_STORE_KEY);
     } catch (e) {
       // Storage can throw outright (cookies blocked, hardened privacy). Every
       // other access here already degrades to in-memory state; without this the
       // throw surfaced to the reviewer as a bogus "could not load checklist".
-      legacyStatePresent = false;
     }
 
     var exact = loadStored(STORE_KEY);
@@ -307,11 +310,9 @@
       keys.forEach(function (key) {
         localStorage.removeItem(key);
       });
-      localStorage.removeItem(LEGACY_STORE_KEY);
     } catch (e) {
       /* memory state is still reset below */
     }
-    legacyStatePresent = false;
   }
 
   // ---- mount host + shadow root (isolated) ----------------------------------
@@ -1544,15 +1545,6 @@
     if (buildWarning && !loadError) {
       ui.statusBox.appendChild(status(buildWarning, "status warning"));
     }
-    if (legacyStatePresent) {
-      ui.statusBox.appendChild(
-        status(
-          "Earlier position-based answers were not reused. Review these stable checklist steps again, then Reset to remove the old local data.",
-          "status warning legacy",
-        ),
-      );
-    }
-
     // The preamble earns its space until the reviewer is under way; after that the
     // checklist needs the room more than the introduction does. Standing down is
     // one-way: tying it to the answer count made it reappear — and shove the

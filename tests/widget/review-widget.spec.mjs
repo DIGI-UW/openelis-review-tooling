@@ -139,7 +139,9 @@ test("keeps the panel open when an initial checklist refresh finishes late", asy
   await expect(widget.getByRole("button", { name: "Minimize" })).toBeVisible();
 });
 
-test("does not reuse position-based legacy answers", async ({ page }) => {
+test("drops position-based legacy answers instead of announcing them", async ({
+  page,
+}) => {
   await page.addInitScript(() => {
     localStorage.setItem(
       "oe-review:analyzers",
@@ -153,7 +155,8 @@ test("does not reuse position-based legacy answers", async ({ page }) => {
   });
 
   const widget = await openPanel(page);
-  await expect(widget.locator(".legacy")).toContainText("were not reused");
+  // The invariant that matters: answers keyed by position predate stable step
+  // keys, so none of them can be matched to a step and none may be shown as one.
   await expect(
     widget
       .locator(".step")
@@ -161,10 +164,14 @@ test("does not reuse position-based legacy answers", async ({ page }) => {
       .locator(".mark.pass"),
   ).not.toHaveClass(/on/);
 
-  page.once("dialog", (dialog) => dialog.accept());
-  await widget.getByRole("button", { name: "Reset" }).click();
-  const legacy = await page.evaluate(() => localStorage.getItem("oe-review:analyzers"));
-  expect(legacy).toBeNull();
+  // Cleared on sight rather than reported. Nothing writes this key any more, so
+  // the warning could never clear itself, and the only remedy it could offer was
+  // Reset — which throws away the answers the reviewer has now to be rid of data
+  // from a version of the widget they cannot still be using.
+  await expect(widget.locator(".legacy")).toHaveCount(0);
+  await expect
+    .poll(() => page.evaluate(() => localStorage.getItem("oe-review:analyzers")))
+    .toBeNull();
 });
 
 test("does not carry answers into a different deployment", async ({ page }) => {
