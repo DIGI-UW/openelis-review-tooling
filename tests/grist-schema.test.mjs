@@ -122,14 +122,20 @@ test("every declared page names a table the schema declares", () => {
   }
 });
 
-test("gives the step editor a card fed by the list beside it", () => {
-  // do and expect are paragraphs. Editing them in a grid cell is the single most
-  // common action in the tool and the worst place to do it.
-  const checklist = PAGES.find((p) => p.name === "Checklist");
-  assert.ok(checklist, "there must be a Checklist page");
-  const [list, card] = checklist.sections;
-  assert.equal(list.type, "record");
-  assert.equal(card.type, "single");
-  assert.equal(card.linkFrom, 0, "the card follows the list's cursor");
-  assert.deepEqual(list.sort, ["instance", "section_order", "step_order"]);
+test("puts one story and its steps on a single page", () => {
+  // The ask this page answers: pick a story, see only its steps, edit one of
+  // them, without leaving the page or filtering by hand.
+  const story = PAGES.find((page) => page.name === "Story");
+  assert.ok(story, "there must be a Story page");
+  const [picker, steps, card] = story.sections;
+
+  // A summary of the steps grouped by instance. Grist links a summary to its own
+  // detail table on the group-by column, so the picker needs no reference column
+  // — which is what keeps this off the breaking change.
+  assert.deepEqual(picker.groupBy, ["instance"]);
+  assert.equal(picker.table, "UAT_Steps");
+  assert.equal(steps.table, "UAT_Steps");
+  assert.equal(steps.linkFrom, 0, "the step list follows the story picked");
+  assert.equal(card.linkFrom, 1, "the card follows the step picked");
+  assert.deepEqual(steps.sort, ["section_order", "step_order"]);
 });

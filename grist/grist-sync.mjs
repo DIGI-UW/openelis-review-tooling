@@ -1,5 +1,5 @@
 // Grist UAT lifecycle:
-//   apply     reconcile the document to grist/schema.mjs (--dry-run to just look)
+//   apply     reconcile the document to grist/schema.mjs (--dry-run to just look,\n//             --rebuild-pages to replace declared pages whose shape has changed)
 //   migrate   add missing schema columns and stable keys without clearing rows
 //   publish   list a story in the public catalog (or --unlist it again)
 //   seed      add missing checklist instances (use --replace-all intentionally)
@@ -126,8 +126,24 @@ async function metaRefs(doc) {
   return { tableRef, colRef };
 }
 
-async function ensurePages(doc, { dryRun = false } = {}) {
-  const views = (await api(`/api/docs/${doc}/tables/_grist_Views/records`)).records;
+async function ensurePages(doc, { dryRun = false, rebuild = false } = {}) {
+  let views = (await api(`/api/docs/${doc}/tables/_grist_Views/records`)).records;
+  if (rebuild) {
+    // A page is created whole or not at all, so changing its shape means removing
+    // the one that is there. Only pages this repository declares, and only when
+    // asked: somebody else's page is not ours to drop.
+    const declared = new Set(PAGES.map((page) => page.name));
+    const stale = views.filter(
+      (view) => view.fields.type !== "raw_data" && declared.has(view.fields.name),
+    );
+    for (const view of stale) {
+      console.log(`  ${dryRun ? "would rebuild" : "rebuild"} page ${view.fields.name}`);
+      if (!dryRun) await userActions(doc, [["RemoveView", view.id]]);
+    }
+    if (!dryRun && stale.length) {
+      views = (await api(`/api/docs/${doc}/tables/_grist_Views/records`)).records;
+    }
+  }
   const plan = planPages(views, PAGES);
   if (!plan.create.length) return;
   const { tableRef, colRef } = await metaRefs(doc);
@@ -141,8 +157,14 @@ async function ensurePages(doc, { dryRun = false } = {}) {
     let viewRef = 0;
     const sectionRefs = [];
     for (const section of page.sections) {
+      // groupbyColRefs turns the section into a summary of its table. Grist links
+      // a summary to that same table's detail on the group-by column, which is
+      // what lets a story picker filter the steps without a reference column.
+      const groupBy = section.groupBy
+        ? section.groupBy.map((col) => colRef.get(`${section.table}.${col}`))
+        : null;
       const result = await userActions(doc, [
-        ["CreateViewSection", tableRef.get(section.table), viewRef, section.type, null, ""],
+        ["CreateViewSection", tableRef.get(section.table), viewRef, section.type, groupBy, ""],
       ]);
       const created = result.retValues[0];
       viewRef = created.viewRef;
@@ -333,9 +355,10 @@ async function publish(instances, listed) {
 const mode = process.argv[2];
 if (mode === "apply") {
   const dryRun = process.argv.includes("--dry-run");
+  const rebuild = process.argv.includes("--rebuild-pages");
   const doc = await resolveDoc();
   await ensureTables(doc, { dryRun });
-  await ensurePages(doc, { dryRun });
+  await ensurePages(doc, { dryRun, rebuild });
   console.log(dryRun ? `dry run against ${doc}` : `applied schema to ${doc}`);
 } else if (mode === "migrate") await migrate();
 else if (mode === "seed") await seed(process.argv.includes("--replace-all"));
@@ -348,7 +371,7 @@ else if (mode === "publish") {
   );
 } else {
   console.error(
-    "usage: grist-sync.mjs apply [--dry-run]|migrate|seed [--replace-all]|generate|publish <instance…> [--unlist]",
+    "usage: grist-sync.mjs apply [--dry-run] [--rebuild-pages]|migrate|seed [--replace-all]|generate|publish <instance…> [--unlist]",
   );
   process.exit(1);
 }

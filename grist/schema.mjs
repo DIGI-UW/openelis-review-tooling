@@ -213,15 +213,23 @@ export function planColumns(liveColumns, declared) {
 // interleaved, and a paragraph of instructions to be typed into a grid cell.
 export const PAGES = [
   {
-    name: "Checklist",
+    // One story at a time. The picker is a summary of the steps themselves,
+    // grouped by instance: Grist links a summary to its own detail table on the
+    // group-by column, so this needs no reference column and is not waiting on
+    // instance becoming one.
+    name: "Story",
     sections: [
-      // Sorted the way a checklist reads rather than the order rows were typed.
+      { table: "UAT_Steps", type: "record", groupBy: ["instance"] },
+      { table: "UAT_Steps", type: "record", linkFrom: 0, sort: ["section_order", "step_order"] },
+      { table: "UAT_Steps", type: "single", linkFrom: 1 },
+    ],
+  },
+  {
+    // Every story at once, for a sweep: what is unpublishable, what has no
+    // expected result, what the last edit touched.
+    name: "All steps",
+    sections: [
       { table: "UAT_Steps", type: "record", sort: ["instance", "section_order", "step_order"] },
-      // The same rows again as a card, following the list's cursor. do and expect
-      // are paragraphs, and a card gives them room; a grid cell gives them a line.
-      // Linking a section to another over the same table needs no reference
-      // column — it follows the cursor.
-      { table: "UAT_Steps", type: "single", linkFrom: 0 },
     ],
   },
   {

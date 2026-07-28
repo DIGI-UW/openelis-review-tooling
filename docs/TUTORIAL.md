@@ -24,17 +24,19 @@ pages there are the ones to work in:
 
 - **Reviews** — one row per review: `instance`, `title`, `intro`, `jira`. Start
   here; a step has to belong to a review that exists.
-- **Checklist** — one row per step: `instance`, **`step_key`**, **`required`**,
-  `section`, `section_order`, `step_order`, `do`, `expect`, `route`. The list is
-  already in checklist order, and the card beside it edits whichever step is
-  selected — `do` and `expect` are paragraphs and want the room.
+- **Story** — the page to write in. Pick a review on the left and you get only
+  its steps, in checklist order, with a card below that edits whichever step is
+  selected: `do` and `expect` are paragraphs and want the room.
+- **All steps** — every review at once, for a sweep.
 
-Every column carries a description, so hover a header when a field is not
-obvious. The **problems** column says what is wrong with the row as you type, and
-is empty when the row is publishable.
+Each step is `instance`, **`step_key`**, **`required`**, `section`,
+`section_order`, `step_order`, `do`, `expect`, `route`. Every column carries a
+description, so hover a header when a field is not obvious. The **problems**
+column says what is wrong with the row as you type, and is empty when the row is
+publishable.
 
-The `UAT_*` entries further down are Grist's raw tables: every review at once,
-which is useful for a sweep and awkward for authoring.
+The `UAT_*` entries are Grist's raw tables, which the seeding and export paths
+write through.
 
 Reviewers see steps grouped by `section`, ordered by `section_order` then
 `step_order`.
