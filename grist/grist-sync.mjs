@@ -1,4 +1,5 @@
 // Grist UAT lifecycle:
+//   apply     reconcile the document to grist/schema.mjs (--dry-run to just look,\n//             --rebuild-pages to replace declared pages whose shape has changed)
 //   migrate   add missing schema columns and stable keys without clearing rows
 //   publish   list a story in the public catalog (or --unlist it again)
 //   seed      add missing checklist instances (use --replace-all intentionally)
@@ -14,6 +15,7 @@
 import { mkdirSync, readFileSync, writeFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { buildUatDocument, parseRequired } from "./mcp/uat-document.mjs";
+import { PAGES, SCHEMA, planColumns, planPages } from "./schema.mjs";
 
 const URL = process.env.GRIST_URL || "http://grist:8484";
 const KEY = process.env.GRIST_KEY;
@@ -29,38 +31,6 @@ const EXPORT_DIR =
   process.env.EXPORT_DIR || join(import.meta.dirname, "..", "runtime", "checklists");
 if (!KEY) throw new Error("GRIST_KEY is required");
 
-const TABLES = {
-  UAT_Meta: [
-    ["instance", "Text"],
-    ["title", "Text"],
-    ["intro", "Text"],
-    ["jira", "Text"],
-    // Off by default, and deliberately not backfilled by migrate: /uat/index.json
-    // is readable by anyone, so a story is listed only once someone says so. Use
-    // the publish mode, which is an act rather than a side effect of migrating.
-    ["published", "Bool"],
-  ],
-  UAT_Steps: [
-    ["instance", "Text"],
-    ["step_key", "Text"],
-    ["required", "Bool"],
-    ["section", "Text"],
-    ["section_order", "Int"],
-    ["step_order", "Int"],
-    ["do", "Text"],
-    ["expect", "Text"],
-    ["route", "Text"],
-  ],
-  UAT_Results: [
-    ["reviewer", "Text"],
-    ["instance", "Text"],
-    ["step_key", "Text"],
-    ["mark", "Text"],
-    ["note", "Text"],
-    ["page_url", "Text"],
-    ["at", "Text"],
-  ],
-};
 
 async function api(path, opts = {}) {
   const r = await fetch(URL + path, {
@@ -89,47 +59,138 @@ async function resolveDoc() {
   });
 }
 
-async function ensureTables(doc) {
+async function ensureTables(doc, { dryRun = false } = {}) {
   const existing = new Set(
     (await api(`/api/docs/${doc}/tables`)).tables.map((t) => t.id),
   );
-  for (const [id, cols] of Object.entries(TABLES)) {
+  for (const [id, spec] of Object.entries(SCHEMA)) {
     if (!existing.has(id)) {
+      const columns = planColumns([], spec.columns).add;
+      if (dryRun) {
+        console.log(`  would create table ${id} (${columns.length} columns)`);
+        continue;
+      }
       await api(`/api/docs/${doc}/tables`, {
         method: "POST",
-        body: JSON.stringify({
-          tables: [
-            {
-              id,
-              columns: cols.map(([c, type]) => ({
-                id: c,
-                fields: { label: c, type },
-              })),
-            },
-          ],
-        }),
+        body: JSON.stringify({ tables: [{ id, columns }] }),
       });
       console.log(`  created table ${id}`);
       continue;
     }
-    const current = new Set(
-      (await api(`/api/docs/${doc}/tables/${id}/columns`)).columns.map(
-        (column) => column.id,
-      ),
-    );
-    const missing = cols.filter(([column]) => !current.has(column));
-    if (missing.length) {
+    const live = (await api(`/api/docs/${doc}/tables/${id}/columns`)).columns;
+    const plan = planColumns(live, spec.columns);
+    for (const column of plan.add) {
+      console.log(`  ${dryRun ? "would add" : "add"} ${id}.${column.id}`);
+    }
+    for (const column of plan.update) {
+      console.log(
+        `  ${dryRun ? "would update" : "update"} ${id}.${column.id}: ${Object.keys(column.fields).join(", ")}`,
+      );
+    }
+    if (dryRun) continue;
+    if (plan.add.length) {
       await api(`/api/docs/${doc}/tables/${id}/columns`, {
         method: "POST",
-        body: JSON.stringify({
-          columns: missing.map(([column, type]) => ({
-            id: column,
-            fields: { label: column, type },
-          })),
-        }),
+        body: JSON.stringify({ columns: plan.add }),
       });
-      console.log(`  added ${missing.map(([column]) => column).join(", ")} to ${id}`);
     }
+    if (plan.update.length) {
+      await api(`/api/docs/${doc}/tables/${id}/columns`, {
+        method: "PATCH",
+        body: JSON.stringify({ columns: plan.update }),
+      });
+    }
+  }
+}
+
+
+// Pages are built with user actions rather than the records API: a page is a view,
+// its sections, and the links between them, and only the actions know how to make
+// those consistently.
+async function userActions(doc, actions) {
+  return await api(`/api/docs/${doc}/apply`, {
+    method: "POST",
+    body: JSON.stringify(actions),
+  });
+}
+
+async function metaRefs(doc) {
+  const tables = (await api(`/api/docs/${doc}/tables/_grist_Tables/records`)).records;
+  const columns = (await api(`/api/docs/${doc}/tables/_grist_Tables_column/records`)).records;
+  const tableRef = new Map(tables.map((t) => [t.fields.tableId, t.id]));
+  const colRef = new Map();
+  for (const column of columns) {
+    const table = tables.find((t) => t.id === column.fields.parentId);
+    if (table) colRef.set(`${table.fields.tableId}.${column.fields.colId}`, column.id);
+  }
+  return { tableRef, colRef };
+}
+
+async function ensurePages(doc, { dryRun = false, rebuild = false } = {}) {
+  let views = (await api(`/api/docs/${doc}/tables/_grist_Views/records`)).records;
+  if (rebuild) {
+    // A page is created whole or not at all, so changing its shape means removing
+    // the one that is there. Only pages this repository declares, and only when
+    // asked: somebody else's page is not ours to drop.
+    const declared = new Set(PAGES.map((page) => page.name));
+    const stale = views.filter(
+      (view) => view.fields.type !== "raw_data" && declared.has(view.fields.name),
+    );
+    for (const view of stale) {
+      console.log(`  ${dryRun ? "would rebuild" : "rebuild"} page ${view.fields.name}`);
+      if (!dryRun) await userActions(doc, [["RemoveView", view.id]]);
+    }
+    if (!dryRun && stale.length) {
+      views = (await api(`/api/docs/${doc}/tables/_grist_Views/records`)).records;
+    }
+  }
+  const plan = planPages(views, PAGES);
+  if (!plan.create.length) return;
+  const { tableRef, colRef } = await metaRefs(doc);
+
+  for (const name of plan.create) {
+    const page = PAGES.find((candidate) => candidate.name === name);
+    if (dryRun) {
+      console.log(`  would create page ${name} (${page.sections.length} widgets)`);
+      continue;
+    }
+    let viewRef = 0;
+    const sectionRefs = [];
+    for (const section of page.sections) {
+      // groupbyColRefs turns the section into a summary of its table. Grist links
+      // a summary to that same table's detail on the group-by column, which is
+      // what lets a story picker filter the steps without a reference column.
+      const groupBy = section.groupBy
+        ? section.groupBy.map((col) => colRef.get(`${section.table}.${col}`))
+        : null;
+      const result = await userActions(doc, [
+        ["CreateViewSection", tableRef.get(section.table), viewRef, section.type, groupBy, ""],
+      ]);
+      const created = result.retValues[0];
+      viewRef = created.viewRef;
+      sectionRefs.push(created.sectionRef);
+    }
+    const updates = [["UpdateRecord", "_grist_Views", viewRef, { name }]];
+    page.sections.forEach((section, index) => {
+      const fields = {};
+      if (section.sort) {
+        fields.sortColRefs = JSON.stringify(
+          section.sort.map((col) => colRef.get(`${section.table}.${col}`)).filter(Boolean),
+        );
+      }
+      // A section over the same table as its source follows that section's cursor,
+      // which is what makes the card show the row picked in the list.
+      if (section.linkFrom !== undefined) {
+        fields.linkSrcSectionRef = sectionRefs[section.linkFrom];
+        fields.linkSrcColRef = 0;
+        fields.linkTargetColRef = 0;
+      }
+      if (Object.keys(fields).length) {
+        updates.push(["UpdateRecord", "_grist_Views_section", sectionRefs[index], fields]);
+      }
+    });
+    await userActions(doc, updates);
+    console.log(`  created page ${name}`);
   }
 }
 
@@ -292,7 +353,14 @@ async function publish(instances, listed) {
 }
 
 const mode = process.argv[2];
-if (mode === "migrate") await migrate();
+if (mode === "apply") {
+  const dryRun = process.argv.includes("--dry-run");
+  const rebuild = process.argv.includes("--rebuild-pages");
+  const doc = await resolveDoc();
+  await ensureTables(doc, { dryRun });
+  await ensurePages(doc, { dryRun, rebuild });
+  console.log(dryRun ? `dry run against ${doc}` : `applied schema to ${doc}`);
+} else if (mode === "migrate") await migrate();
 else if (mode === "seed") await seed(process.argv.includes("--replace-all"));
 else if (mode === "generate") await generate();
 else if (mode === "publish") {
@@ -303,7 +371,7 @@ else if (mode === "publish") {
   );
 } else {
   console.error(
-    "usage: grist-sync.mjs migrate|seed [--replace-all]|generate|publish <instance…> [--unlist]",
+    "usage: grist-sync.mjs apply [--dry-run] [--rebuild-pages]|migrate|seed [--replace-all]|generate|publish <instance…> [--unlist]",
   );
   process.exit(1);
 }

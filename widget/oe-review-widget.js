@@ -22,6 +22,17 @@
   var SRC = (self && self.getAttribute("data-src")) || "/__review/uat-" + INSTANCE + ".json";
   var ANCHORS = ["right", "centre", "left"];
   var FILTERS = ["all", "todo", "failed"];
+  // A popped-out panel is this same script running in a window of its own. It is
+  // not a copy of the review but a second view of it, driving the window it came
+  // from: the page under review is over there, so that is where a route link
+  // navigates and which URL a mark is evidence about. SELF_SRC is how the popped-
+  // out window loads this script, so a widget pasted inline rather than linked
+  // offers no pop-out at all.
+  var SELF_SRC = (self && self.src) || "";
+  var STANDALONE = Boolean(self && self.getAttribute("data-standalone"));
+  var OPENER_URL = (self && self.getAttribute("data-opener-url")) || "";
+  var POPOUT_NAME = "oe-review-popout-" + INSTANCE;
+  var PARAM = "oe-review";
 
   // Sibling stories live beside this one under whichever of the two naming
   // conventions the deployment serves: /__review/uat-<story>.json same-origin, or
@@ -86,7 +97,6 @@
 
   // ---- persisted state ------------------------------------------------------
   var state = fresh();
-  var legacyStatePresent = false;
   function normalized(value) {
     if (!value || typeof value !== "object") return fresh();
     value.steps = value.steps && typeof value.steps === "object" ? value.steps : {};
@@ -121,6 +131,11 @@
   // happen to be working through.
   var IDENTITY_KEY = "oe-review:v2:" + INSTANCE + ":last-identity";
   var PREFS_KEY = "oe-review:v2:" + INSTANCE + ":prefs";
+  // Which window the panel is in, rather than what the review says, so it is not
+  // keyed by story: the pop-out belongs to the deployment the reviewer is looking
+  // at. Written by the popped-out window itself; the page it came from reads it to
+  // know whether its launcher opens a panel or raises a window that already exists.
+  var POPOUT_KEY = "oe-review:v2:" + INSTANCE + ":popped-out";
   var prefs = loadPrefs();
   function loadPrefs() {
     var stored = null;
@@ -135,6 +150,7 @@
       filter: FILTERS.indexOf(stored.filter) === -1 ? "all" : stored.filter,
       expanded: Boolean(stored.expanded),
       story: typeof stored.story === "string" ? stored.story : null,
+      hidden: Boolean(stored.hidden),
     };
   }
   function savePrefs() {
@@ -145,6 +161,55 @@
     }
   }
   if (prefs.story) activeStory = prefs.story;
+
+  // ---- ?oe-review= ----------------------------------------------------------
+  // A URL is the only handle anyone has on somebody else's browser, so this is how
+  // a review gets shared already open, and how it gets out of the way of a
+  // screenshot. The value is consumed rather than obeyed: it is applied once and
+  // removed from the address bar. Left in place it would keep reasserting itself,
+  // so minimizing the panel would not survive a reload — and every URL the report
+  // records as evidence would carry a parameter that is nothing to do with the
+  // application.
+  var TOGGLE_WORDS = {
+    open: "open", on: "open", "1": "open", true: "open", yes: "open", show: "open",
+    closed: "closed", close: "closed", min: "closed", minimized: "closed",
+    "0": "closed", false: "closed", no: "closed",
+    off: "hidden", hide: "hidden", hidden: "hidden", none: "hidden",
+  };
+  function consumeToggle() {
+    // The popped-out window is opened by this script, not navigated to by a
+    // person; it has no meaningful query string of its own to read.
+    if (STANDALONE) return null;
+    var params;
+    try {
+      params = new URLSearchParams(location.search);
+    } catch (e) {
+      return null;
+    }
+    if (!params.has(PARAM)) return null;
+    var raw = String(params.get(PARAM) || "").trim().toLowerCase();
+    params.delete(PARAM);
+    try {
+      var search = params.toString();
+      history.replaceState(
+        history.state,
+        "",
+        location.pathname + (search ? "?" + search : "") + location.hash,
+      );
+    } catch (e) {
+      // Sandboxed or opaque-origin history. The value still applies; it just
+      // applies again on the next reload.
+    }
+    // Bare ?oe-review is the shorthand for "open it".
+    var intent = raw === "" ? "open" : TOGGLE_WORDS[raw];
+    if (!intent) {
+      console.warn(
+        "[oe-review] ignored ?" + PARAM + "=" + raw + " — expected open, closed or off",
+      );
+      return null;
+    }
+    return intent;
+  }
   function rememberIdentity(id) {
     try {
       localStorage.setItem(IDENTITY_KEY, id);
@@ -182,12 +247,16 @@
   function loadContext(target, checklist) {
     STORE_KEY = contextKey(target, checklist);
     try {
-      legacyStatePresent = Boolean(localStorage.getItem(LEGACY_STORE_KEY));
+      // Answers from before stable step keys, kept under the pre-v2 key. They are
+      // keyed by position, so not one of them can be matched to a step: there is
+      // nothing to migrate and nothing to tell the reviewer. Dropped on sight,
+      // because nothing writes this key any more and a leftover that is only
+      // reported never goes away.
+      localStorage.removeItem(LEGACY_STORE_KEY);
     } catch (e) {
       // Storage can throw outright (cookies blocked, hardened privacy). Every
       // other access here already degrades to in-memory state; without this the
       // throw surfaced to the reviewer as a bogus "could not load checklist".
-      legacyStatePresent = false;
     }
 
     var exact = loadStored(STORE_KEY);
@@ -241,11 +310,9 @@
       keys.forEach(function (key) {
         localStorage.removeItem(key);
       });
-      localStorage.removeItem(LEGACY_STORE_KEY);
     } catch (e) {
       /* memory state is still reset below */
     }
-    legacyStatePresent = false;
   }
 
   // ---- mount host + shadow root (isolated) ----------------------------------
@@ -266,13 +333,34 @@
   var ui = null;
 
   function boot() {
+    var intent = consumeToggle();
+    if (intent) {
+      prefs.hidden = intent === "hidden";
+      savePrefs();
+    }
+    // Hiding has to outlast the URL that asked for it, or the first "Go to /route"
+    // in the checklist brings the panel back mid-screenshot. That makes the
+    // parameter the only way back, so say so where whoever typed it will look.
+    if (prefs.hidden) {
+      console.info(
+        "[oe-review] review panel hidden — add ?" + PARAM + "=on to bring it back",
+      );
+      return;
+    }
+    if (intent === "open" || intent === "closed") {
+      state.minimized = intent === "closed";
+      // Treat the URL as the reviewer having opened or closed the panel by hand,
+      // so loading the checklist does not overwrite what the link asked for.
+      panelToggled = true;
+    }
+
     host = document.createElement("div");
     host.id = "oe-review-host";
     // No isolation: that would make the host its own stacking context, scoping
     // the panel's z-index inside it and leaving the host itself at auto — under
     // everything the application paints above zero, whatever the panel declares.
     // The shadow root already isolates style; isolation only affects stacking.
-    host.style.cssText = "all:initial";
+    host.style.cssText = STANDALONE ? "all:initial;display:block;" : "all:initial";
     document.body.appendChild(host);
     // Keep styles isolated while exposing the review surface to accessibility
     // inspection and Playwright UAT on deployed targets.
@@ -288,6 +376,21 @@
     document.addEventListener("click", scheduleReposition, true);
     window.addEventListener("resize", scheduleReposition);
     window.addEventListener("popstate", scheduleReposition);
+    window.addEventListener("storage", adoptOtherWindow);
+    if (STANDALONE) {
+      markPoppedOut(true);
+      // pagehide rather than beforeunload: it is the one the browser guarantees on
+      // close. It also fires for a window going into the back/forward cache, which
+      // is why pageshow has to claim the flag back — a restore from that cache
+      // does not re-run this script, so the page would otherwise go on offering to
+      // open a second panel over a review that is still on screen.
+      window.addEventListener("pagehide", function () {
+        markPoppedOut(false);
+      });
+      window.addEventListener("pageshow", function () {
+        markPoppedOut(true);
+      });
+    }
 
     var inline = inlineChecklist();
     if (inline) {
@@ -308,6 +411,222 @@
     document.addEventListener("DOMContentLoaded", boot);
   } else {
     boot();
+  }
+
+  // ---- the panel in a window of its own -------------------------------------
+  // The checklist covers a whole workflow, and an overlay that floats over the
+  // application always covers some of it. Popped out, the review sits beside the
+  // application instead of on top of it — on a second monitor, or in a tab — and
+  // nothing the application paints can reach it.
+  //
+  // The two windows are the same origin, so they are already sharing one store:
+  // each save is a storage event in the other, which is enough for both to stay on
+  // the same review without a message protocol between them.
+  var popoutBlocked = false;
+
+  function openerWindow() {
+    try {
+      return window.opener && !window.opener.closed ? window.opener : null;
+    } catch (e) {
+      // The opener navigated somewhere this window cannot see.
+      return null;
+    }
+  }
+
+  // The page under review is in the opener, so that is what a mark is evidence
+  // about. This window's own location is no substitute and is the more dangerous
+  // answer of the two: a document written into about:blank keeps whatever URL it
+  // inherited when it opened, so it reads as a real page while going stale the
+  // moment the reviewer navigates. OPENER_URL is that same inherited value, used
+  // only once the opener is closed or has gone off-origin.
+  function reviewedUrl() {
+    if (!STANDALONE) return location.href;
+    var live = openerWindow();
+    if (live) {
+      try {
+        return live.location.href;
+      } catch (e) {
+        /* cross-origin now — fall through to the URL it was opened from */
+      }
+    }
+    return OPENER_URL;
+  }
+
+  // Resolved against the window under review, not this one: a path means nothing
+  // on about:blank.
+  function absoluteRoute(route) {
+    try {
+      return new URL(route, reviewedUrl() || location.href).href;
+    } catch (e) {
+      return route;
+    }
+  }
+
+  function markPoppedOut(on) {
+    try {
+      if (on) localStorage.setItem(POPOUT_KEY, "1");
+      else localStorage.removeItem(POPOUT_KEY);
+    } catch (e) {
+      /* storage unavailable — the launcher just opens a panel in the page */
+    }
+  }
+  function poppedOut() {
+    if (STANDALONE) return false;
+    try {
+      return localStorage.getItem(POPOUT_KEY) === "1";
+    } catch (e) {
+      return false;
+    }
+  }
+
+  function escapeAttr(value) {
+    return String(value == null ? "" : value)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;");
+  }
+
+  function popoutDocument() {
+    var attrs = [
+      ["src", SELF_SRC],
+      ["data-instance", INSTANCE],
+      ["data-label", LABEL],
+      ["data-standalone", "1"],
+      ["data-opener-url", location.href],
+    ];
+    // An inline checklist has no URL for the popped-out window to read, so it
+    // travels with it in the shape this script already accepts. Everything else
+    // keeps its sources, so Refresh still reaches the live checklist over there.
+    var carried = "";
+    if (inlineMode) {
+      carried =
+        '<script type="application/json" id="oe-review-checklist">' +
+        JSON.stringify(uat).replace(/</g, "\\u003c") +
+        "<\/script>";
+    } else {
+      attrs.push(["data-src", currentSrc()]);
+      attrs.push(["data-build-src", BUILD_SRC]);
+      if (INDEX_SRC) attrs.push(["data-index", INDEX_SRC]);
+    }
+    var tag =
+      "<script " +
+      attrs
+        .map(function (pair) {
+          return pair[0] + '="' + escapeAttr(pair[1]) + '"';
+        })
+        .join(" ") +
+      "><\/script>";
+    return (
+      '<!doctype html><html lang="en"><head><meta charset="utf-8">' +
+      '<meta name="viewport" content="width=device-width, initial-scale=1">' +
+      "<title>" +
+      escapeAttr((uat && uat.title) || LABEL + " review") +
+      "</title>" +
+      "<style>html,body{margin:0;height:100%;background:#fff;}</style></head>" +
+      // The marker is what makes a second click a raise rather than a rebuild:
+      // an about:blank window that has been reloaded loses it and is repopulated,
+      // which is the only way back from a window the reviewer emptied by hand.
+      '<body data-oe-review="popout">' +
+      carried +
+      tag +
+      "</body></html>"
+    );
+  }
+
+  function openPopout(event) {
+    // A window by default, because the point is to see it beside the application;
+    // a tab on ⌘/Ctrl, the modifier that opens a link in a tab everywhere else.
+    // Shift is deliberately not in that list: everywhere else it means a new
+    // window, which is what a plain click here already does.
+    var asTab = Boolean(event && (event.metaKey || event.ctrlKey));
+    var features = "";
+    if (!asTab) {
+      var width = 460;
+      var height = Math.max(560, Math.min(900, (screen.availHeight || 900) - 80));
+      var left = Math.max(0, (screen.availWidth || 1440) - width - 40);
+      features = "popup=yes,width=" + width + ",height=" + height + ",left=" + left + ",top=40";
+    }
+    var win = null;
+    try {
+      // An empty URL against an existing window name raises that window instead of
+      // navigating it, so this is both "open" and "bring to the front".
+      win = window.open("", POPOUT_NAME, features);
+    } catch (e) {
+      win = null;
+    }
+    if (!win) {
+      popoutBlocked = true;
+      render();
+      return;
+    }
+    popoutBlocked = false;
+    var populated = false;
+    try {
+      populated =
+        Boolean(win.document.body) &&
+        win.document.body.getAttribute("data-oe-review") === "popout";
+    } catch (e) {
+      populated = false;
+    }
+    if (!populated) {
+      win.document.open();
+      win.document.write(popoutDocument());
+      win.document.close();
+    }
+    win.focus();
+    // Two live panels over one review would only compete for the reviewer's
+    // attention; the launcher stays, and says the review is over there.
+    minimize();
+  }
+
+  function returnToPage() {
+    state.minimized = false;
+    // The opener adopts this on the storage event, so the panel is already open in
+    // the page by the time this window is gone.
+    save();
+    markPoppedOut(false);
+    var live = openerWindow();
+    if (live) live.focus();
+    window.close();
+  }
+
+  // The other window wrote something. Whatever it decided is what this window
+  // shows: they are two views of one review, and the reviewer is only ever in one
+  // of them at a time, so last write wins is what they mean by it.
+  function adoptOtherWindow(event) {
+    if (!event || !event.key) return;
+    if (event.key === POPOUT_KEY) {
+      if (!STANDALONE && wrap) render();
+      return;
+    }
+    if (event.key === PREFS_KEY) {
+      var hidden = prefs.hidden;
+      prefs = loadPrefs();
+      // Hiding is this window's own answer to its own query string; adopting it
+      // from the other one would make a popped-out panel able to unmount the page.
+      prefs.hidden = hidden;
+      var story = prefs.story || INSTANCE;
+      if (story !== activeStory) {
+        selectStory(story);
+        return;
+      }
+      if (ui) syncPanel();
+      applyAnchor();
+      return;
+    }
+    if (!STORE_KEY || event.key !== STORE_KEY || event.newValue === null) return;
+    var incoming = loadStored(STORE_KEY);
+    if (!incoming) return;
+    if (state.updatedAt && incoming.updatedAt && incoming.updatedAt < state.updatedAt) {
+      return;
+    }
+    state = incoming;
+    // Including whether the panel is open: closing the popped-out window is how
+    // the reviewer asks for it back in the page.
+    panelToggled = true;
+    ui = null;
+    render();
   }
 
   // A prefix test is not enough: "/\evil.com" starts with a single slash but the
@@ -585,7 +904,7 @@
     if (anchor === "left") return { left: 16, top: top, width: width, height: height };
     return { left: (window.innerWidth - width) / 2, top: top, width: width, height: height };
   }
-  var EDGE_GAP = 80;
+  var EDGE_GAP = 64;
   function autoAnchor() {
     if (!ui || state.minimized) return "right";
     var width = ui.panel.offsetWidth;
@@ -608,6 +927,12 @@
     return best;
   }
   function applyAnchor() {
+    // A window of its own has no host application to dodge and no corner to sit
+    // in: the panel is the document.
+    if (STANDALONE) {
+      if (wrap.className !== "wrap standalone open") wrap.className = "wrap standalone open";
+      return;
+    }
     var anchor = prefs.anchor || autoAnchor();
     // The open panel becomes a bottom sheet on a narrow screen; the launcher stays
     // a corner pill, because a full-width bar at the bottom lands underneath
@@ -625,7 +950,9 @@
   // ---- rendering ------------------------------------------------------------
   function render() {
     exposeTestHooks();
-    if (state.minimized) {
+    // Nothing to minimize into over here: the window is the panel, and a reviewer
+    // who wants it out of the way closes it.
+    if (!STANDALONE && state.minimized) {
       ui = null;
       wrap.innerHTML = "";
       wrap.appendChild(tab());
@@ -665,13 +992,31 @@
   function tab() {
     var button = el("button", "tab");
     var counts = progress();
+    var away = poppedOut();
     button.textContent = "Review " + counts.done + "/" + counts.total;
-    button.title = "Open the " + LABEL + " review checklist";
     if (state.notes.length) {
       var dot = el("span", "dot");
       dot.textContent = String(state.notes.length);
       button.appendChild(dot);
     }
+    // The review is already open, just not here. Opening a second panel over the
+    // application would split the reviewer's attention across two live copies of
+    // the same checklist, so the launcher raises the window instead — and says so,
+    // because a launcher that appears to do nothing reads as broken.
+    if (away) {
+      button.classList.add("away");
+      var glyph = el("span", "awaymark");
+      glyph.textContent = "⧉";
+      // Decorative: it says "elsewhere" to the eye, but inside the button it would
+      // land in the middle of the accessible name as a character with no reading.
+      // The title says where the review went in words.
+      glyph.setAttribute("aria-hidden", "true");
+      button.appendChild(glyph);
+      button.title = "Bring the " + LABEL + " review window to the front";
+      button.onclick = openPopout;
+      return button;
+    }
+    button.title = "Open the " + LABEL + " review checklist";
     button.onclick = function () {
       state.minimized = false;
       panelToggled = true;
@@ -707,9 +1052,13 @@
     titleBox.appendChild(parts.title);
     titleBox.appendChild(parts.progress);
     head.appendChild(titleBox);
-    var move = iconBtn("⇄", "Move panel");
-    move.onclick = movePanel;
-    head.appendChild(move);
+    // Move is about getting out of the application's way, which is not a problem a
+    // window of its own has.
+    if (!STANDALONE) {
+      var move = iconBtn("⇄", "Move panel");
+      move.onclick = movePanel;
+      head.appendChild(move);
+    }
     parts.expand = iconBtn("⤢", "Expand panel");
     parts.expand.onclick = function () {
       prefs.expanded = !prefs.expanded;
@@ -722,9 +1071,22 @@
     var refresh = iconBtn("↻", "Refresh checklist");
     refresh.onclick = refreshChecklist;
     head.appendChild(refresh);
-    var min = iconBtn("–", "Minimize");
-    min.onclick = minimize;
-    head.appendChild(min);
+    if (STANDALONE) {
+      var back = iconBtn("↩", "Return the checklist to the page");
+      back.onclick = returnToPage;
+      head.appendChild(back);
+    } else {
+      // No script URL means the widget was pasted in rather than linked, and this
+      // window has nothing to tell the next one to load.
+      if (SELF_SRC) {
+        var out = iconBtn("⧉", "Pop out into its own window (⌘/Ctrl-click for a tab)");
+        out.onclick = openPopout;
+        head.appendChild(out);
+      }
+      var min = iconBtn("–", "Minimize");
+      min.onclick = minimize;
+      head.appendChild(min);
+    }
     panel.appendChild(head);
 
     parts.statusBox = el("div", "statusbox");
@@ -732,8 +1094,13 @@
 
     if (stories().length > 1) panel.appendChild(buildStories(parts));
 
+    // Created here so it reads in source order; mounted inside the scroller
+    // further down. Above the scroller it was fixed chrome competing with the
+    // checklist for a panel of fixed height, and it always lost — squeezed to a
+    // line or two whatever the screen, with the rest unreachable. A preamble is
+    // read once, so it scrolls away with the content rather than holding a share
+    // of the panel for the whole review.
     parts.intro = el("div", "intro");
-    panel.appendChild(parts.intro);
 
     var who = el("div", "who");
     var label = el("label", "");
@@ -756,6 +1123,7 @@
     panel.appendChild(parts.filters);
 
     parts.body = el("div", "body");
+    parts.body.appendChild(parts.intro);
     parts.sections = [];
     var position = 0;
     (uat.sections || []).forEach(function (section) {
@@ -914,7 +1282,7 @@
     add.onclick = function () {
       var text = area.value.trim();
       if (!text) return;
-      state.notes.push({ text: text, url: location.href, at: nowISO() });
+      state.notes.push({ text: text, url: reviewedUrl(), at: nowISO() });
       area.value = "";
       save();
       syncPanel();
@@ -978,8 +1346,32 @@
     if (step.route) {
       var go = el("a", "go");
       go.textContent = "Go to " + readableRoute(step.route);
-      go.href = step.route;
+      // A route is a path on the deployment, which about:blank cannot resolve, so
+      // a popped-out panel resolves it against the window it is reviewing. The
+      // href is what a middle-click or a dead opener falls back to; the handler is
+      // what normally happens.
+      go.href = STANDALONE ? absoluteRoute(step.route) : step.route;
       go.title = step.route;
+      if (STANDALONE) {
+        go.target = "_blank";
+        // Only followed when the opener is gone, so whatever it opens is being
+        // opened blind. A checklist route is validated same-origin before it gets
+        // here, but severing the handle costs nothing and does not depend on that
+        // validation staying where it is.
+        go.rel = "noopener noreferrer";
+        go.onclick = function (event) {
+          var live = openerWindow();
+          if (!live) return;
+          event.preventDefault();
+          try {
+            live.location.href = step.route;
+            live.focus();
+          } catch (e) {
+            // Opener now cross-origin: let the link do what it says instead.
+            window.open(go.href, "_blank", "noopener,noreferrer");
+          }
+        };
+      }
       detail.appendChild(go);
     }
     if (step.expect) {
@@ -1036,7 +1428,7 @@
     var saved = state.steps[step.key] || {};
     saved.mark = saved.mark === value ? null : value;
     saved.markedAt = saved.mark ? nowISO() : null;
-    saved.actualUrl = saved.mark ? location.href : null;
+    saved.actualUrl = saved.mark ? reviewedUrl() : null;
     saved.signature = stepSignature(step);
     saved.stale = false;
     // Only a failure carries the page's own error output; a passing step would
@@ -1091,12 +1483,20 @@
     var body = ui.body;
     var top = row.row.offsetTop;
     var bottom = top + row.row.offsetHeight;
-    if (top < body.scrollTop) body.scrollTop = Math.max(0, top - 8);
+    // The section heading is pinned to the top of the scroller, so the first
+    // stretch of it is not free space: scrolling a step exactly to the top parks
+    // its instruction underneath the heading, where it cannot be read.
+    var pinned = row.row.parentNode.querySelector(".secrow");
+    var reserve = (pinned && !pinned.hidden ? pinned.offsetHeight : 0) + 8;
+    if (top - reserve < body.scrollTop) body.scrollTop = Math.max(0, top - reserve);
     else if (bottom > body.scrollTop + body.clientHeight) {
       // Bring the end of the step into view, but never far enough to push its
       // instruction off the top: a step read from the middle is worse than one
       // whose note field needs a nudge.
-      body.scrollTop = Math.max(0, Math.min(bottom - body.clientHeight + 8, top - 4));
+      body.scrollTop = Math.max(
+        0,
+        Math.min(bottom - body.clientHeight + 8, top - reserve),
+      );
     }
     var first = row.detail.querySelector(".mark");
     // Only chase the focus if it was already inside the panel: taking it from the
@@ -1146,18 +1546,19 @@
     ui.statusBox.innerHTML = "";
     if (loading) ui.statusBox.appendChild(status("Refreshing checklist…", "status"));
     if (loadError) ui.statusBox.appendChild(status(loadError, "status error", "alert"));
-    if (buildWarning && !loadError) {
-      ui.statusBox.appendChild(status(buildWarning, "status warning"));
-    }
-    if (legacyStatePresent) {
+    // A blocked pop-up is silent, and the reviewer's read of a button that does
+    // nothing is that the review tooling is broken.
+    if (popoutBlocked) {
       ui.statusBox.appendChild(
         status(
-          "Earlier position-based answers were not reused. Review these stable checklist steps again, then Reset to remove the old local data.",
-          "status warning legacy",
+          "The browser blocked the review window. Allow pop-ups for this site, then try again.",
+          "status warning",
         ),
       );
     }
-
+    if (buildWarning && !loadError) {
+      ui.statusBox.appendChild(status(buildWarning, "status warning"));
+    }
     // The preamble earns its space until the reviewer is under way; after that the
     // checklist needs the room more than the introduction does. Standing down is
     // one-way: tying it to the answer count made it reappear — and shove the
@@ -1575,118 +1976,159 @@
 
   function CSS() {
     return [
+      // Carbon's tokens rather than a scale invented here: the widget cannot import
+      // Carbon (one file, no build, and a shadow root that deliberately keeps the
+      // host's styles out), but it can use the same numbers. IBM Plex resolves
+      // inside the shadow root whenever the host document has loaded it — which a
+      // Carbon application has — and falls back to the system face anywhere else.
+      ".wrap{" +
+        "--font:'IBM Plex Sans',system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;" +
+        // type: label-01 / body-compact-01 / heading-02
+        "--label:14px;--body:16px;--heading:20px;" +
+        // spacing-02 … spacing-05
+        "--sp2:4px;--sp3:8px;--sp4:12px;--sp5:16px;" +
+        // text-primary / text-secondary / text-helper, and the layer + border pair
+        "--text:#161616;--text2:#525252;--text3:#6f6f6f;" +
+        "--layer:#f4f4f4;--border:#e0e0e0;--border-strong:#8d8d8d;" +
+        // blue-60 / blue-70 / blue-40 / blue-10
+        "--blue:#0f62fe;--blue-dark:#0043ce;--blue-soft:#a6c8ff;--blue-bg:#edf5ff;" +
+        "position:fixed;bottom:64px;z-index:8500;" +
+        "font-family:var(--font);font-size:var(--body);line-height:1.4;color:var(--text);}",
       // Above the host application's own header and side nav, which Carbon puts
       // at 8000, but below its modals at 9000: a dialog the checklist is asking
       // the reviewer to use has to be able to come over the top.
-      ".wrap{position:fixed;bottom:80px;z-index:8500;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;font-size:13px;color:#1a1f26;}",
       ".anchor-right{right:16px;}",
       ".anchor-left{left:16px;}",
       ".anchor-centre{left:50%;transform:translateX(-50%);}",
-      ".tab{display:flex;align-items:center;gap:6px;background:#0f62fe;color:#fff;border:none;border-radius:20px;padding:10px 16px;font-size:13px;font-weight:600;cursor:pointer;box-shadow:0 4px 14px rgba(0,0,0,.25);font-variant-numeric:tabular-nums;}",
+      ".tab{display:flex;align-items:center;gap:var(--sp2);background:var(--blue);color:#fff;border:none;border-radius:20px;padding:10px var(--sp5);font-weight:600;cursor:pointer;box-shadow:0 4px 14px rgba(0,0,0,.25);font-variant-numeric:tabular-nums;}",
       ".tab:hover{background:#0353e9;}",
-      ".dot{background:#fff;color:#0f62fe;border-radius:10px;padding:0 6px;font-size:11px;font-weight:700;}",
-      // The panel is anchored 80px off the bottom, so its height has to leave the
-      // same again at the top. Without that reserve an expanded panel on a short
-      // screen pushes its own header off the top of the viewport, under the host
-      // application's fixed header, and the close button cannot be reached.
-      ".panel{box-sizing:border-box;width:min(360px,calc(100vw - 32px));max-height:min(560px,calc(100vh - 160px));display:flex;flex-direction:column;background:#fff;border:1px solid #d0d5dd;border-radius:10px;box-shadow:0 10px 40px rgba(0,0,0,.28);overflow:hidden;}",
+      ".dot{background:#fff;color:var(--blue);border-radius:10px;padding:0 6px;font-size:var(--label);font-weight:600;}",
+      // The launcher for a review that is open in another window reads as a
+      // pointer to it rather than as the thing itself.
+      ".tab.away{background:#393939;}.tab.away:hover{background:#4c4c4c;}",
+      ".awaymark{opacity:.85;}",
+      // Popped out, the panel is the document: no corner to sit in, no application
+      // to float above, and nothing to round the edges against.
+      ".wrap.standalone{position:static;inset:auto;transform:none;display:block;}",
+      ".wrap.standalone .panel{width:100%;max-width:none;height:100vh;max-height:none;border:none;border-radius:0;box-shadow:none;}",
+      ".wrap.standalone .panel.expanded{width:100%;max-height:none;}",
+      // Anchored 64px off the bottom and reserving 56px at the top: enough to
+      // clear a 48px Carbon application header with a little air. Without that
+      // reserve a tall panel on a short screen pushes its own header off the top of
+      // the viewport, under the application's, and the close button cannot be
+      // reached.
+      //
+      // The width is what keeps a step inside the scroll window. Only the first
+      // font in the stack is a known quantity — everywhere it is missing the text
+      // falls back to whatever the platform has, and a wider face costs whole lines
+      // of wrapping. A narrow column turns that into a step taller than the window
+      // it has to fit; the extra width absorbs it.
+      ".panel{box-sizing:border-box;width:min(560px,calc(100vw - 32px));max-height:min(620px,calc(100vh - 120px));display:flex;flex-direction:column;background:#fff;border:1px solid var(--border);border-radius:8px;box-shadow:0 10px 40px rgba(0,0,0,.28);overflow:hidden;}",
       // Only the checklist scrolls. Without this the fixed rows shrink to absorb
       // a long checklist and clip their own text.
-      ".head,.statusbox,.stories,.intro,.who,.filters,.fb,.foot{flex:none;}",
-      ".panel.expanded{width:min(760px,92vw);max-height:min(720px,calc(100vh - 160px));}",
-      ".stories{display:flex;align-items:center;gap:8px;padding:8px 12px;border-bottom:1px solid #eef0f3;}",
-      ".stories label{font-size:11px;color:#5b6673;font-weight:600;}",
-      ".stories select{flex:1;min-width:0;border:1px solid #d0d5dd;border-radius:6px;padding:5px 6px;font:inherit;color:inherit;background:#fff;min-height:24px;}",
-      ".filters{display:flex;gap:6px;padding:8px 12px 0;}",
-      ".filter{flex:1;border:1px solid #d0d5dd;background:#fff;border-radius:6px;padding:5px 0;font:inherit;font-size:12px;font-weight:600;color:#5b6673;cursor:pointer;min-height:24px;}",
-      ".filter.on{background:#eef4ff;border-color:#0f62fe;color:#0f62fe;}",
+      ".head,.statusbox,.stories,.who,.filters,.fb,.foot{flex:none;}",
+      ".panel.expanded{width:min(840px,92vw);max-height:min(760px,calc(100vh - 120px));}",
+      ".stories{display:flex;align-items:center;gap:var(--sp3);padding:var(--sp3) var(--sp4);border-bottom:1px solid var(--border);}",
+      ".stories label,.who label{font-size:var(--label);color:var(--text2);white-space:nowrap;}",
+      ".stories select{flex:1;min-width:0;border:1px solid var(--border-strong);border-radius:4px;padding:4px 6px;font:inherit;color:inherit;background:#fff;min-height:24px;}",
+      ".filters{display:flex;gap:var(--sp2);padding:var(--sp3) var(--sp4) 0;}",
+      ".filter{flex:1;border:1px solid var(--border-strong);background:#fff;border-radius:4px;padding:4px 0;font:inherit;color:var(--text2);cursor:pointer;min-height:24px;}",
+      ".filter.on{background:var(--blue-bg);border-color:var(--blue);color:var(--blue-dark);font-weight:600;}",
       // Pinned to the top of the scroller: several steps into a section, the
       // heading that says which part of the review this is has scrolled away.
-      ".secrow{position:sticky;top:0;z-index:1;background:#fff;display:flex;align-items:baseline;justify-content:space-between;gap:8px;margin:0 -12px 4px;padding:9px 12px 4px;border-bottom:1px solid #eef0f3;}",
+      ".secrow{position:sticky;top:0;z-index:1;background:#fff;display:flex;align-items:baseline;justify-content:space-between;gap:var(--sp3);margin:0 calc(var(--sp4) * -1) var(--sp2);padding:9px var(--sp4) var(--sp2);border-bottom:1px solid var(--border);}",
       ".secrow[hidden]{display:none;}",
-      ".seccount{font-size:11px;color:#8b95a3;font-weight:700;font-variant-numeric:tabular-nums;}",
+      ".sec{font-size:var(--label);text-transform:uppercase;letter-spacing:.02em;color:var(--text2);font-weight:600;margin:0;}",
+      ".seccount{font-size:var(--label);color:var(--text3);font-variant-numeric:tabular-nums;}",
       ".step[hidden]{display:none;}",
-      ".head{display:flex;align-items:flex-start;gap:4px;padding:10px 12px;background:#161616;color:#fff;}",
+      ".head{display:flex;align-items:flex-start;gap:2px;padding:10px var(--sp4);background:var(--text);color:#fff;}",
       ".titlebox{flex:1;min-width:0;}",
-      ".title{font-size:14px;font-weight:700;margin:0;}",
-      ".sub{font-size:11px;opacity:.75;margin-top:2px;font-variant-numeric:tabular-nums;}",
-      ".icon{background:transparent;border:none;color:inherit;font-size:15px;line-height:1;cursor:pointer;min-width:24px;min-height:24px;border-radius:4px;}.icon:hover{background:rgba(255,255,255,.15);}",
+      ".title{font-size:var(--heading);font-weight:600;margin:0;}",
+      ".sub{font-size:var(--label);opacity:.8;margin-top:2px;font-variant-numeric:tabular-nums;}",
+      ".icon{background:transparent;border:none;color:inherit;font-size:var(--body);line-height:1;cursor:pointer;min-width:24px;min-height:24px;border-radius:4px;}.icon:hover{background:rgba(255,255,255,.15);}",
       ".statusbox:empty{display:none;}",
-      ".status{padding:8px 12px;border-bottom:1px solid #eef0f3;color:#5b6673;}",
+      ".status{padding:var(--sp3) var(--sp4);border-bottom:1px solid var(--border);color:var(--text2);}",
       ".status.error{background:#fff1f1;color:#a2191f;font-weight:600;}",
-      ".status.warning{background:#fff8e1;color:#684e00;}",
-      ".intro{padding:8px 12px;border-bottom:1px solid #eef0f3;color:#5b6673;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;}",
+      ".status.warning{background:#fcf4d6;color:#684e00;}",
+      // Inside the scroller, so it is shown whole and scrolls away as the review
+      // gets going. Clamped above it, the end of the preamble was somewhere the
+      // reviewer had no way to reach at all.
+      ".intro{margin:0 calc(var(--sp4) * -1) var(--sp3);padding:var(--sp3) var(--sp4);border-bottom:1px solid var(--border);color:var(--text2);}",
       ".intro[hidden],.who[hidden],.filters[hidden]{display:none;}",
       // Expanded gains width, so spend it: the expected result reads down the
       // left while the answer sits on the right, which roughly halves how tall
       // each step is and puts more of the checklist on screen at once.
-      ".panel.expanded .detail{display:grid;grid-template-columns:1fr 280px;gap:4px 16px;align-items:start;}",
+      ".panel.expanded .detail{display:grid;grid-template-columns:1fr 280px;gap:var(--sp2) var(--sp5);align-items:start;}",
       ".panel.expanded .detail .expect,.panel.expanded .detail .go,.panel.expanded .detail .optional{grid-column:1;margin:0;}",
       // A grid item fills its track by default, which stretched a route pill the
       // width of the column and made it read as a banner rather than a link.
       ".panel.expanded .detail .go{justify-self:start;}",
       ".panel.expanded .detail .marks{grid-column:2;grid-row:1;}",
       ".panel.expanded .detail .stepnote{grid-column:2;grid-row:2;margin-top:0;}",
-      ".who{padding:8px 12px;border-bottom:1px solid #eef0f3;display:flex;align-items:center;gap:8px;}",
-      ".who label{font-size:11px;color:#5b6673;font-weight:600;white-space:nowrap;}",
-      "input[type=text],textarea{width:100%;box-sizing:border-box;border:1px solid #d0d5dd;border-radius:6px;padding:6px 8px;font:inherit;color:inherit;}",
-      "input:focus-visible,textarea:focus-visible,button:focus-visible,a:focus-visible{outline:2px solid #0f62fe;outline-offset:1px;}",
+      ".who{padding:var(--sp3) var(--sp4);border-bottom:1px solid var(--border);display:flex;align-items:center;gap:var(--sp3);}",
+      "input[type=text],textarea{width:100%;box-sizing:border-box;border:1px solid var(--border-strong);border-radius:4px;padding:5px var(--sp3);font:inherit;color:inherit;}",
+      "input:focus-visible,textarea:focus-visible,button:focus-visible,a:focus-visible{outline:2px solid var(--blue);outline-offset:1px;}",
       // Positioned so a row's offsetTop is measured against the scroller itself.
-      ".body{position:relative;flex:1;min-height:0;overflow-y:auto;padding:0 12px 10px;}",
-      ".sec{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:#8b95a3;font-weight:700;margin:0;}",
-      ".step{border:1px solid #eef0f3;border-radius:8px;margin-bottom:6px;background:#fafbfc;}",
-      ".step.current{background:#fff;border-color:#c6d4ff;box-shadow:0 0 0 2px rgba(15,98,254,.12);}",
-      ".steptop{display:flex;gap:9px;align-items:flex-start;width:100%;text-align:left;background:none;border:none;padding:6px 10px;font:inherit;color:inherit;cursor:pointer;min-height:24px;}",
-      ".num{flex:none;width:22px;height:22px;border-radius:50%;border:1.5px solid #c6cdd6;background:#fff;color:#5b6673;display:inline-flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;font-variant-numeric:tabular-nums;}",
+      ".body{position:relative;flex:1;min-height:0;overflow-y:auto;padding:0 var(--sp4) 10px;}",
+      ".step{border:1px solid var(--border);border-radius:6px;margin-bottom:var(--sp4);background:var(--layer);}",
+      ".step.current{background:#fff;border-color:var(--blue-soft);box-shadow:0 0 0 2px rgba(15,98,254,.12);}",
+      ".steptop{display:flex;gap:var(--sp3);align-items:flex-start;width:100%;text-align:left;background:none;border:none;padding:10px var(--sp4);font:inherit;color:inherit;cursor:pointer;min-height:24px;}",
+      ".num{flex:none;width:22px;height:22px;border-radius:50%;border:1.5px solid var(--border-strong);background:#fff;color:var(--text2);display:inline-flex;align-items:center;justify-content:center;font-size:var(--label);font-weight:600;font-variant-numeric:tabular-nums;}",
       ".step[data-state=pass] .num{background:#24a148;border-color:#24a148;color:#fff;}",
       ".step[data-state=fail] .num{background:#da1e28;border-color:#da1e28;color:#fff;}",
-      ".step[data-state=na] .num{background:#8b95a3;border-color:#8b95a3;color:#fff;}",
+      ".step[data-state=na] .num{background:var(--border-strong);border-color:var(--border-strong);color:#fff;}",
       ".step[data-state=stale] .num{background:#f1c21b;border-color:#f1c21b;color:#3d3000;}",
       ".step.current .num{box-shadow:0 0 0 3px rgba(15,98,254,.18);}",
-      ".step.current[data-state=todo] .num{border-color:#0f62fe;color:#0f62fe;}",
-      ".steplabel{flex:1;line-height:1.4;padding-top:2px;}",
+      ".step.current[data-state=todo] .num{border-color:var(--blue);color:var(--blue);}",
+      ".steplabel{flex:1;padding-top:2px;}",
       ".panel:not(.expanded) .step:not(.current) .steplabel{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;}",
       ".step.current .steplabel{font-weight:600;}",
-      ".step.answered .steplabel{color:#697077;}",
-      ".chip{flex:none;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.03em;border-radius:4px;padding:2px 5px;margin-top:3px;background:#eef0f3;color:#5b6673;}",
+      ".step.answered .steplabel{color:var(--text2);}",
+      ".chip{flex:none;font-size:var(--label);font-weight:600;border-radius:4px;padding:2px 6px;margin-top:2px;background:var(--layer);color:var(--text2);}",
       ".chip[hidden]{display:none;}",
       ".chip.pass{background:#defbe6;color:#0e6027;}",
       ".chip.fail{background:#fff1f1;color:#a2191f;}",
-      ".chip.stale{background:#fff8e1;color:#684e00;}",
+      ".chip.stale{background:#fcf4d6;color:#684e00;}",
       ".detail:empty{display:none;}",
-      // Flush in the compact panel, where 31px of indent costs a line of wrapping
-      // in a 360px column; aligned under the instruction once there is width for
-      // it to be worth the alignment.
-      ".detail{padding:0 10px 8px;}",
-      ".panel.expanded .detail{padding-left:41px;}",
-      // Set apart from the instruction, and labelled, so the thing to do and the
-      // thing to check stop reading as one long sentence.
-      ".expect{display:flex;gap:8px;align-items:baseline;background:#f4f7fb;border-left:3px solid #c6d4ff;border-radius:0 6px 6px 0;padding:5px 9px;margin:4px 0;}",
-      ".expectlabel{flex:none;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:#4b6ea9;}",
-      ".expecttext{font-size:12px;line-height:1.4;color:#40484f;}",
-      ".optional{font-size:10px;color:#697077;text-transform:uppercase;margin-bottom:4px;}",
-      ".go{display:inline-flex;align-items:center;box-sizing:border-box;min-height:24px;font-size:12px;font-weight:600;color:#0f62fe;text-decoration:none;background:#eef4ff;border:1px solid #cfe0ff;border-radius:999px;padding:3px 10px;}",
-      ".go:hover{background:#dbe7ff;}",
-      ".marks{display:flex;gap:6px;}",
-      ".mark{flex:1;border:1px solid #d0d5dd;background:#fff;border-radius:6px;padding:5px 0;font-size:12px;font-weight:600;cursor:pointer;color:#5b6673;min-height:24px;}",
+      // Flush in the compact panel, where the indent costs a line of wrapping in a
+      // narrow column; aligned under the instruction once there is width for the
+      // alignment to be worth it.
+      ".detail{padding:0 var(--sp4) var(--sp4);}",
+      ".panel.expanded .detail{padding-left:44px;}",
+      // Set apart from the instruction and labelled, so the thing to do and the
+      // thing to check stop reading as one long sentence. The label rides beside
+      // the text at the label token rather than shrunk below it, which is what had
+      // left the most important caption in the panel too small to read.
+      ".expect{display:flex;gap:var(--sp3);align-items:baseline;background:var(--blue-bg);border-left:3px solid var(--blue-soft);border-radius:0 4px 4px 0;padding:5px 9px;margin:var(--sp2) 0;}",
+      ".expectlabel{flex:none;font-size:var(--label);font-weight:600;text-transform:uppercase;letter-spacing:.02em;color:var(--blue-dark);}",
+      ".expecttext{color:var(--text);}",
+      ".optional{font-size:var(--label);color:var(--text3);margin-bottom:var(--sp2);}",
+      ".go{display:inline-flex;align-items:center;box-sizing:border-box;min-height:24px;font-weight:600;color:var(--blue-dark);text-decoration:none;background:var(--blue-bg);border:1px solid var(--blue-soft);border-radius:999px;padding:2px 10px;}",
+      ".go:hover{background:#d0e2ff;}",
+      ".marks{display:flex;gap:var(--sp2);}",
+      ".mark{flex:1;border:1px solid var(--border-strong);background:#fff;border-radius:4px;padding:4px 0;font:inherit;font-weight:600;cursor:pointer;color:var(--text2);min-height:24px;}",
       ".mark.pass.on{background:#defbe6;border-color:#24a148;color:#0e6027;}",
       ".mark.fail.on{background:#fff1f1;border-color:#da1e28;color:#a2191f;}",
-      ".mark.na.on{background:#eef0f3;border-color:#8b95a3;color:#5b6673;}",
-      ".stepnote{margin-top:5px;font-size:12px;}",
-      ".fb{padding:6px 12px 8px;border-top:1px solid #eef0f3;}",
-      ".notetoggle{background:none;border:none;color:#0f62fe;font:inherit;font-weight:600;cursor:pointer;padding:4px 0;min-height:24px;}",
+      ".mark.na.on{background:var(--layer);border-color:var(--border-strong);color:var(--text2);}",
+      ".stepnote{margin-top:var(--sp2);}",
+      ".fb{padding:6px var(--sp4) var(--sp3);border-top:1px solid var(--border);}",
+      ".notetoggle{background:none;border:none;color:var(--blue-dark);font:inherit;font-weight:600;cursor:pointer;padding:var(--sp2) 0;min-height:24px;}",
       ".noteform{display:none;margin-top:6px;}",
       ".fb.open .noteform{display:block;}",
-      ".add{margin-top:6px;background:#eef4ff;color:#0f62fe;border:1px solid #cfe0ff;border-radius:6px;padding:6px 10px;font-weight:600;cursor:pointer;min-height:24px;}",
+      ".add{margin-top:6px;background:var(--blue-bg);color:var(--blue-dark);border:1px solid var(--blue-soft);border-radius:4px;padding:4px 10px;font:inherit;font-weight:600;cursor:pointer;min-height:24px;}",
       ".notes{margin-top:6px;display:flex;flex-direction:column;gap:6px;}",
       ".notes:empty{display:none;}",
-      ".note{display:grid;grid-template-columns:1fr auto auto;gap:6px;align-items:start;background:#fafbfc;border:1px solid #eef0f3;border-radius:6px;padding:6px 8px;}",
-      ".note .icon{color:#5b6673;}",
-      ".notetext{font-size:12px;}.notemeta{font-size:11px;color:#8b95a3;font-variant-numeric:tabular-nums;white-space:nowrap;}",
-      ".foot{display:flex;gap:6px;padding:10px 12px;border-top:1px solid #eef0f3;background:#fff;}",
-      ".primary{flex:1;background:#0f62fe;color:#fff;border:none;border-radius:6px;padding:8px 0;font-weight:700;cursor:pointer;min-height:24px;}.primary:hover{background:#0353e9;}",
-      ".ghost{background:#fff;color:#5b6673;border:1px solid #d0d5dd;border-radius:6px;padding:8px 12px;cursor:pointer;min-height:24px;}",
-      "@media (max-width:640px){.wrap.open{left:0;right:0;bottom:0;transform:none;}.wrap.open .panel{width:100vw;max-height:70vh;border-radius:10px 10px 0 0;}}",
+      ".note{display:grid;grid-template-columns:1fr auto auto;gap:6px;align-items:start;background:var(--layer);border:1px solid var(--border);border-radius:4px;padding:6px var(--sp3);}",
+      ".note .icon{color:var(--text2);}",
+      ".notemeta{font-size:var(--label);color:var(--text3);font-variant-numeric:tabular-nums;white-space:nowrap;}",
+      ".foot{display:flex;gap:var(--sp2);padding:10px var(--sp4);border-top:1px solid var(--border);background:#fff;}",
+      ".primary{flex:1;background:var(--blue);color:#fff;border:none;border-radius:4px;padding:6px 0;font:inherit;font-weight:600;cursor:pointer;min-height:24px;}.primary:hover{background:#0353e9;}",
+      ".ghost{background:#fff;color:var(--text2);border:1px solid var(--border-strong);border-radius:4px;padding:6px var(--sp4);font:inherit;cursor:pointer;min-height:24px;}",
+      // The bottom sheet is for an overlay on a narrow screen. A popped-out window
+      // is narrow too but is not over anything, and this rule matches it selector
+      // for selector, so without the exclusion source order rather than
+      // specificity would decide which layout a 460px review window gets.
+      "@media (max-width:640px){.wrap.open:not(.standalone){left:0;right:0;bottom:0;transform:none;}.wrap.open:not(.standalone) .panel{width:100vw;max-height:70vh;border-radius:8px 8px 0 0;}}",
       "@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important;}}",
     ].join("");
   }

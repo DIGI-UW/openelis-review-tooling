@@ -24,6 +24,23 @@ Open `index.html` for a live, backend-free demo.
   served at `/__review/build.json`, which the router keeps as an alias for the
   same document — point this attribute there if you need that URL.
 
+## Open, close or hide it from the URL
+
+Add `?oe-review=` to any page the widget is on:
+
+| Value | Effect |
+| --- | --- |
+| `open` (or a bare `?oe-review`) | The panel is open when the page loads — this is how you hand someone a link that lands them straight in the review. |
+| `closed` | Mounted but collapsed to its launcher. |
+| `off` | Not mounted at all, for a clean screenshot or a demo. |
+
+The parameter is **consumed**: it is applied once and then removed from the address
+bar, so it cannot keep reopening a panel the reviewer has closed, and it does not
+end up in the page URLs the report records as evidence. `off` persists across
+navigation — otherwise the checklist's own "Go to …" links would undo it on the
+next page — so `?oe-review=on` is the way back, and the widget logs that reminder
+when it stands down.
+
 ### Where the checklist comes from (priority order)
 1. **Inline** (fully backend-free): a `window.OE_REVIEW_CHECKLIST` object, or
    ```html
@@ -82,6 +99,24 @@ do / Failed** narrows the list once there is something to narrow, and each secti
 heading carries its own count. How the panel is arranged — side, expanded, filter,
 and which story was open — is remembered per deployment, so it survives a reload
 and a story switch.
+
+### Popping it out
+
+**Pop out** moves the review into a window of its own, so it sits beside the
+application — on a second monitor, say — instead of over it, and nothing the
+application paints can reach it. ⌘/Ctrl-click opens a tab instead of a window.
+
+The popped-out panel is a second view of one review rather than a copy of it. Both
+windows share the reviewer's saved answers, so a mark made in either shows up in the
+other straight away; the page keeps its launcher, which turns dark and raises the
+review window rather than opening a second panel. Because the application is in the
+window the panel came from, that is where a step's **Go to …** link navigates, and
+that page — wherever the reviewer has since got to — is what a mark records as
+evidence. **Return the checklist to the page** hands it back and closes the window.
+
+Pop-out needs the widget to have been loaded from a URL; a copy pasted inline has no
+address to give the second window, and simply offers no button. A browser that
+blocks the window says so in the panel rather than doing nothing.
 
 ## Several stories on one deployment
 

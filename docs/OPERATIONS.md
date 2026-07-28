@@ -102,8 +102,10 @@ verification state. `/__review/build.json` is a compatibility alias.
 
 Browser answers are isolated by instance, deployment ID, and checklist
 revision. Within the same deployment, a stable semantic `step_key` can carry an
-answer across reordering. Changed instructions are marked stale. Legacy
-position-based answers are shown as unusable and never silently mapped.
+answer across reordering. Changed instructions are marked stale. Answers from
+before stable keys were keyed by position, so none can be matched to a step;
+they are never mapped, and the pre-v2 key holding them is discarded on sight
+rather than reported.
 
 ## Deployment Boundary
 

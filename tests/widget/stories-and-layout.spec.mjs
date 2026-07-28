@@ -235,3 +235,53 @@ test("offers no story switcher when there is no catalog to switch between", asyn
   await expect(widget.locator(".panel")).toBeVisible();
   await expect(widget.locator(".stories")).toHaveCount(0);
 });
+
+test("leaves the end of a long story overview reachable", async ({ page }) => {
+  const widget = await openPanel(page);
+  const intro = widget.locator(".intro");
+  await expect(intro).toBeVisible();
+
+  const reach = await intro.evaluate((el) => {
+    // Deliberately not scrolled first. scrollHeight cannot answer this either:
+    // -webkit-line-clamp truncates the layout, and an overflow:hidden box still
+    // scrolls under script while a reviewer has no way to move it.
+    const node = el.firstChild;
+    const range = document.createRange();
+    range.setStart(node, Math.max(0, node.length - 12));
+    range.setEnd(node, node.length);
+    const last = range.getBoundingClientRect();
+    const box = el.getBoundingClientRect();
+    return {
+      text: el.textContent.trim(),
+      painted: last.height > 0,
+      fits: last.bottom - box.bottom <= 1,
+      scrollable: ["auto", "scroll"].includes(getComputedStyle(el).overflowY),
+    };
+  });
+
+  expect(reach.text).toContain("confusing or broken");
+  expect(reach.painted).toBe(true);
+  // The overview may be capped — it has to give room back to the checklist — so
+  // what is required is that the reviewer can get to the end of it, by its
+  // fitting or by their scrolling. Clamped and hidden it was neither.
+  expect(reach.fits || reach.scrollable).toBe(true);
+});
+
+test("does not park the current step under the pinned section heading", async ({
+  page,
+}) => {
+  const widget = await openPanel(page);
+  await expect(widget.locator(".step.current")).toBeVisible();
+
+  const overlap = await widget.locator(".panel").evaluate((panel) => {
+    const step = panel.querySelector(".step.current");
+    const heading = step.parentNode.querySelector(".secrow");
+    const label = step.querySelector(".steplabel").getBoundingClientRect();
+    // The heading is sticky, so it paints over whatever scrolls beneath it. What
+    // the reviewer needs to be able to read is the instruction.
+    return Math.round(heading.getBoundingClientRect().bottom - label.top);
+  });
+
+  expect(overlap).toBeLessThanOrEqual(0);
+});
+
