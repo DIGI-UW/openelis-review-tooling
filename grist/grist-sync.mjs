@@ -112,6 +112,14 @@ async function ensureTables(doc, { dryRun = false } = {}) {
         body: JSON.stringify({ columns: [column] }),
       });
     }
+    // Last, and only names the declaration retired: everything above may still
+    // have been reading the column being dropped.
+    for (const colId of plan.retire) {
+      await api(`/api/docs/${doc}/apply`, {
+        method: "POST",
+        body: JSON.stringify([["RemoveColumn", id, colId]]),
+      });
+    }
   }
 }
 
