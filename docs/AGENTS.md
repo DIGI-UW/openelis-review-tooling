@@ -39,13 +39,20 @@ Types & Mapping, OGC-1054).
 ### The data model
 
 - Document **"UAT Checklists"**, id `hvZ4rzsyGJuqggkZBko8gc`.
-- Table **`UAT_Meta`** — one row per instance: `instance, title, intro, jira`.
+- Table **`UAT_Meta`** — one row per review: `instance, title, intro, jira,
+  published`.
+- Table **`UAT_Stories`** — one row per story: `instance` (ref → `UAT_Meta`),
+  `story_key, title, story_order`, plus where it came from — `jira, pr, mock`
+  (one link each), `user_story` (prose) and `hosts` (deployments it applies to,
+  blank for all).
 - Table **`UAT_Steps`** — one row per step:
-  `instance, step_key, required, section, section_order (int), step_order (int),
+  `instance, step_key, required, story` (ref → `UAT_Stories`), `step_order (int),
   do, expect, route`.
-- Reviewers see steps grouped by `section` and ordered by
-  `section_order` then `step_order`. `route` is the app path a reviewer opens
-  for that step (e.g. `/Microbiology/worklist`).
+- Reviewers see steps grouped under their story and ordered by `story_order`
+  then `step_order`. `route` is the app path a reviewer opens for that step
+  (e.g. `/Microbiology/worklist`).
+- Both story and step tables carry a computed `problems` column: empty means the
+  row is publishable.
 - `step_key` is immutable and unique within an instance. Reordering a row must
   not change it. Changing `do`, `expect`, `route`, or `required` invalidates a
   prior reviewer mark until the reviewer confirms that step again.
@@ -60,17 +67,19 @@ Read before you write — pull current rows so you append/update rather than
 duplicate:
 
 ```
-grist_query_document(doc_id, "SELECT id, section, section_order, step_order, \"do\"
-  FROM UAT_Steps WHERE instance='amr' ORDER BY section_order, step_order")
+grist_query_document(doc_id, "SELECT y.id story, y.story_key, y.title, s.step_order,
+  s.step_key, s.\"do\" FROM UAT_Steps s JOIN UAT_Stories y ON y.id = s.story
+  JOIN UAT_Meta m ON m.id = y.instance WHERE m.instance='amr'
+  ORDER BY y.story_order, s.step_order")
 ```
 
-Add a step (append to a section = reuse its `section_order`, next `step_order`):
+Add a step — `story` is the `UAT_Stories` **row id** the query above returned,
+not its title:
 
 ```
 grist_add_records(doc_id, "UAT_Steps", [{
-  instance: "amr", section: "Drive the workflow (reviewer-performed)",
-  step_key: "AMR-008", required: true,
-  section_order: 2, step_order: 2,
+  instance: "amr", story: 3,
+  step_key: "AMR-008", required: true, step_order: 2,
   do: "…the action the reviewer performs…",
   expect: "…the expected result / what to flag if wrong…",
   route: "/Microbiology/worklist"

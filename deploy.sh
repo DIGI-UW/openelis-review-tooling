@@ -204,7 +204,7 @@ AMR_DOMAIN="$AMR_DOMAIN" ANALYZERS_DOMAIN="$ANALYZERS_DOMAIN" \\
 
 echo "[deploy] amr stack build+up"
 cd "$AMR_DIR"
-docker compose -p amr -f build.docker-compose.yml \\
+OE_UAT_SCENARIOS_ENABLED=true docker compose -p amr -f build.docker-compose.yml \\
   -f "$EDGE_DIR/amr/docker-compose.override.yml" \\
   up -d --build certs db.openelis.org oe.openelis.org fhir.openelis.org frontend.openelis.org
 
@@ -340,7 +340,7 @@ cmd_certs() {
 #   analyzers — the harness's own seed-analyzers.sh (9-device Madagascar fleet:
 #               ASTM + HL7/MLLP + FILE, mock networks wired to the bridge)
 #   amr       — scripts/seed-microbiology.sh (a bacteriology + sibling TB case,
-#               reusing the PR's own test-fixture SQL) so the configured
+#               provisioned through OpenELIS services) so the configured
 #               /Microbiology/worklist and case routes have something to review.
 cmd_seed() {
   require_aws
@@ -352,7 +352,7 @@ cmd_seed() {
 $(cat "$HERE/scripts/seed-microbiology.sh")
 SEEDEOF
 chmod +x /tmp/seed-microbiology.sh
-DB_CONTAINER=amr-openelisglobal-database BASE_URL=https://$AMR_DOMAIN /tmp/seed-microbiology.sh" \
+BASE_URL=https://$AMR_DOMAIN /tmp/seed-microbiology.sh" \
     || warn "microbiology seed failed — see output above"
   log "seed complete. Microbiology worklist:"
   log "  https://$AMR_DOMAIN/Microbiology/worklist"
@@ -539,9 +539,29 @@ flock -n 9 || { echo 'another review-host deployment is already running' >&2; ex
 router_workdir=\$(docker inspect -f '{{index .Config.Labels \"com.docker.compose.project.working_dir\"}}' oe-edge-router)
 edge_dir=\${router_workdir%/router}
 repo_git() { sudo -u '$OS_USER' git -c safe.directory=\"\$edge_dir\" -C \"\$edge_dir\" \"\$@\"; }
-# Only the repository metadata: the checkout also holds Let's Encrypt private
-# keys that have no business being readable by the application user.
+# The repository metadata, and the files git tracks. Never the whole directory:
+# the checkout also holds Let's Encrypt private keys that have no business being
+# readable by the application user, and ls-files never names them.
+#
+# Tracked files matter because the checkout below runs as this user. A file owned
+# by root cannot be rewritten, so git leaves the old content in place — and the
+# worktree is then dirty forever, which the guard reads as somebody's uncommitted
+# work and refuses every later deploy over it.
 sudo chown -R '$OS_USER':'$OS_USER' \"\$edge_dir/.git\"
+# The directories too, not only the files in them: replacing a file means
+# unlinking it, and that is permission on the directory rather than on the file.
+# A tracked file inside a root-owned directory cannot be replaced however it is
+# owned itself.
+#
+# cd first: ls-files names paths relative to the repository, and chown resolves
+# them against wherever it happens to be running. Untracked directories are never
+# named, so the Let's Encrypt material keeps the ownership it has.
+(
+  cd \"\$edge_dir\"
+  repo_git ls-files -z | sudo xargs -0 -r chown '$OS_USER':'$OS_USER'
+  repo_git ls-files -z | xargs -0 -r -n1 dirname | sort -u \
+    | sudo xargs -r chown '$OS_USER':'$OS_USER'
+)
 if ! repo_git diff --quiet || ! repo_git diff --cached --quiet; then
   echo \"refusing to overwrite tracked changes in \$edge_dir\" >&2
   repo_git status --short >&2
@@ -588,6 +608,29 @@ cmd_review() {
   esac
 }
 
+# The document's schema, from the checkout on the box. Reuses the harness's own
+# bootstrap, so the runtime that runs is the one the repository ships rather than
+# whatever a caller happened to copy over.
+cmd_grist_apply() {
+  shift || true
+  require_aws
+  local flags="$*"
+  log "applying the Grist schema${flags:+ ($flags)}"
+  ssm_run "set -euo pipefail
+router_workdir=\$(docker inspect -f '{{index .Config.Labels \"com.docker.compose.project.working_dir\"}}' oe-edge-router)
+edge_dir=\${router_workdir%/router}
+cd \"\$edge_dir\"
+sudo -u '$OS_USER' bash grist/bootstrap.sh apply $flags"
+}
+
+cmd_grist() {
+  local action="${1:-}"
+  case "$action" in
+    apply) cmd_grist_apply "$@" ;;
+    *) die "unknown grist action '$action' (apply)" ;;
+  esac
+}
+
 cmd_data_seed() {
   local instance="${1:-}" fixture=""
   shift || true
@@ -609,7 +652,7 @@ cmd_data_seed() {
 $(cat "$HERE/scripts/seed-microbiology.sh")
 SEEDEOF
 chmod +x /tmp/seed-microbiology.sh
-DB_CONTAINER=amr-openelisglobal-database BASE_URL=https://$AMR_DOMAIN /tmp/seed-microbiology.sh"
+BASE_URL=https://$AMR_DOMAIN /tmp/seed-microbiology.sh"
 }
 
 cmd_data() {
@@ -704,9 +747,10 @@ main() {
     app) cmd_app "$@" ;;
     review) cmd_review "$@" ;;
     data) cmd_data "$@" ;;
+    grist) cmd_grist "$@" ;;
     up-to-certs) cmd_up_to_certs "$@" ;;
     help|-h|--help) sed -n '2,30p' "$0" | sed 's/^# \{0,1\}//' ;;
-    *) die "unknown subcommand '$sub' (status|connect|configure|deploy|certs|seed|app|review|data|up-to-certs|help)" ;;
+    *) die "unknown subcommand '$sub' (status|connect|configure|deploy|certs|seed|app|review|data|grist|up-to-certs|help)" ;;
   esac
 }
 main "$@"

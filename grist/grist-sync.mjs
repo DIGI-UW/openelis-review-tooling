@@ -8,14 +8,21 @@
 // Env: GRIST_URL, GRIST_KEY, GRIST_ORG (default "openelis"),
 //      GRIST_DOC_NAME (default "UAT Checklists"), REVIEW_DIR (seed input,
 //      default ../widget/examples), EXPORT_DIR (generate output, default ../runtime/checklists).
-// Schema: UAT_Meta(instance,title,intro,jira,published), UAT_Steps(instance,step_key,
-// required,section,section_order,step_order,do,expect,route), UAT_Results(reviewer,instance,
-// step_key,mark,note,page_url,at) — Results is created now, filled later.
+// Schema: declared in schema.mjs — UAT_Meta (one row per review), UAT_Stories
+// (one per story, with its links and the hosts it applies to) and UAT_Steps (one
+// per step, pointing at its story).
 
 import { mkdirSync, readFileSync, writeFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { buildUatDocument, parseRequired } from "./mcp/uat-document.mjs";
-import { PAGES, SCHEMA, planColumns, planPages } from "./schema.mjs";
+import {
+  PAGES,
+  SCHEMA,
+  planColumns,
+  planInstanceRefs,
+  planPages,
+  planStoryMigration,
+} from "./schema.mjs";
 
 const URL = process.env.GRIST_URL || "http://grist:8484";
 const KEY = process.env.GRIST_KEY;
@@ -65,7 +72,7 @@ async function ensureTables(doc, { dryRun = false } = {}) {
   );
   for (const [id, spec] of Object.entries(SCHEMA)) {
     if (!existing.has(id)) {
-      const columns = planColumns([], spec.columns).add;
+      const columns = planColumns([], spec.columns, spec.retired).add;
       if (dryRun) {
         console.log(`  would create table ${id} (${columns.length} columns)`);
         continue;
@@ -78,7 +85,7 @@ async function ensureTables(doc, { dryRun = false } = {}) {
       continue;
     }
     const live = (await api(`/api/docs/${doc}/tables/${id}/columns`)).columns;
-    const plan = planColumns(live, spec.columns);
+    const plan = planColumns(live, spec.columns, spec.retired);
     for (const column of plan.add) {
       console.log(`  ${dryRun ? "would add" : "add"} ${id}.${column.id}`);
     }
@@ -94,10 +101,32 @@ async function ensureTables(doc, { dryRun = false } = {}) {
         body: JSON.stringify({ columns: plan.add }),
       });
     }
-    if (plan.update.length) {
+    // One column per request: Grist refuses a PATCH whose records do not all carry
+    // the same fields, and a plan is by definition a set of different drifts.
+    for (const column of plan.update) {
       await api(`/api/docs/${doc}/tables/${id}/columns`, {
         method: "PATCH",
-        body: JSON.stringify({ columns: plan.update }),
+        body: JSON.stringify({ columns: [column] }),
+      });
+    }
+  }
+}
+
+// Separate from ensureTables on purpose, and run last. The columns being retired
+// are the ones the migration reads to build stories from, so dropping them while
+// reconciling the schema would destroy the grouping before anything had used it:
+// on a fresh document, or a restore, every step would collapse into one story.
+async function retireColumns(doc, { dryRun = false } = {}) {
+  for (const [id, spec] of Object.entries(SCHEMA)) {
+    if (!spec.retired || !spec.retired.length) continue;
+    const live = (await api(`/api/docs/${doc}/tables/${id}/columns`)).columns;
+    const { retire } = planColumns(live, spec.columns, spec.retired);
+    for (const colId of retire) {
+      console.log(`  ${dryRun ? "would retire" : "retire"} ${id}.${colId}`);
+      if (dryRun) continue;
+      await api(`/api/docs/${doc}/apply`, {
+        method: "POST",
+        body: JSON.stringify([["RemoveColumn", id, colId]]),
       });
     }
   }
@@ -124,6 +153,60 @@ async function metaRefs(doc) {
     if (table) colRef.set(`${table.fields.tableId}.${column.fields.colId}`, column.id);
   }
   return { tableRef, colRef };
+}
+
+// Section titles were the only record of which story a step belonged to, so this
+// has to run before anything drops them.
+// Read before the column becomes a reference: afterwards the names are no longer
+// something the document can resolve back to a review.
+async function readStoryNames(doc) {
+  const tables = (await api(`/api/docs/${doc}/tables`)).tables.map((t) => t.id);
+  if (!tables.includes("UAT_Stories")) return [];
+  return (await api(`/api/docs/${doc}/tables/UAT_Stories/records`)).records;
+}
+
+async function repointStories(doc, before, { dryRun = false } = {}) {
+  if (!before.length) return;
+  const meta = (await api(`/api/docs/${doc}/tables/UAT_Meta/records`)).records;
+  const plan = planInstanceRefs(before, meta);
+  for (const name of plan.unmatched) {
+    console.error(`  !! story names review "${name}", which does not exist — left as it is`);
+  }
+  if (!plan.assign.length) return;
+  console.log(`  ${dryRun ? "would repoint" : "repoint"} ${plan.assign.length} stories at their review`);
+  if (dryRun) return;
+  await api(`/api/docs/${doc}/tables/UAT_Stories/records`, {
+    method: "PATCH",
+    body: JSON.stringify({
+      records: plan.assign.map((row) => ({ id: row.id, fields: { instance: row.instance } })),
+    }),
+  });
+}
+
+async function ensureStories(doc, { dryRun = false } = {}) {
+  const [steps, reviews] = await Promise.all([
+    api(`/api/docs/${doc}/tables/UAT_Steps/records`).then((r) => r.records),
+    api(`/api/docs/${doc}/tables/UAT_Meta/records`).then((r) => r.records),
+  ]);
+  const plan = planStoryMigration(reviews, steps);
+  if (!plan.stories.length) return;
+  console.log(
+    `  ${dryRun ? "would convert" : "convert"} ${plan.assign.length} steps into ${plan.stories.length} stories`,
+  );
+  if (dryRun) return;
+
+  const created = await api(`/api/docs/${doc}/tables/UAT_Stories/records`, {
+    method: "POST",
+    body: JSON.stringify({ records: plan.stories.map((fields) => ({ fields })) }),
+  });
+  const ids = created.records.map((record) => record.id);
+  await api(`/api/docs/${doc}/tables/UAT_Steps/records`, {
+    method: "PATCH",
+    body: JSON.stringify({
+      records: plan.assign.map((row) => ({ id: row.id, fields: { story: ids[row.story] } })),
+    }),
+  });
+  console.log(`  converted ${plan.assign.length} steps`);
 }
 
 async function ensurePages(doc, { dryRun = false, rebuild = false } = {}) {
@@ -178,12 +261,15 @@ async function ensurePages(doc, { dryRun = false, rebuild = false } = {}) {
           section.sort.map((col) => colRef.get(`${section.table}.${col}`)).filter(Boolean),
         );
       }
-      // A section over the same table as its source follows that section's cursor,
-      // which is what makes the card show the row picked in the list.
       if (section.linkFrom !== undefined) {
         fields.linkSrcSectionRef = sectionRefs[section.linkFrom];
         fields.linkSrcColRef = 0;
-        fields.linkTargetColRef = 0;
+        // linkVia names the reference the target carries back to the source, which
+        // is how one table's rows filter another's. Without it the two sections
+        // are over the same table and the link is a shared cursor instead.
+        fields.linkTargetColRef = section.linkVia
+          ? colRef.get(`${section.table}.${section.linkVia}`) || 0
+          : 0;
       }
       if (Object.keys(fields).length) {
         updates.push(["UpdateRecord", "_grist_Views_section", sectionRefs[index], fields]);
@@ -313,6 +399,7 @@ async function seed(replaceAll) {
 
 async function generate() {
   const doc = await resolveDoc();
+  const storyRecs = (await api(`/api/docs/${doc}/tables/UAT_Stories/records`)).records;
   const meta = {};
   for (const r of (await api(`/api/docs/${doc}/tables/UAT_Meta/records`)).records)
     meta[r.fields.instance] = r.fields;
@@ -323,7 +410,7 @@ async function generate() {
   mkdirSync(EXPORT_DIR, { recursive: true });
   for (const [inst, rows] of Object.entries(byInstance)) {
     const m = meta[inst] || {};
-    const out = buildUatDocument(inst, m, rows);
+    const out = buildUatDocument(inst, m, rows, storyRecs);
     const path = join(EXPORT_DIR, `uat-${inst}.json`);
     writeFileSync(path, JSON.stringify(out, null, 2) + "\n");
     console.log(
@@ -357,7 +444,12 @@ if (mode === "apply") {
   const dryRun = process.argv.includes("--dry-run");
   const rebuild = process.argv.includes("--rebuild-pages");
   const doc = await resolveDoc();
+  const storyNames = await readStoryNames(doc);
   await ensureTables(doc, { dryRun });
+  await ensureStories(doc, { dryRun });
+  await repointStories(doc, storyNames, { dryRun });
+  // After the migration that reads them, never before.
+  await retireColumns(doc, { dryRun });
   await ensurePages(doc, { dryRun, rebuild });
   console.log(dryRun ? `dry run against ${doc}` : `applied schema to ${doc}`);
 } else if (mode === "migrate") await migrate();

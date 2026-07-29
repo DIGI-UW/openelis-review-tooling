@@ -74,6 +74,7 @@ run_node() {
     -e GRIST_KEY="$(cat "$KEYFILE")" \
     -e GRIST_URL=http://grist:8484 \
     -e REVIEW_DIR=/review \
+    -e EXPORT_DIR=/work/checklists \
     "$NODE_IMG" node /work/grist-sync.mjs "$@"
 }
 
@@ -149,6 +150,13 @@ cmd_status() {
   compose ps
 }
 
+cmd_apply() {
+  require_runtime
+  [ -s "$KEYFILE" ] || die "$KEYFILE is missing; run up first"
+  copy_runtime_scripts
+  run_node apply "$@"
+}
+
 cmd_generate() {
   require_runtime
   [ -s "$KEYFILE" ] || die "$KEYFILE is missing; run up first"
@@ -178,6 +186,10 @@ main() {
   case "${1:-help}" in
     validate) cmd_validate ;;
     up) cmd_up ;;
+    apply)
+      shift
+      cmd_apply "$@"
+      ;;
     status) cmd_status ;;
     generate) cmd_generate ;;
     publish)
@@ -193,6 +205,7 @@ main() {
 Usage:
   ./grist/bootstrap.sh validate
   ./grist/bootstrap.sh up
+  ./grist/bootstrap.sh apply [--dry-run] [--rebuild-pages]
   ./grist/bootstrap.sh status
   ./grist/bootstrap.sh generate
   ./grist/bootstrap.sh publish <instance…> [--unlist]

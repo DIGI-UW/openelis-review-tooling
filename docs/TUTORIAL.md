@@ -29,16 +29,18 @@ pages there are the ones to work in:
   selected: `do` and `expect` are paragraphs and want the room.
 - **All steps** — every review at once, for a sweep.
 
-Each step is `instance`, **`step_key`**, **`required`**, `section`,
-`section_order`, `step_order`, `do`, `expect`, `route`. Every column carries a
-description, so hover a header when a field is not obvious. The **problems**
-column says what is wrong with the row as you type, and is empty when the row is
-publishable.
+A story carries its title, its order, and where it came from — `jira`, `pr` and
+`mock` take one link each and show beside its heading; `user_story` is prose.
+`hosts` limits it to particular deployments, one per line, and blank means
+everywhere. Each step is `step_key`, `required`, `story`, `step_order`, `do`,
+`expect`, `route`. Every column carries a description, so hover a header when a
+field is not obvious, and the **problems** column says what is wrong with a row as
+you type.
 
 The `UAT_*` entries are Grist's raw tables, which the seeding and export paths
 write through.
 
-Reviewers see steps grouped by `section`, ordered by `section_order` then
+Reviewers see steps grouped under their story, in `story_order` then
 `step_order`.
 
 **`step_key` is mandatory** — a short, stable id for the step, unique within the

@@ -12,7 +12,7 @@ One row has a blank `step_key`. The whole instance fails, not that row.
 The row id in the message is the Grist row id — find it directly:
 
 ```sql
-SELECT id, step_key, "do" FROM UAT_Steps WHERE instance='<slug>' AND step_key=''
+SELECT id, step_key, "do" FROM UAT_Steps WHERE step_key = ''
 ```
 
 Give it a key in the instance's existing scheme and re-run the check. This is
@@ -21,28 +21,46 @@ documentation that predates `step_key`.
 
 ## `502` mentioning a duplicate key or ordering
 
-Two rows share a `step_key`, or two share the same `section_order`/`step_order`
+Two rows share a `step_key`, or two steps in one story share a `step_order`
 pair. Both are rejected because the reviewer's answers would be ambiguous.
 
 ```sql
-SELECT step_key, COUNT(*) c FROM UAT_Steps WHERE instance='<slug>'
+SELECT step_key, COUNT(*) c FROM UAT_Steps
 GROUP BY step_key HAVING c > 1
 ```
 
-## `502` mentioning conflicting section titles
+## `502` saying a step has no story
 
-Rows sharing a `section_order` disagree on `section` text. Pick one spelling and
-apply it to every row in that section — copy the exact string rather than
-retyping it.
+`story` is empty on that row. A step with no story has no heading to appear
+under, so the checklist is refused rather than the step being shown loose or
+silently dropped. Pick the story it belongs to — by row id, not by title:
+
+```sql
+SELECT s.id, s.step_key FROM UAT_Steps s WHERE s.story = 0 OR s.story IS NULL
+SELECT y.id, y.story_key, y.title FROM UAT_Stories y
+JOIN UAT_Meta m ON m.id = y.instance WHERE m.instance = '<slug>'
+```
+
+## A story exists but none of its steps appear
+
+Either it has no steps, or its `hosts` limits it to deployments this one is not.
+A story with `hosts` set is dropped where it does not apply — deliberately, so its
+steps do not sit in the total as answers nobody here can give. Blank means
+everywhere.
+
+```sql
+SELECT story_key, title, hosts, problems FROM UAT_Stories
+```
 
 ## `404` for the instance
 
-No rows for that slug. Almost always a typo in `instance` — it is free text, so
-a misspelling silently creates a separate, empty checklist rather than an error.
-List what actually exists:
+No `UAT_Meta` row with that slug, or none of its stories have steps. A story
+names its review by reference now, so a misspelling cannot create a second empty
+checklist — but a review with no stories still has nothing to serve.
 
 ```sql
-SELECT instance, COUNT(*) FROM UAT_Steps GROUP BY instance
+SELECT m.instance, COUNT(y.id) stories FROM UAT_Meta m
+LEFT JOIN UAT_Stories y ON y.instance = m.id GROUP BY m.instance
 ```
 
 ## Every step shows "(optional)" / nothing can fail the review
@@ -52,7 +70,7 @@ explicitly touched, so steps default to optional — which means the review can
 report success without any step having to pass.
 
 ```sql
-SELECT id, step_key FROM UAT_Steps WHERE instance='<slug>' AND required IS NOT TRUE
+SELECT id, step_key FROM UAT_Steps WHERE required IS NOT TRUE
 ```
 
 Set those rows to `required: true` unless a step genuinely is optional.

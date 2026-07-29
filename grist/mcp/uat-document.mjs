@@ -121,17 +121,54 @@ export function buildUatIndex(metaRecords, stepRecords) {
   };
 }
 
-export function buildUatDocument(instance, meta, records) {
+// A story's links, as an author filled them in. One of each and no more: the set
+// is small and known, so a named field prompts for the thing that belongs there
+// instead of a list somebody has to label. user_story is prose rather than a URL
+// — plenty of them are not written down anywhere with an address.
+function linksOf(fields) {
+  const links = {};
+  for (const [from, to] of [["jira", "jira"], ["pr", "pr"], ["mock", "mock"], ["user_story", "userStory"]]) {
+    const value = String(fields[from] || "").trim();
+    if (value) links[to] = value;
+  }
+  return Object.keys(links).length ? links : null;
+}
+
+// Where a story applies. One host per line, or comma separated; empty means the
+// story is about the application rather than about a particular deployment of it,
+// and shows wherever the widget is running.
+function hostsOf(fields) {
+  const hosts = String(fields.hosts || "")
+    .split(/[\n,]/)
+    .map((host) => host.trim())
+    .filter(Boolean);
+  return hosts.length ? hosts : null;
+}
+
+export function buildUatDocument(instance, meta, records, storyRecords = []) {
+  const stories = new Map();
+  const seenStoryKeys = new Set();
+  for (const record of storyRecords || []) {
+    const fields = record.fields || {};
+    const key = String(fields.story_key || "").trim();
+    if (!key) throw new Error(`story row ${record.id} is missing story_key`);
+    if (seenStoryKeys.has(key)) throw new Error(`duplicate story_key ${key}`);
+    seenStoryKeys.add(key);
+    stories.set(record.id, {
+      key,
+      title: String(fields.title || "").trim() || key,
+      order: Number(fields.story_order) || 0,
+      links: linksOf(fields),
+      hosts: hostsOf(fields),
+      steps: [],
+      _seenOrders: new Set(),
+    });
+  }
+
   const seenKeys = new Set();
-  const seenOrders = new Set();
   const rows = records
     .map((record) => ({ id: record.id, ...record.fields }))
-    .sort(
-      (a, b) =>
-        Number(a.section_order) - Number(b.section_order) ||
-        Number(a.step_order) - Number(b.step_order),
-    );
-  const sections = [];
+    .sort((a, b) => Number(a.step_order) - Number(b.step_order));
 
   for (const row of rows) {
     const key = String(row.step_key || "").trim();
@@ -139,34 +176,41 @@ export function buildUatDocument(instance, meta, records) {
     if (seenKeys.has(key)) throw new Error(`duplicate step_key ${key}`);
     seenKeys.add(key);
 
-    const orderKey = `${Number(row.section_order)}:${Number(row.step_order)}`;
-    if (seenOrders.has(orderKey)) throw new Error(`duplicate step order ${orderKey}`);
-    seenOrders.add(orderKey);
+    // A Ref column is the row id it points at, and 0 when nothing is chosen. A
+    // step with no story would be shown without a heading or not at all, and
+    // which of those happened would be up to whatever is rendering it.
+    const story = stories.get(row.story);
+    if (!story) throw new Error(`step ${key} has no story`);
 
-    let section = sections.find((candidate) => candidate._order === Number(row.section_order));
-    if (!section) {
-      section = {
-        title: String(row.section || "").trim(),
-        steps: [],
-        _order: Number(row.section_order),
-      };
-      sections.push(section);
-    } else if (section.title !== String(row.section || "").trim()) {
-      throw new Error(`section order ${row.section_order} has conflicting titles`);
+    const order = Number(row.step_order);
+    if (story._seenOrders.has(order)) {
+      throw new Error(`duplicate step order ${order} in story ${story.key}`);
     }
+    story._seenOrders.add(order);
 
-    const step = {
-      key,
-      required: parseRequired(row.required),
-      do: String(row.do || "").trim(),
-    };
+    const step = { key, required: parseRequired(row.required), do: String(row.do || "").trim() };
     if (!step.do) throw new Error(`step ${key} is missing do`);
     if (row.expect) step.expect = String(row.expect).trim();
     if (row.route) step.route = validateRoute(String(row.route).trim(), key);
-    section.steps.push(step);
+    story.steps.push(step);
   }
 
-  sections.forEach((section) => delete section._order);
+  // A story with no steps is a heading with nothing under it.
+  const sections = [...stories.values()]
+    .filter((story) => story.steps.length)
+    .sort((a, b) => a.order - b.order)
+    .map((story) => {
+      const section = { title: story.title, key: story.key, steps: story.steps };
+      if (story.links) section.links = story.links;
+      if (story.hosts) section.hosts = story.hosts;
+      return section;
+    });
+
+  // Still `sections`, and still schemaVersion 2. Everything a story adds is a new
+  // field beside what was already there, so a widget deployed before any of this
+  // reads the checklist exactly as it used to. Bumping the version would have
+  // broken every one of them the moment this endpoint changed, for a shape they
+  // can already handle.
   const content = {
     schemaVersion: SCHEMA_VERSION,
     title: meta.title || `${instance} review`,
@@ -176,8 +220,5 @@ export function buildUatDocument(instance, meta, records) {
     sections,
   };
 
-  return {
-    ...content,
-    checklistRevision: contentHash(content),
-  };
+  return { ...content, checklistRevision: contentHash(content) };
 }

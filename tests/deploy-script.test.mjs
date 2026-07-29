@@ -88,6 +88,21 @@ test("targeted app deployment preserves unrelated review infrastructure", () => 
   assert.doesNotMatch(appDeployScript, /\bfhir\.openelis\.org\b/);
 });
 
+test("only the AMR review deployment enables service-backed UAT provisioning", () => {
+  assert.match(
+    appDeployScript,
+    /if \[ "\$INSTANCE" = amr \]; then\s+export OE_UAT_SCENARIOS_ENABLED=true/s,
+  );
+  assert.match(
+    deployScript,
+    /OE_UAT_SCENARIOS_ENABLED=true docker compose -p amr/,
+  );
+  assert.doesNotMatch(
+    deployScript,
+    /OE_UAT_SCENARIOS_ENABLED=true docker compose -p analyzers/,
+  );
+});
+
 test("targeted analyzer deployment reuses its active Compose chain", () => {
   assert.match(deployScript, /app deploy analyzers --ref <sha>/);
   assert.match(

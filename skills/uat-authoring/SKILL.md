@@ -52,25 +52,31 @@ Always pull the current rows first. Checklists are edited by people too, and
 appending blindly duplicates steps or collides with a key someone else added:
 
 ```sql
-SELECT id, step_key, required, section, section_order, step_order, "do", expect, route
-FROM UAT_Steps WHERE instance='amr' ORDER BY section_order, step_order
+SELECT y.story_key, y.title, s.id, s.step_key, s.required, s.step_order,
+       s."do", s.expect, s.route
+FROM UAT_Steps s
+JOIN UAT_Stories y ON y.id = s.story
+JOIN UAT_Meta m ON m.id = y.instance
+WHERE m.instance = 'amr'
+ORDER BY y.story_order, s.step_order
 ```
 
-Reading first also tells you the section names and ordering already in use, so a
-new step lands where a reviewer expects it rather than in a section of one.
+Reading first also tells you which stories exist, so a new step joins one rather
+than arriving under a heading of its own.
 
 People work on the same rows through the document's **Story** page — pick a
 review, get its steps and an editing card — so point them there rather than at
 the raw tables when you hand something over. Same data, a different way in — nothing you write here is a separate copy,
 and nothing they change there needs importing.
 
-`UAT_Steps` also carries a **problems** column, computed live: it names whatever
-is wrong with a row — a missing or duplicated `step_key`, a route that is not a
-same-origin path, a section title that disagrees with its neighbours. Select it
-after writing and you will know what the endpoint is about to refuse:
+Both tables carry a **problems** column, computed live: it names whatever is
+wrong with a row — a missing or duplicated key, a route that is not a same-origin
+path, a step with no story, a story with no steps. Select it after writing and you
+will know what the endpoint is about to refuse:
 
 ```sql
-SELECT step_key, problems FROM UAT_Steps WHERE instance='amr' AND problems != ''
+SELECT step_key, problems FROM UAT_Steps WHERE problems != ''
+SELECT story_key, problems FROM UAT_Stories WHERE problems != ''
 ```
 
 ## The rules that actually bite
@@ -86,8 +92,8 @@ from the feature and number from 001 (`SKT-001`), matching the shape of the
 existing instances rather than their letters.
 
 **`step_key` is immutable once reviewers have seen it.** Reviewer answers are
-keyed by it. Reordering rows is free — change `section_order`/`step_order` all
-you like — but editing a key orphans that reviewer's answer.
+keyed by it. Reordering is free — change `step_order`, or move the step to
+another story — but editing a key orphans that reviewer's answer.
 
 **`required` defaults to false in Grist, which is backwards.** Grist's Bool
 column writes `false` for rows that were never touched, so a step you forget to
@@ -98,9 +104,14 @@ silently all-optional this way.)
 **`route` must be a same-origin path** — `/Microbiology/worklist`, not a full
 URL. Anything that resolves off-origin is rejected, and the row is refused.
 
-**A section's title and its `section_order` must agree across every row in it.**
-Two rows claiming `section_order: 1` with different titles is an error. Reuse the
-exact title string of the section you're appending to.
+**A step belongs to a story, and names it by row id.** `story` is a reference, so
+a step with nothing in it has no heading to appear under and the checklist is
+refused. Look the story up — or create it — rather than typing a title.
+
+**A story names its review the same way.** `UAT_Stories.instance` is a reference
+to a `UAT_Meta` row, not the slug. Typing a name that matches nothing used to
+produce a second, empty checklist instead of an error; now it is a reference and
+cannot.
 
 ## Write steps a reviewer can actually judge
 
@@ -127,9 +138,16 @@ to measure, and a Fail tells you nothing about where it broke.
 
 Keep a step to one observation. If the `expect` needs "and", it is two steps.
 
-Group steps into sections that match how a reviewer moves through the app. A short
-checklist is legitimately one section — the thing to avoid is fragmenting six steps
-into six sections of one, not having a single well-named section.
+Group steps into stories that match how a reviewer moves through the app. A short
+checklist is legitimately one story — the thing to avoid is fragmenting six steps
+into six stories of one, not having a single well-named story.
+
+A story can also carry where it came from: `jira`, `pr` and `mock` take one link
+each and appear beside its heading, and `user_story` is prose rather than a URL.
+Fill in what you know; a reviewer who can reach what was asked for can tell
+whether what is on screen answers it. `hosts` limits a story to particular
+deployments, one per line — leave it blank and the story shows everywhere, which
+is what most stories want.
 
 `route` is optional and only worth setting when you know the real path. Guessing
 sends reviewers to a 404, which is worse than making them navigate; omit it and let
@@ -137,16 +155,19 @@ the `do` describe where to go.
 
 ## Adding a step
 
-Append to an existing section by reusing its `section_order` and taking the next
-`step_order`:
+Find the story's row id, then take the next `step_order` inside it:
+
+```sql
+SELECT y.id, y.story_key, y.title FROM UAT_Stories y
+JOIN UAT_Meta m ON m.id = y.instance WHERE m.instance = 'amr'
+```
 
 ```
 grist_add_records(doc_id, "UAT_Steps", [{
   instance: "amr",
   step_key: "AMR-009",
   required: true,
-  section: "Drive the workflow (reviewer-performed)",
-  section_order: 2,
+  story: 3,                 // the UAT_Stories row id, not its title
   step_order: 3,
   do: "…what the reviewer performs…",
   expect: "…what should happen, and what to flag if it doesn't…",
@@ -154,8 +175,10 @@ grist_add_records(doc_id, "UAT_Steps", [{
 }])
 ```
 
-A brand-new checklist also needs one `UAT_Meta` row: `instance`, `title`,
-`intro`, `jira`.
+A new story needs `instance` (the `UAT_Meta` **row id**), `title` and
+`story_order`; `story_key` fills itself in. A brand-new checklist needs the
+`UAT_Meta` row first — `instance`, `title`, `intro`, `jira` — because everything
+else points at it.
 
 ## Always verify — the edit is not done until this passes
 

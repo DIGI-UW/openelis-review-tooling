@@ -115,6 +115,13 @@ case "$INSTANCE" in
     exit 1
     ;;
 esac
+
+# The service-backed fixture endpoint is available only on the isolated AMR
+# review stack. OpenELIS keeps it disabled by default everywhere else.
+if [ "$INSTANCE" = amr ]; then
+  export OE_UAT_SCENARIOS_ENABLED=true
+fi
+
 [ -d "$APP_DIR/.git" ] || {
   echo "application checkout is missing: $APP_DIR" >&2
   exit 1

@@ -276,14 +276,18 @@
         </div>
 
         <div id="p1a">
-          <p>Sign in to Grist, open <b>UAT Checklists</b>, and add rows to two tables:</p>
+          <p>Sign in to Grist, open <b>UAT Checklists</b>, and work in the <b>Reviews</b> and <b>Story</b> pages:</p>
           <div class="scroll"><table class="tbl">
             <tr><th>Table</th><th>What you add</th></tr>
             <tr><td>UAT_Meta</td><td>One row for the review: <code>instance</code>, <code>title</code>,
-              <code>intro</code>, <code>jira</code>.</td></tr>
-            <tr><td>UAT_Steps</td><td>One row per step: <code>instance</code>, <b><code>step_key</code></b>,
-              <b><code>required</code></b>, <code>section</code>, <code>section_order</code>,
-              <code>step_order</code>, <code>do</code>, <code>expect</code>, <code>route</code>.</td></tr>
+              <code>intro</code>, <code>jira</code>. Everything else points at it.</td></tr>
+            <tr><td>UAT_Stories</td><td>One row per story: <code>title</code>, <code>story_order</code>,
+              and where it came from — <code>jira</code>, <code>pr</code>, <code>mock</code> (one link
+              each), <code>user_story</code> (prose), <code>hosts</code> (deployments it applies to;
+              blank means all). <code>story_key</code> fills itself in.</td></tr>
+            <tr><td>UAT_Steps</td><td>One row per step: <b><code>step_key</code></b>,
+              <b><code>required</code></b>, <code>story</code>, <code>step_order</code>,
+              <code>do</code>, <code>expect</code>, <code>route</code>.</td></tr>
           </table></div>
           <div class="warn">⚠️ A row with an empty <code>step_key</code> breaks the <em>entire</em>
             checklist — reviewers get an error for every step, not just that row. That is deliberate:

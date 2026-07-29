@@ -24,8 +24,8 @@ not a publish step. The overlay sees changes within the router's short cache.
 | Table | Columns | Role |
 |---|---|---|
 | `UAT_Meta` | instance, title, intro, jira | per-module header |
-| `UAT_Steps` | instance, step_key, required, section, section_order, step_order, do, expect, route | the checklist |
-| `UAT_Results` | reviewer, instance, step_key, mark, note, page_url, at | **future** aggregation target |
+| `UAT_Stories` | instance, story_key, title, story_order, jira, pr, mock, user_story, hosts | one row per story |
+| `UAT_Steps` | instance, step_key, required, story, step_order, do, expect, route | the checklist |
 
 ## Run (on the box, as `ubuntu`)
 

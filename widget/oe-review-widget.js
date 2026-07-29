@@ -711,8 +711,24 @@
     return (open || steps[0]).key;
   }
 
+  // A story limited to particular deployments is not this reviewer's to answer
+  // anywhere else. Filtered here rather than at render, so its steps stay out of
+  // the totals too: a panel that asks for answers nobody on this host can give
+  // never reads as finished.
+  function storyAppliesHere(section) {
+    var hosts = section && section.hosts;
+    if (!Array.isArray(hosts) || !hosts.length) return true;
+    var here = String(location.host || "").toLowerCase();
+    var name = String(location.hostname || "").toLowerCase();
+    return hosts.some(function (entry) {
+      var host = String(entry || "").trim().toLowerCase();
+      return Boolean(host) && (host === here || host === name);
+    });
+  }
+
   function applyChecklist(next, target) {
     next = validateChecklist(next);
+    next.sections = (next.sections || []).filter(storyAppliesHere);
     var minimized = state.minimized;
     var identity = identityOf(target);
     if (identity) rememberIdentity(identity);
@@ -1132,11 +1148,18 @@
       // at once and pile up on each other.
       var block = el("section", "secblock");
       var row = el("div", "secrow");
+      var line = el("div", "secline");
       var heading = el("h3", "sec");
       heading.textContent = section.title;
       var count = el("span", "seccount");
-      row.appendChild(heading);
-      row.appendChild(count);
+      line.appendChild(heading);
+      line.appendChild(count);
+      row.appendChild(line);
+      // Where the story came from. A reviewer who can reach the ticket, the change
+      // and the design can tell whether what is on screen is what was asked for,
+      // which is the difference between checking a box and reviewing something.
+      var meta = storyMeta(section);
+      if (meta) row.appendChild(meta);
       block.appendChild(row);
       var keys = [];
       (section.steps || []).forEach(function (step) {
@@ -1300,6 +1323,45 @@
     box.appendChild(parts.noteList);
     parts.noteToggle = toggle;
     return box;
+  }
+
+  function isUrl(value) {
+    return /^https?:\/\//i.test(value);
+  }
+  // Only jira takes a bare value: a key arrives bare more often than as a URL, so
+  // resolving it against the tracker is right. pr and mock are URLs, and sending a
+  // malformed one to the tracker would point the reviewer somewhere confidently
+  // wrong — worse than not offering the link.
+  var LINK_LABELS = [
+    ["jira", function (value) { return isUrl(value) ? "Ticket" : value; }, true],
+    ["pr", function () { return "PR"; }, false],
+    ["mock", function () { return "Mock"; }, false],
+  ];
+  var JIRA_BASE = "https://uwdigi.atlassian.net/browse/";
+  function storyMeta(section) {
+    var links = section.links;
+    if (!links) return null;
+    var meta = el("div", "storymeta");
+    LINK_LABELS.forEach(function (pair) {
+      var value = String(links[pair[0]] || "").trim();
+      if (!value) return;
+      var bareIsAKey = pair[2];
+      if (!isUrl(value) && !bareIsAKey) return;
+      var a = el("a", "storylink");
+      a.href = isUrl(value) ? value : JIRA_BASE + encodeURIComponent(value);
+      a.textContent = pair[1](value);
+      a.target = "_blank";
+      a.rel = "noopener noreferrer";
+      a.title = value;
+      meta.appendChild(a);
+    });
+    var story = String(links.userStory || "").trim();
+    if (story) {
+      var text = el("div", "userstory");
+      text.textContent = story;
+      meta.appendChild(text);
+    }
+    return meta.childNodes.length ? meta : null;
   }
 
   function buildRow(step, position) {
@@ -2036,8 +2098,13 @@
       ".filter.on{background:var(--blue-bg);border-color:var(--blue);color:var(--blue-dark);font-weight:600;}",
       // Pinned to the top of the scroller: several steps into a section, the
       // heading that says which part of the review this is has scrolled away.
-      ".secrow{position:sticky;top:0;z-index:1;background:#fff;display:flex;align-items:baseline;justify-content:space-between;gap:var(--sp3);margin:0 calc(var(--sp4) * -1) var(--sp2);padding:9px var(--sp4) var(--sp2);border-bottom:1px solid var(--border);}",
+      ".secrow{position:sticky;top:0;z-index:1;background:#fff;display:block;margin:0 calc(var(--sp4) * -1) var(--sp2);padding:9px var(--sp4) var(--sp2);border-bottom:1px solid var(--border);}",
       ".secrow[hidden]{display:none;}",
+      ".secline{display:flex;align-items:baseline;justify-content:space-between;gap:var(--sp3);}",
+      ".storymeta{display:flex;flex-wrap:wrap;align-items:baseline;gap:var(--sp2);padding-top:var(--sp2);}",
+      ".storylink{font-size:var(--label);font-weight:600;color:var(--blue-dark);text-decoration:none;background:var(--blue-bg);border:1px solid var(--blue-soft);border-radius:999px;padding:1px 8px;}",
+      ".storylink:hover{background:#d0e2ff;}",
+      ".userstory{flex-basis:100%;font-size:var(--label);color:var(--text2);font-style:italic;}",
       ".sec{font-size:var(--label);text-transform:uppercase;letter-spacing:.02em;color:var(--text2);font-weight:600;margin:0;}",
       ".seccount{font-size:var(--label);color:var(--text3);font-variant-numeric:tabular-nums;}",
       ".step[hidden]{display:none;}",

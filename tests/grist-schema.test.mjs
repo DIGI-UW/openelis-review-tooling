@@ -67,8 +67,12 @@ test("leaves a column the declaration says nothing about alone", () => {
 
 test("declares every column the read service and the widget rely on", () => {
   // The endpoint reads these by name; a rename here is a broken checklist there.
-  for (const col of ["instance", "step_key", "required", "section", "section_order", "step_order", "do", "expect", "route"]) {
+  for (const col of ["instance", "step_key", "required", "story", "step_order", "do", "expect", "route"]) {
     assert.ok(SCHEMA.UAT_Steps.columns[col], `UAT_Steps.${col} must be declared`);
+  }
+  // A story is a row of its own now, and these are what the endpoint reads off it.
+  for (const col of ["instance", "story_key", "title", "story_order", "jira", "pr", "mock", "user_story", "hosts"]) {
+    assert.ok(SCHEMA.UAT_Stories.columns[col], `UAT_Stories.${col} must be declared`);
   }
   for (const col of ["instance", "title", "intro", "jira", "published"]) {
     assert.ok(SCHEMA.UAT_Meta.columns[col], `UAT_Meta.${col} must be declared`);
@@ -129,13 +133,51 @@ test("puts one story and its steps on a single page", () => {
   assert.ok(story, "there must be a Story page");
   const [picker, steps, card] = story.sections;
 
-  // A summary of the steps grouped by instance. Grist links a summary to its own
-  // detail table on the group-by column, so the picker needs no reference column
-  // — which is what keeps this off the breaking change.
-  assert.deepEqual(picker.groupBy, ["instance"]);
-  assert.equal(picker.table, "UAT_Steps");
+  assert.equal(picker.table, "UAT_Stories");
   assert.equal(steps.table, "UAT_Steps");
   assert.equal(steps.linkFrom, 0, "the step list follows the story picked");
+  assert.equal(steps.linkVia, "story", "…through the reference the step already carries");
   assert.equal(card.linkFrom, 1, "the card follows the step picked");
-  assert.deepEqual(steps.sort, ["section_order", "step_order"]);
+  assert.deepEqual(steps.sort, ["step_order"]);
+});
+
+test("names the columns a migration has finished with, so they can go", () => {
+  // apply never removes a column it was not told about — Grist keeps bookkeeping
+  // columns in these tables and people add their own. Retiring one is therefore
+  // something the declaration says out loud, not something inferred from absence.
+  assert.deepEqual(SCHEMA.UAT_Steps.retired, ["section", "section_order"]);
+  for (const colId of SCHEMA.UAT_Steps.retired) {
+    assert.equal(colId in SCHEMA.UAT_Steps.columns, false, `${colId} is retired, not declared`);
+  }
+});
+
+test("plans the retirement of a column that is still there, and only that one", () => {
+  const plan = planColumns(
+    [live("instance"), live("section"), live("manualSort", { type: "ManualSortPos" })],
+    { instance: { type: "Text" } },
+    ["section", "section_order"],
+  );
+  // section_order is already gone; manualSort was never ours to remove.
+  assert.deepEqual(plan.retire, ["section"]);
+  assert.deepEqual(plan.extra, ["manualSort"]);
+});
+
+test("hangs a review's stories and steps off the review itself", () => {
+  // Without this there is nowhere to see one review whole: the story page lists
+  // every story of every review, and the reviews page has nothing under it.
+  const reviews = PAGES.find((page) => page.name === "Reviews");
+  const [list, stories, steps] = reviews.sections;
+  assert.equal(list.table, "UAT_Meta");
+  assert.equal(stories.table, "UAT_Stories");
+  assert.equal(stories.linkFrom, 0);
+  assert.equal(stories.linkVia, "instance", "a story names its review by reference");
+  assert.equal(steps.table, "UAT_Steps");
+  assert.equal(steps.linkFrom, 1);
+  assert.equal(steps.linkVia, "story");
+});
+
+test("a story names its review by reference, not by retyping its name", () => {
+  // Free text here is why a typo silently created a separate, empty checklist —
+  // and why nothing could be hung off a review in the first place.
+  assert.equal(SCHEMA.UAT_Stories.columns.instance.type, "Ref:UAT_Meta");
 });
