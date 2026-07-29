@@ -21,11 +21,33 @@ not a publish step. The overlay sees changes within the router's short cache.
 
 ## Schema
 
-| Table | Columns | Role |
-|---|---|---|
-| `UAT_Meta` | instance, title, intro, jira | per-module header |
-| `UAT_Stories` | instance, story_key, title, story_order, jira, pr, mock, user_story, hosts | one row per story |
-| `UAT_Steps` | instance, step_key, required, story, step_order, do, expect, route | the checklist |
+| Table             | Columns                                                                                         | Role                         |
+| ----------------- | ----------------------------------------------------------------------------------------------- | ---------------------------- |
+| `UAT_Meta`        | instance, title, intro, jira                                                                    | per-module header            |
+| `UAT_Stories`     | instance, story_key, title, story_order, version, jira, pr, mock, user_story, hosts             | one row per story            |
+| `UAT_Steps`       | instance, step_key, required, story, step_order, do, expect, route                              | the checklist                |
+| `UAT_Submissions` | instance, login, reviewer, submitted_at, host, app_sha, checklist_revision                      | one row per review handed in |
+| `UAT_Answers`     | review, step_key, story_key, story_title, story_version, story_revision, mark, note, actual_url | one row per step answered    |
+
+The first three are authored. The last two are written by a submission and are
+not edited by hand.
+
+### What an answer pins, and why none of it is a formula
+
+Every field on `UAT_Answers` except the two references is a copy taken at the
+moment the review was handed in. A formula would follow the story forward: edit a
+step tomorrow and every review ever given would start claiming it was answered
+against the new wording. These copies are meant to go stale — that is what makes
+them evidence.
+
+A story carries two versions, because they answer different questions:
+
+- **`version`** — `major.minor`, set by a person. Raise the major when a change
+  means answers already given no longer count; raise the minor for a
+  clarification they survive. Whether an edit invalidates a review is a
+  judgement, so nothing computes this.
+- **`revision`** — a content hash, computed. Catches the edit nobody thought to
+  raise a version for.
 
 ## Run (on the box, as `ubuntu`)
 
@@ -78,6 +100,7 @@ uses it as the bearer token. The key is stored box-side in `~/oe-grist/.api-key`
 
 The container binds no host ports; humans reach the Grist UI through the
 umbrella router vhost and Grist/Dex OIDC. Requires:
+
 1. DNS: `grist.openelis-global.org` → the host EIP.
 2. `./deploy.sh certs` (issues the third LE cert alongside amr/analyzers).
 3. Box-side Dex client secret and reviewer password hash in `.env`.

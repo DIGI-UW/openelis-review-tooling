@@ -9,8 +9,8 @@
 //      GRIST_DOC_NAME (default "UAT Checklists"), REVIEW_DIR (seed input,
 //      default ../widget/examples), EXPORT_DIR (generate output, default ../runtime/checklists).
 // Schema: declared in schema.mjs — UAT_Meta (one row per review), UAT_Stories
-// (one per story, with its links and the hosts it applies to) and UAT_Steps (one
-// per step, pointing at its story).
+// (one per story, with its links and the hosts it applies to), UAT_Steps (one per
+// step, pointing at its story), and UAT_Submissions/UAT_Answers (what came back).
 
 import { mkdirSync, readFileSync, writeFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
@@ -21,6 +21,7 @@ import {
   planColumns,
   planInstanceRefs,
   planPages,
+  planSortColRefs,
   planStoryMigration,
 } from "./schema.mjs";
 
@@ -29,15 +30,16 @@ const KEY = process.env.GRIST_KEY;
 const ORG = process.env.GRIST_ORG || "openelis";
 const DOC_NAME = process.env.GRIST_DOC_NAME || "UAT Checklists";
 const REVIEW_DIR =
-  process.env.REVIEW_DIR || join(import.meta.dirname, "..", "widget", "examples");
+  process.env.REVIEW_DIR ||
+  join(import.meta.dirname, "..", "widget", "examples");
 // seed READS the tracked fixtures in REVIEW_DIR; generate WRITES here. They must
 // differ: writing the export back over tracked files dirties the checkout, which
 // the deploy's dirty-worktree guard then treats as a reason to refuse every
 // subsequent deploy.
 const EXPORT_DIR =
-  process.env.EXPORT_DIR || join(import.meta.dirname, "..", "runtime", "checklists");
+  process.env.EXPORT_DIR ||
+  join(import.meta.dirname, "..", "runtime", "checklists");
 if (!KEY) throw new Error("GRIST_KEY is required");
-
 
 async function api(path, opts = {}) {
   const r = await fetch(URL + path, {
@@ -49,7 +51,8 @@ async function api(path, opts = {}) {
     },
   });
   const text = await r.text();
-  if (!r.ok) throw new Error(`${opts.method || "GET"} ${path} -> ${r.status} ${text}`);
+  if (!r.ok)
+    throw new Error(`${opts.method || "GET"} ${path} -> ${r.status} ${text}`);
   return text ? JSON.parse(text) : null;
 }
 
@@ -132,7 +135,6 @@ async function retireColumns(doc, { dryRun = false } = {}) {
   }
 }
 
-
 // Pages are built with user actions rather than the records API: a page is a view,
 // its sections, and the links between them, and only the actions know how to make
 // those consistently.
@@ -144,13 +146,17 @@ async function userActions(doc, actions) {
 }
 
 async function metaRefs(doc) {
-  const tables = (await api(`/api/docs/${doc}/tables/_grist_Tables/records`)).records;
-  const columns = (await api(`/api/docs/${doc}/tables/_grist_Tables_column/records`)).records;
+  const tables = (await api(`/api/docs/${doc}/tables/_grist_Tables/records`))
+    .records;
+  const columns = (
+    await api(`/api/docs/${doc}/tables/_grist_Tables_column/records`)
+  ).records;
   const tableRef = new Map(tables.map((t) => [t.fields.tableId, t.id]));
   const colRef = new Map();
   for (const column of columns) {
     const table = tables.find((t) => t.id === column.fields.parentId);
-    if (table) colRef.set(`${table.fields.tableId}.${column.fields.colId}`, column.id);
+    if (table)
+      colRef.set(`${table.fields.tableId}.${column.fields.colId}`, column.id);
   }
   return { tableRef, colRef };
 }
@@ -170,15 +176,22 @@ async function repointStories(doc, before, { dryRun = false } = {}) {
   const meta = (await api(`/api/docs/${doc}/tables/UAT_Meta/records`)).records;
   const plan = planInstanceRefs(before, meta);
   for (const name of plan.unmatched) {
-    console.error(`  !! story names review "${name}", which does not exist — left as it is`);
+    console.error(
+      `  !! story names review "${name}", which does not exist — left as it is`,
+    );
   }
   if (!plan.assign.length) return;
-  console.log(`  ${dryRun ? "would repoint" : "repoint"} ${plan.assign.length} stories at their review`);
+  console.log(
+    `  ${dryRun ? "would repoint" : "repoint"} ${plan.assign.length} stories at their review`,
+  );
   if (dryRun) return;
   await api(`/api/docs/${doc}/tables/UAT_Stories/records`, {
     method: "PATCH",
     body: JSON.stringify({
-      records: plan.assign.map((row) => ({ id: row.id, fields: { instance: row.instance } })),
+      records: plan.assign.map((row) => ({
+        id: row.id,
+        fields: { instance: row.instance },
+      })),
     }),
   });
 }
@@ -197,34 +210,44 @@ async function ensureStories(doc, { dryRun = false } = {}) {
 
   const created = await api(`/api/docs/${doc}/tables/UAT_Stories/records`, {
     method: "POST",
-    body: JSON.stringify({ records: plan.stories.map((fields) => ({ fields })) }),
+    body: JSON.stringify({
+      records: plan.stories.map((fields) => ({ fields })),
+    }),
   });
   const ids = created.records.map((record) => record.id);
   await api(`/api/docs/${doc}/tables/UAT_Steps/records`, {
     method: "PATCH",
     body: JSON.stringify({
-      records: plan.assign.map((row) => ({ id: row.id, fields: { story: ids[row.story] } })),
+      records: plan.assign.map((row) => ({
+        id: row.id,
+        fields: { story: ids[row.story] },
+      })),
     }),
   });
   console.log(`  converted ${plan.assign.length} steps`);
 }
 
 async function ensurePages(doc, { dryRun = false, rebuild = false } = {}) {
-  let views = (await api(`/api/docs/${doc}/tables/_grist_Views/records`)).records;
+  let views = (await api(`/api/docs/${doc}/tables/_grist_Views/records`))
+    .records;
   if (rebuild) {
     // A page is created whole or not at all, so changing its shape means removing
     // the one that is there. Only pages this repository declares, and only when
     // asked: somebody else's page is not ours to drop.
     const declared = new Set(PAGES.map((page) => page.name));
     const stale = views.filter(
-      (view) => view.fields.type !== "raw_data" && declared.has(view.fields.name),
+      (view) =>
+        view.fields.type !== "raw_data" && declared.has(view.fields.name),
     );
     for (const view of stale) {
-      console.log(`  ${dryRun ? "would rebuild" : "rebuild"} page ${view.fields.name}`);
+      console.log(
+        `  ${dryRun ? "would rebuild" : "rebuild"} page ${view.fields.name}`,
+      );
       if (!dryRun) await userActions(doc, [["RemoveView", view.id]]);
     }
     if (!dryRun && stale.length) {
-      views = (await api(`/api/docs/${doc}/tables/_grist_Views/records`)).records;
+      views = (await api(`/api/docs/${doc}/tables/_grist_Views/records`))
+        .records;
     }
   }
   const plan = planPages(views, PAGES);
@@ -234,7 +257,9 @@ async function ensurePages(doc, { dryRun = false, rebuild = false } = {}) {
   for (const name of plan.create) {
     const page = PAGES.find((candidate) => candidate.name === name);
     if (dryRun) {
-      console.log(`  would create page ${name} (${page.sections.length} widgets)`);
+      console.log(
+        `  would create page ${name} (${page.sections.length} widgets)`,
+      );
       continue;
     }
     let viewRef = 0;
@@ -247,7 +272,14 @@ async function ensurePages(doc, { dryRun = false, rebuild = false } = {}) {
         ? section.groupBy.map((col) => colRef.get(`${section.table}.${col}`))
         : null;
       const result = await userActions(doc, [
-        ["CreateViewSection", tableRef.get(section.table), viewRef, section.type, groupBy, ""],
+        [
+          "CreateViewSection",
+          tableRef.get(section.table),
+          viewRef,
+          section.type,
+          groupBy,
+          "",
+        ],
       ]);
       const created = result.retValues[0];
       viewRef = created.viewRef;
@@ -258,7 +290,7 @@ async function ensurePages(doc, { dryRun = false, rebuild = false } = {}) {
       const fields = {};
       if (section.sort) {
         fields.sortColRefs = JSON.stringify(
-          section.sort.map((col) => colRef.get(`${section.table}.${col}`)).filter(Boolean),
+          planSortColRefs(section.table, section.sort, colRef),
         );
       }
       if (section.linkFrom !== undefined) {
@@ -272,7 +304,12 @@ async function ensurePages(doc, { dryRun = false, rebuild = false } = {}) {
           : 0;
       }
       if (Object.keys(fields).length) {
-        updates.push(["UpdateRecord", "_grist_Views_section", sectionRefs[index], fields]);
+        updates.push([
+          "UpdateRecord",
+          "_grist_Views_section",
+          sectionRefs[index],
+          fields,
+        ]);
       }
     });
     await userActions(doc, updates);
@@ -321,9 +358,12 @@ function instancesFromReviewDir() {
 async function migrate() {
   const doc = await resolveDoc();
   await ensureTables(doc);
-  const steps = (await api(`/api/docs/${doc}/tables/UAT_Steps/records`)).records;
+  const steps = (await api(`/api/docs/${doc}/tables/UAT_Steps/records`))
+    .records;
   const patches = steps
-    .filter((record) => !record.fields.step_key || record.fields.required == null)
+    .filter(
+      (record) => !record.fields.step_key || record.fields.required == null,
+    )
     .map((record) => ({
       id: record.id,
       fields: {
@@ -341,7 +381,9 @@ async function migrate() {
 async function seed(replaceAll) {
   const doc = await migrate();
   for (const inst of instancesFromReviewDir()) {
-    const j = JSON.parse(readFileSync(join(REVIEW_DIR, `uat-${inst}.json`), "utf8"));
+    const j = JSON.parse(
+      readFileSync(join(REVIEW_DIR, `uat-${inst}.json`), "utf8"),
+    );
     const existingMeta = (
       await api(
         `/api/docs/${doc}/tables/UAT_Meta/records?filter=${encodeURIComponent(
@@ -399,11 +441,14 @@ async function seed(replaceAll) {
 
 async function generate() {
   const doc = await resolveDoc();
-  const storyRecs = (await api(`/api/docs/${doc}/tables/UAT_Stories/records`)).records;
+  const storyRecs = (await api(`/api/docs/${doc}/tables/UAT_Stories/records`))
+    .records;
   const meta = {};
-  for (const r of (await api(`/api/docs/${doc}/tables/UAT_Meta/records`)).records)
+  for (const r of (await api(`/api/docs/${doc}/tables/UAT_Meta/records`))
+    .records)
     meta[r.fields.instance] = r.fields;
-  const steps = (await api(`/api/docs/${doc}/tables/UAT_Steps/records`)).records;
+  const steps = (await api(`/api/docs/${doc}/tables/UAT_Steps/records`))
+    .records;
   const byInstance = {};
   for (const record of steps)
     (byInstance[record.fields.instance] ||= []).push(record);
@@ -434,9 +479,12 @@ async function publish(instances, listed) {
       .filter((instance) => wanted.has(instance)),
   );
   const missing = instances.filter((instance) => !found.has(instance));
-  if (missing.length) throw new Error(`no UAT_Meta row for: ${missing.join(", ")}`);
+  if (missing.length)
+    throw new Error(`no UAT_Meta row for: ${missing.join(", ")}`);
   await patchRecords(doc, "UAT_Meta", patches);
-  console.log(`${listed ? "listed" : "unlisted"} ${patches.length}: ${instances.join(", ")}`);
+  console.log(
+    `${listed ? "listed" : "unlisted"} ${patches.length}: ${instances.join(", ")}`,
+  );
 }
 
 const mode = process.argv[2];
