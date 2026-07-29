@@ -44,6 +44,20 @@
     "/api/OpenELIS-Global/session";
   // null = not looked yet or no endpoint there; otherwise { signedIn, login, name }.
   var identity = null;
+  // Where a finished review is handed in. Same-origin by construction: the
+  // session cookie the service checks belongs to the application's host, so a
+  // submission sent anywhere else arrives without the one credential that
+  // matters. Deployments that serve no such endpoint answer 501 and the
+  // downloadable report remains the way to hand a review over.
+  var SUBMIT_SRC =
+    (self && self.getAttribute("data-submit-src")) ||
+    "/__review/uat-" + INSTANCE + "/submissions";
+  // "" | a message to show. Never a reason to discard answers.
+  var submitStatus = "";
+  // Drives the button's label and its disabled state, which is what stops a
+  // second click: a disabled button dispatches no click event, so the handler
+  // needs no re-entrancy check of its own.
+  var submitting = false;
 
   // Sibling stories live beside this one under whichever of the two naming
   // conventions the deployment serves: /__review/uat-<story>.json same-origin, or
@@ -1331,9 +1345,14 @@
     var download = el("button", "ghost");
     download.textContent = "Download";
     download.onclick = downloadReport;
+    var submit = el("button", "primary submit");
+    submit.textContent = "Submit review";
+    submit.onclick = submitReview;
     foot.appendChild(reset);
     foot.appendChild(download);
     foot.appendChild(copy);
+    foot.appendChild(submit);
+    parts.submit = submit;
     panel.appendChild(foot);
 
     parts.panel = panel;
@@ -1792,6 +1811,22 @@
     if (buildWarning && !loadError) {
       ui.statusBox.appendChild(status(buildWarning, "status warning"));
     }
+    if (submitStatus) {
+      ui.statusBox.appendChild(
+        status(
+          submitStatus,
+          /submitted/.test(submitStatus) ? "status" : "status warning",
+        ),
+      );
+    }
+    if (ui.submit) {
+      var toSubmit = answersToSubmit().length;
+      ui.submit.disabled = submitting || !toSubmit;
+      ui.submit.textContent = submitting ? "Sending…" : "Submit review";
+      ui.submit.title = toSubmit
+        ? "Hand in " + toSubmit + " answered step" + (toSubmit === 1 ? "" : "s")
+        : "Answer a step first";
+    }
     // The preamble earns its space until the reviewer is under way; after that the
     // checklist needs the room more than the introduction does. Standing down is
     // one-way: tying it to the answer count made it reappear — and shove the
@@ -2015,6 +2050,115 @@
     } catch (e) {
       done("Press ⌘/Ctrl+C");
     }
+  }
+
+  // ---- handing the review in -------------------------------------------------
+
+  // Only the steps that were answered. An untouched step is not a "not yet" to
+  // record — it is a step this review says nothing about, and writing it down as
+  // one would make silence look like a finding.
+  //
+  // Each answer carries the story's version and revision as they were served, not
+  // as they read now: what a reviewer answered against is the thing in front of
+  // them at the time, and it is the only place that information exists.
+  function answersToSubmit() {
+    var answers = [];
+    (uat.sections || []).forEach(function (section) {
+      (section.steps || []).forEach(function (step) {
+        var mark = state.steps[step.key] || {};
+        if (!mark.mark) return;
+        answers.push({
+          stepKey: step.key,
+          storyKey: section.key || "",
+          storyTitle: section.title || "",
+          storyVersion: section.version || "",
+          storyRevision: section.revision || "",
+          mark: mark.mark,
+          note: mark.note || "",
+          actualUrl: mark.actualUrl || "",
+        });
+      });
+    });
+    return answers;
+  }
+
+  // The page notes are separate observations, each about a URL of its own. There
+  // is one text field on a submission to put them in, so the URL travels in the
+  // line rather than being dropped.
+  function submissionNote() {
+    return state.notes
+      .map(function (note) {
+        return "- " + note.text + (note.url ? " (" + note.url + ")" : "");
+      })
+      .join("\n");
+  }
+
+  function submitReview() {
+    var answers = answersToSubmit();
+    if (!answers.length) return;
+    submitting = true;
+    submitStatus = "";
+    syncPanel();
+
+    fetch(SUBMIT_SRC, {
+      method: "POST",
+      // The reviewer's session with the application is the credential, so the
+      // cookie has to go with the request.
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        checklistRevision: uat.checklistRevision || "",
+        host: location.host,
+        appSha: (build && build.appSha) || "",
+        note: submissionNote(),
+        answers: answers,
+      }),
+    })
+      .then(function (response) {
+        return response.json().then(
+          function (body) {
+            return { status: response.status, body: body };
+          },
+          function () {
+            return { status: response.status, body: {} };
+          },
+        );
+      })
+      .then(function (result) {
+        if (result.status === 201) {
+          var who =
+            (result.body.reviewer && result.body.reviewer.name) ||
+            state.reviewer;
+          submitStatus = "Review submitted" + (who ? " as " + who : "") + ".";
+          return;
+        }
+        if (result.status === 401) {
+          // The local probe can be stale — a session that expired while the
+          // review was being worked. What the service says is what counts, so
+          // the sign-in prompt comes back.
+          identity = { signedIn: false, login: "", name: "" };
+          submitStatus = "Sign in and submit again. Nothing has been lost.";
+          return;
+        }
+        if (result.status === 501) {
+          submitStatus =
+            "This deployment does not accept submissions. Download the report and send it on instead.";
+          return;
+        }
+        submitStatus =
+          (result.body && result.body.error) || "The review could not be sent.";
+        submitStatus += " Your answers are still here — try again.";
+      })
+      .catch(function () {
+        submitStatus =
+          "The review could not be sent. Your answers are still here — try again.";
+      })
+      .then(function () {
+        // Answers are never cleared here. A reviewer whose work vanished into a
+        // failed request has lost the session and cannot tell what was in it.
+        submitting = false;
+        syncPanel();
+      });
   }
 
   function buildReport() {
