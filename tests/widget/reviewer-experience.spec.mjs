@@ -76,7 +76,9 @@ test("shows one step at a time instead of a keyhole onto all of them", async ({
   expect(marks.y + marks.height).toBeLessThanOrEqual(view.y + view.height + 1);
 });
 
-test("answering a step moves the reviewer on to the next one", async ({ page }) => {
+test("answering a step moves the reviewer on to the next one", async ({
+  page,
+}) => {
   const widget = await openPanel(page);
   const steps = widget.locator(".step");
   await expect(steps.nth(0)).toHaveClass(/current/);
@@ -88,7 +90,9 @@ test("answering a step moves the reviewer on to the next one", async ({ page }) 
   await expect(widget.locator(".step.current .expect")).toBeVisible();
 });
 
-test("does not cover the application's own right-hand drawer", async ({ page }) => {
+test("does not cover the application's own right-hand drawer", async ({
+  page,
+}) => {
   const widget = await openPanel(page);
   await page.getByRole("button", { name: "Open drawer" }).click();
 
@@ -99,7 +103,9 @@ test("does not cover the application's own right-hand drawer", async ({ page }) 
     drawer.boundingBox(),
   ]);
   expect(boxesOverlap(panelBox, drawerBox)).toBe(false);
-  await expect(page.getByRole("button", { name: "Drawer action" })).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Drawer action" }),
+  ).toBeVisible();
 });
 
 // What the panel declares and where it actually lands are different questions.
@@ -140,7 +146,9 @@ test("lets an application modal come over the top of the checklist", async ({
   // Carbon modals sit at 9000: the dialog a step is asking the reviewer to use
   // has to be able to come over the checklist that asked for it.
   expect(await topmostOverPanel(page)).not.toBe("oe-review-host");
-  await expect(page.getByRole("button", { name: "Modal action" })).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Modal action" }),
+  ).toBeVisible();
 });
 
 test("can be moved off whatever it is covering, and remembers where", async ({
@@ -153,15 +161,22 @@ test("can be moved off whatever it is covering, and remembers where", async ({
   const moved = await widget.locator(".panel").boundingBox();
   expect(moved.x).not.toBeCloseTo(before.x, 0);
 
+  // Nothing to click: the panel was open when the page reloaded, so it comes
+  // back open. It has to come back where the reviewer put it, too.
   await page.reload();
-  await widget.getByRole("button", { name: /review/i }).click();
+  await expect(widget.locator(".panel")).toBeVisible();
   const restored = await widget.locator(".panel").boundingBox();
   expect(restored.x).toBeCloseTo(moved.x, 0);
 });
 
-test("hands keyboard focus on to the next step after answering", async ({ page }) => {
+test("hands keyboard focus on to the next step after answering", async ({
+  page,
+}) => {
   const widget = await openPanel(page);
-  await widget.locator(".step.current .detail").getByRole("button", { name: "Pass" }).focus();
+  await widget
+    .locator(".step.current .detail")
+    .getByRole("button", { name: "Pass" })
+    .focus();
   await page.keyboard.press("Enter");
 
   const landed = await page.evaluate(() => {
@@ -193,7 +208,10 @@ test("numbers every step and says where each one stands", async ({ page }) => {
   await expect(steps.nth(9).locator(".num")).toHaveText("10");
   await expect(steps.nth(0)).toHaveAttribute("data-state", "todo");
 
-  await widget.locator(".step.current .detail").getByRole("button", { name: "Pass" }).click();
+  await widget
+    .locator(".step.current .detail")
+    .getByRole("button", { name: "Pass" })
+    .click();
   await expect(steps.nth(0)).toHaveAttribute("data-state", "pass");
   await expect(steps.nth(1)).toHaveAttribute("data-state", "todo");
 
@@ -227,7 +245,9 @@ test("tells the action and the expected result apart", async ({ page }) => {
   expect(routeBox.y).toBeLessThan(expectBox.y);
 });
 
-test("keeps the section a step belongs to visible while scrolling", async ({ page }) => {
+test("keeps the section a step belongs to visible while scrolling", async ({
+  page,
+}) => {
   const widget = await openPanel(page);
   await widget.getByRole("button", { name: "Expand panel" }).click();
   const scroller = widget.locator(".body");
@@ -239,9 +259,11 @@ test("keeps the section a step belongs to visible while scrolling", async ({ pag
   });
 
   const view = await scroller.boundingBox();
-  const headings = await widget.locator(".secrow:not([hidden])").evaluateAll((nodes) =>
-    nodes.map((node) => node.getBoundingClientRect().top),
-  );
+  const headings = await widget
+    .locator(".secrow:not([hidden])")
+    .evaluateAll((nodes) =>
+      nodes.map((node) => node.getBoundingClientRect().top),
+    );
   // Scrolled deep into the list, the heading for the section the reviewer is
   // inside has to be pinned to the top of the scroller — not merely somewhere on
   // screen, which is true of an ordinary heading that happens to be nearby.
@@ -256,7 +278,9 @@ test("stands the preamble down once, not every time the count changes", async ({
   const intro = widget.locator(".intro");
   await expect(intro).toBeVisible();
 
-  const pass = widget.locator(".step.current .detail").getByRole("button", { name: "Pass" });
+  const pass = widget
+    .locator(".step.current .detail")
+    .getByRole("button", { name: "Pass" });
   await pass.click();
   await expect(intro).toBeHidden();
 
@@ -285,13 +309,18 @@ test("stays usable on a narrow screen", async ({ page }) => {
   // The launcher has to stay a corner pill: stretched across the bottom it lands
   // under whatever the application pins there.
   await expect(widget.getByRole("button", { name: /review/i })).toBeVisible();
-  const launcher = await widget.getByRole("button", { name: /review/i }).boundingBox();
+  const launcher = await widget
+    .getByRole("button", { name: /review/i })
+    .boundingBox();
   expect(launcher.width).toBeLessThan(200);
 });
 
 test("shows progress on the collapsed launcher", async ({ page }) => {
   const widget = await openPanel(page);
-  await widget.locator(".step.current").getByRole("button", { name: "Pass" }).click();
+  await widget
+    .locator(".step.current")
+    .getByRole("button", { name: "Pass" })
+    .click();
   await widget.getByRole("button", { name: /minimi[sz]e/i }).click();
 
   const launcher = widget.getByRole("button", { name: /review/i });
@@ -308,7 +337,9 @@ test("is reachable and operable without a mouse", async ({ page }) => {
   await expect(widget.getByRole("heading", { level: 2 })).toHaveCount(1);
   await expect(widget.getByRole("heading", { level: 3 })).toHaveCount(4);
 
-  const pass = widget.locator(".step.current .detail").getByRole("button", { name: "Pass" });
+  const pass = widget
+    .locator(".step.current .detail")
+    .getByRole("button", { name: "Pass" });
   await expect(pass).toHaveAttribute("aria-pressed", "false");
   await pass.click();
 
@@ -316,7 +347,9 @@ test("is reachable and operable without a mouse", async ({ page }) => {
   // screen reader that is the pressed state rather than the button's colour.
   await widget.locator(".step").nth(0).locator(".steptop").click();
   await expect(
-    widget.locator(".step.current .detail").getByRole("button", { name: "Pass" }),
+    widget
+      .locator(".step.current .detail")
+      .getByRole("button", { name: "Pass" }),
   ).toHaveAttribute("aria-pressed", "true");
 
   await expect(widget.getByLabel("Your name")).toBeVisible();
@@ -329,10 +362,15 @@ test("hands the review over as a single document the reviewer can paste", async 
   page,
 }) => {
   const widget = await openPanel(page);
-  await widget.locator(".step.current").getByRole("button", { name: "Fail" }).click();
+  await widget
+    .locator(".step.current")
+    .getByRole("button", { name: "Fail" })
+    .click();
 
   const downloads = [];
-  page.on("download", (download) => downloads.push(download.suggestedFilename()));
+  page.on("download", (download) =>
+    downloads.push(download.suggestedFilename()),
+  );
   await widget.getByRole("button", { name: /download/i }).click();
   await page.waitForTimeout(750);
 
@@ -341,16 +379,23 @@ test("hands the review over as a single document the reviewer can paste", async 
   expect(downloads).toHaveLength(1);
   expect(downloads[0]).toMatch(/\.md$/);
 
-  const report = await page.evaluate(() => window.__OE_REVIEW_TEST__.buildReport());
+  const report = await page.evaluate(() =>
+    window.__OE_REVIEW_TEST__.buildReport(),
+  );
   expect(report.md).toContain("```json");
   expect(report.md).toContain('"schemaVersion": 2');
   await expect(widget.getByRole("button", { name: /copy/i })).toBeVisible();
 });
 
-test("records the page and console errors behind a failure", async ({ page }) => {
+test("records the page and console errors behind a failure", async ({
+  page,
+}) => {
   const widget = await openPanel(page);
   await page.evaluate(() => console.error("worklist filter blew up"));
-  await widget.locator(".step.current").getByRole("button", { name: "Fail" }).click();
+  await widget
+    .locator(".step.current")
+    .getByRole("button", { name: "Fail" })
+    .click();
 
   const report = await page.evaluate(() =>
     JSON.parse(window.__OE_REVIEW_TEST__.buildReport().json),

@@ -101,6 +101,16 @@ services:
       - GRIST_DOC_NAME=UAT Checklists
       - GRIST_KEY_FILE=/run/grist-state/.api-key
       - PORT=8585
+      # Which application vouches for the reviewers of each review. A submission
+      # is attributed to whoever holds the session cookie there, so an instance
+      # missing from this map cannot be submitted to at all — recording a name
+      # nothing checked would be indistinguishable from one that was verified.
+      - REVIEW_BACKENDS=${REVIEW_BACKENDS:-amr=https://amr-oe:8443,analyzers=https://analyzers-oe:8443}
+      # Those two are compose aliases on a network that is not routable, serving
+      # certificates no public CA can vouch for. Named one by one so the default
+      # stays "verify": a backend pointed at a real host is checked like any
+      # other, rather than silently losing what TLS is there for.
+      - REVIEW_TLS_INSECURE_HOSTS=${REVIEW_TLS_INSECURE_HOSTS:-amr-oe,analyzers-oe}
     volumes:
       - ${GRIST_STATE_DIR:-/home/ubuntu/oe-grist}:/run/grist-state:ro
     networks:

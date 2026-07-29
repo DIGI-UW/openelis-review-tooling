@@ -104,6 +104,17 @@ http {
             add_header X-UAT-Source "grist-live" always;
         }
 
+
+        # Handing a review in. Same-origin on purpose: the reviewer's session
+        # cookie belongs to this host, so a submission from anywhere else would
+        # arrive without the one credential the service checks. Never cached.
+        location ~ ^/__review/uat-(?<uat_submit_instance>[a-z0-9_-]+)/submissions$ {
+            set $uat_up "uat-read";
+            proxy_pass http://$uat_up:8585/uat/$uat_submit_instance/submissions;
+            proxy_set_header Host $host;
+            add_header Cache-Control "no-store" always;
+        }
+
         # Published atomically only after application health verification.
         location = /__review/target.json {
             alias /etc/nginx/runtime/target-amr.json;
@@ -188,6 +199,17 @@ http {
             # claims "grist-live" either way and a frozen checklist is invisible.
             add_header X-UAT-Cache $upstream_cache_status always;
             add_header X-UAT-Source "grist-live" always;
+        }
+
+
+        # Handing a review in. Same-origin on purpose: the reviewer's session
+        # cookie belongs to this host, so a submission from anywhere else would
+        # arrive without the one credential the service checks. Never cached.
+        location ~ ^/__review/uat-(?<uat_submit_instance>[a-z0-9_-]+)/submissions$ {
+            set $uat_up "uat-read";
+            proxy_pass http://$uat_up:8585/uat/$uat_submit_instance/submissions;
+            proxy_set_header Host $host;
+            add_header Cache-Control "no-store" always;
         }
 
         location = /__review/target.json {

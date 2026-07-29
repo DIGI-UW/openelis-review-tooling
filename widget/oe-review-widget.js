@@ -19,7 +19,9 @@
   // via window.OE_REVIEW_CHECKLIST or a <script type="application/json"
   // id="oe-review-checklist"> block; else the data-src URL; else a same-origin
   // default (back-compat with the router injection).
-  var SRC = (self && self.getAttribute("data-src")) || "/__review/uat-" + INSTANCE + ".json";
+  var SRC =
+    (self && self.getAttribute("data-src")) ||
+    "/__review/uat-" + INSTANCE + ".json";
   var ANCHORS = ["right", "centre", "left"];
   var FILTERS = ["all", "todo", "failed"];
   // A popped-out panel is this same script running in a window of its own. It is
@@ -33,6 +35,29 @@
   var OPENER_URL = (self && self.getAttribute("data-opener-url")) || "";
   var POPOUT_NAME = "oe-review-popout-" + INSTANCE;
   var PARAM = "oe-review";
+  // Whoever is signed into the application under review is the reviewer, so the
+  // panel borrows that rather than asking. Configurable, and absent is fine: the
+  // widget is embeddable anywhere and runs standalone from a file, where there is
+  // no session to read and the reviewer types their name as they always did.
+  var IDENTITY_SRC =
+    (self && self.getAttribute("data-identity-src")) ||
+    "/api/OpenELIS-Global/session";
+  // null = not looked yet or no endpoint there; otherwise { signedIn, login, name }.
+  var identity = null;
+  // Where a finished review is handed in. Same-origin by construction: the
+  // session cookie the service checks belongs to the application's host, so a
+  // submission sent anywhere else arrives without the one credential that
+  // matters. Deployments that serve no such endpoint answer 501 and the
+  // downloadable report remains the way to hand a review over.
+  var SUBMIT_SRC =
+    (self && self.getAttribute("data-submit-src")) ||
+    "/__review/uat-" + INSTANCE + "/submissions";
+  // "" | a message to show. Never a reason to discard answers.
+  var submitStatus = "";
+  // Drives the button's label and its disabled state, which is what stops a
+  // second click: a disabled button dispatches no click event, so the handler
+  // needs no re-entrancy check of its own.
+  var submitting = false;
 
   // Sibling stories live beside this one under whichever of the two naming
   // conventions the deployment serves: /__review/uat-<story>.json same-origin, or
@@ -43,11 +68,15 @@
       return SRC.replace(/uat-[a-z0-9_-]+\.json$/, "uat-" + story + ".json");
     }
     if (/\/uat\/[a-z0-9_-]+\.json$/.test(SRC)) {
-      return SRC.replace(/\/uat\/[a-z0-9_-]+\.json$/, "/uat/" + story + ".json");
+      return SRC.replace(
+        /\/uat\/[a-z0-9_-]+\.json$/,
+        "/uat/" + story + ".json",
+      );
     }
     return null;
   }
-  var INDEX_SRC = (self && self.getAttribute("data-index")) || storyUrl("index");
+  var INDEX_SRC =
+    (self && self.getAttribute("data-index")) || storyUrl("index");
   function currentSrc() {
     return storyUrl(activeStory) || SRC;
   }
@@ -99,7 +128,8 @@
   var state = fresh();
   function normalized(value) {
     if (!value || typeof value !== "object") return fresh();
-    value.steps = value.steps && typeof value.steps === "object" ? value.steps : {};
+    value.steps =
+      value.steps && typeof value.steps === "object" ? value.steps : {};
     value.notes = Array.isArray(value.notes) ? value.notes : [];
     value.reviewer = value.reviewer || "";
     value.minimized = value.minimized !== false;
@@ -171,10 +201,23 @@
   // records as evidence would carry a parameter that is nothing to do with the
   // application.
   var TOGGLE_WORDS = {
-    open: "open", on: "open", "1": "open", true: "open", yes: "open", show: "open",
-    closed: "closed", close: "closed", min: "closed", minimized: "closed",
-    "0": "closed", false: "closed", no: "closed",
-    off: "hidden", hide: "hidden", hidden: "hidden", none: "hidden",
+    open: "open",
+    on: "open",
+    1: "open",
+    true: "open",
+    yes: "open",
+    show: "open",
+    closed: "closed",
+    close: "closed",
+    min: "closed",
+    minimized: "closed",
+    0: "closed",
+    false: "closed",
+    no: "closed",
+    off: "hidden",
+    hide: "hidden",
+    hidden: "hidden",
+    none: "hidden",
   };
   function consumeToggle() {
     // The popped-out window is opened by this script, not navigated to by a
@@ -187,7 +230,9 @@
       return null;
     }
     if (!params.has(PARAM)) return null;
-    var raw = String(params.get(PARAM) || "").trim().toLowerCase();
+    var raw = String(params.get(PARAM) || "")
+      .trim()
+      .toLowerCase();
     params.delete(PARAM);
     try {
       var search = params.toString();
@@ -204,7 +249,11 @@
     var intent = raw === "" ? "open" : TOGGLE_WORDS[raw];
     if (!intent) {
       console.warn(
-        "[oe-review] ignored ?" + PARAM + "=" + raw + " — expected open, closed or off",
+        "[oe-review] ignored ?" +
+          PARAM +
+          "=" +
+          raw +
+          " — expected open, closed or off",
       );
       return null;
     }
@@ -343,7 +392,9 @@
     // parameter the only way back, so say so where whoever typed it will look.
     if (prefs.hidden) {
       console.info(
-        "[oe-review] review panel hidden — add ?" + PARAM + "=on to bring it back",
+        "[oe-review] review panel hidden — add ?" +
+          PARAM +
+          "=on to bring it back",
       );
       return;
     }
@@ -360,7 +411,9 @@
     // the panel's z-index inside it and leaving the host itself at auto — under
     // everything the application paints above zero, whatever the panel declares.
     // The shadow root already isolates style; isolation only affects stacking.
-    host.style.cssText = STANDALONE ? "all:initial;display:block;" : "all:initial";
+    host.style.cssText = STANDALONE
+      ? "all:initial;display:block;"
+      : "all:initial";
     document.body.appendChild(host);
     // Keep styles isolated while exposing the review surface to accessibility
     // inspection and Playwright UAT on deployed targets.
@@ -392,6 +445,10 @@
       });
     }
 
+    // Not awaited: the checklist and the panel do not depend on it, and a slow or
+    // absent session endpoint must never hold up a reviewer who can already work.
+    readIdentity();
+
     var inline = inlineChecklist();
     if (inline) {
       inlineMode = true;
@@ -411,6 +468,46 @@
     document.addEventListener("DOMContentLoaded", boot);
   } else {
     boot();
+  }
+
+  // The signed-in name replaces whatever was typed: it is the one a submission can
+  // be attributed to, and the reviewer cannot mistype it. Applied wherever state
+  // is built rather than once when the session arrives — loading a checklist
+  // replaces state, and a name written only at probe time does not survive it.
+  function adoptIdentity() {
+    if (!identity || !identity.signedIn || !identity.name) return false;
+    if (state.reviewer === identity.name) return false;
+    state.reviewer = identity.name;
+    return true;
+  }
+
+  // ---- who is reviewing ------------------------------------------------------
+  function readIdentity() {
+    if (!IDENTITY_SRC) return;
+    fetch(IDENTITY_SRC, { credentials: "include", cache: "no-store" })
+      .then(function (response) {
+        // Anything but a clean answer means there is no session endpoint here,
+        // which is not a problem — it is the standalone case.
+        if (!response.ok) return null;
+        return response.json();
+      })
+      .then(function (value) {
+        if (!value || typeof value !== "object") return;
+        var name = [value.firstName, value.lastName]
+          .filter(Boolean)
+          .join(" ")
+          .trim();
+        identity = {
+          signedIn: Boolean(value.authenticated),
+          login: String(value.loginName || "").trim(),
+          name: name || String(value.loginName || "").trim(),
+        };
+        if (adoptIdentity()) save();
+        render();
+      })
+      .catch(function () {
+        /* no session endpoint, or offline — the typed name still works */
+      });
   }
 
   // ---- the panel in a window of its own -------------------------------------
@@ -543,9 +640,19 @@
     var features = "";
     if (!asTab) {
       var width = 460;
-      var height = Math.max(560, Math.min(900, (screen.availHeight || 900) - 80));
+      var height = Math.max(
+        560,
+        Math.min(900, (screen.availHeight || 900) - 80),
+      );
       var left = Math.max(0, (screen.availWidth || 1440) - width - 40);
-      features = "popup=yes,width=" + width + ",height=" + height + ",left=" + left + ",top=40";
+      features =
+        "popup=yes,width=" +
+        width +
+        ",height=" +
+        height +
+        ",left=" +
+        left +
+        ",top=40";
     }
     var win = null;
     try {
@@ -615,10 +722,15 @@
       applyAnchor();
       return;
     }
-    if (!STORE_KEY || event.key !== STORE_KEY || event.newValue === null) return;
+    if (!STORE_KEY || event.key !== STORE_KEY || event.newValue === null)
+      return;
     var incoming = loadStored(STORE_KEY);
     if (!incoming) return;
-    if (state.updatedAt && incoming.updatedAt && incoming.updatedAt < state.updatedAt) {
+    if (
+      state.updatedAt &&
+      incoming.updatedAt &&
+      incoming.updatedAt < state.updatedAt
+    ) {
       return;
     }
     state = incoming;
@@ -665,8 +777,10 @@
     var keys = {};
     (value.sections || []).forEach(function (section) {
       (section.steps || []).forEach(function (step) {
-        if (!step.key) throw new Error("A checklist step is missing its stable key.");
-        if (keys[step.key]) throw new Error("Duplicate checklist step key: " + step.key);
+        if (!step.key)
+          throw new Error("A checklist step is missing its stable key.");
+        if (keys[step.key])
+          throw new Error("Duplicate checklist step key: " + step.key);
         keys[step.key] = true;
         if (step.route && !sameOriginPath(step.route)) {
           throw new Error("Checklist route must be same-origin: " + step.key);
@@ -721,7 +835,9 @@
     var here = String(location.host || "").toLowerCase();
     var name = String(location.hostname || "").toLowerCase();
     return hosts.some(function (entry) {
-      var host = String(entry || "").trim().toLowerCase();
+      var host = String(entry || "")
+        .trim()
+        .toLowerCase();
       return Boolean(host) && (host === here || host === name);
     });
   }
@@ -730,9 +846,10 @@
     next = validateChecklist(next);
     next.sections = (next.sections || []).filter(storyAppliesHere);
     var minimized = state.minimized;
-    var identity = identityOf(target);
-    if (identity) rememberIdentity(identity);
+    var deployment = identityOf(target);
+    if (deployment) rememberIdentity(deployment);
     state = loadContext(target, next);
+    adoptIdentity();
     // Honour the persisted panel state on first load; only preserve the in-session
     // value once the reviewer has actually opened or closed it, so a background
     // refresh cannot collapse a panel they are working in — and so the panel does
@@ -774,16 +891,18 @@
         }
         return response.json();
       }),
-      fetch(BUILD_SRC, { cache: "no-store" }).then(function (response) {
-        if (!response.ok) {
+      fetch(BUILD_SRC, { cache: "no-store" })
+        .then(function (response) {
+          if (!response.ok) {
+            buildWarning = "Build information is unavailable.";
+            return null;
+          }
+          return response.json();
+        })
+        .catch(function () {
           buildWarning = "Build information is unavailable.";
           return null;
-        }
-        return response.json();
-      }).catch(function () {
-        buildWarning = "Build information is unavailable.";
-        return null;
-      }),
+        }),
       fetchCatalog(),
     ])
       .then(function (values) {
@@ -881,7 +1000,11 @@
     var viewport = window.innerWidth * window.innerHeight;
     (function walk(node, depth) {
       if (!node || depth > 4) return;
-      for (var child = node.firstElementChild; child; child = child.nextElementSibling) {
+      for (
+        var child = node.firstElementChild;
+        child;
+        child = child.nextElementSibling
+      ) {
         if (child === host) continue;
         var style = getComputedStyle(child);
         if (
@@ -908,17 +1031,30 @@
     return found;
   }
   function overlapArea(a, b) {
-    var x = Math.min(a.left + a.width, b.left + b.width) - Math.max(a.left, b.left);
-    var y = Math.min(a.top + a.height, b.top + b.height) - Math.max(a.top, b.top);
+    var x =
+      Math.min(a.left + a.width, b.left + b.width) - Math.max(a.left, b.left);
+    var y =
+      Math.min(a.top + a.height, b.top + b.height) - Math.max(a.top, b.top);
     return x > 0 && y > 0 ? x * y : 0;
   }
   function candidateRect(anchor, width, height) {
     var top = window.innerHeight - EDGE_GAP - height;
     if (anchor === "right") {
-      return { left: window.innerWidth - 16 - width, top: top, width: width, height: height };
+      return {
+        left: window.innerWidth - 16 - width,
+        top: top,
+        width: width,
+        height: height,
+      };
     }
-    if (anchor === "left") return { left: 16, top: top, width: width, height: height };
-    return { left: (window.innerWidth - width) / 2, top: top, width: width, height: height };
+    if (anchor === "left")
+      return { left: 16, top: top, width: width, height: height };
+    return {
+      left: (window.innerWidth - width) / 2,
+      top: top,
+      width: width,
+      height: height,
+    };
   }
   var EDGE_GAP = 64;
   function autoAnchor() {
@@ -946,7 +1082,8 @@
     // A window of its own has no host application to dodge and no corner to sit
     // in: the panel is the document.
     if (STANDALONE) {
-      if (wrap.className !== "wrap standalone open") wrap.className = "wrap standalone open";
+      if (wrap.className !== "wrap standalone open")
+        wrap.className = "wrap standalone open";
       return;
     }
     var anchor = prefs.anchor || autoAnchor();
@@ -991,7 +1128,8 @@
 
   function exposeTestHooks() {
     if (
-      (location.hostname === "127.0.0.1" || location.hostname === "localhost") &&
+      (location.hostname === "127.0.0.1" ||
+        location.hostname === "localhost") &&
       !window.__OE_REVIEW_TEST__
     ) {
       window.__OE_REVIEW_TEST__ = {
@@ -1050,7 +1188,10 @@
     var parts = { revision: uat.checklistRevision, rows: {}, detailKey: null };
     var panel = el("div", "panel");
     panel.setAttribute("role", "complementary");
-    panel.setAttribute("aria-label", "Review checklist: " + (uat.title || LABEL));
+    panel.setAttribute(
+      "aria-label",
+      "Review checklist: " + (uat.title || LABEL),
+    );
     panel.addEventListener("keydown", function (event) {
       // Scoped to the panel on purpose: the host application binds Escape to its
       // own dialogs, and a document-level handler here would close them.
@@ -1095,7 +1236,10 @@
       // No script URL means the widget was pasted in rather than linked, and this
       // window has nothing to tell the next one to load.
       if (SELF_SRC) {
-        var out = iconBtn("⧉", "Pop out into its own window (⌘/Ctrl-click for a tab)");
+        var out = iconBtn(
+          "⧉",
+          "Pop out into its own window (⌘/Ctrl-click for a tab)",
+        );
         out.onclick = openPopout;
         head.appendChild(out);
       }
@@ -1117,6 +1261,11 @@
     // read once, so it scrolls away with the content rather than holding a share
     // of the panel for the whole review.
     parts.intro = el("div", "intro");
+
+    parts.whoami = el("div", "whoami");
+    panel.appendChild(parts.whoami);
+    parts.signin = el("div", "signin");
+    panel.appendChild(parts.signin);
 
     var who = el("div", "who");
     var label = el("label", "");
@@ -1196,9 +1345,14 @@
     var download = el("button", "ghost");
     download.textContent = "Download";
     download.onclick = downloadReport;
+    var submit = el("button", "primary submit");
+    submit.textContent = "Submit review";
+    submit.onclick = submitReview;
     foot.appendChild(reset);
     foot.appendChild(download);
     foot.appendChild(copy);
+    foot.appendChild(submit);
+    parts.submit = submit;
     panel.appendChild(foot);
 
     parts.panel = panel;
@@ -1299,7 +1453,8 @@
     var form = el("div", "noteform");
     var area = document.createElement("textarea");
     area.setAttribute("aria-label", "Note about this page");
-    area.placeholder = "Describe what you saw. The current page is captured automatically.";
+    area.placeholder =
+      "Describe what you saw. The current page is captured automatically.";
     var add = el("button", "add");
     add.textContent = "Add note";
     add.onclick = function () {
@@ -1333,9 +1488,27 @@
   // malformed one to the tracker would point the reviewer somewhere confidently
   // wrong — worse than not offering the link.
   var LINK_LABELS = [
-    ["jira", function (value) { return isUrl(value) ? "Ticket" : value; }, true],
-    ["pr", function () { return "PR"; }, false],
-    ["mock", function () { return "Mock"; }, false],
+    [
+      "jira",
+      function (value) {
+        return isUrl(value) ? "Ticket" : value;
+      },
+      true,
+    ],
+    [
+      "pr",
+      function () {
+        return "PR";
+      },
+      false,
+    ],
+    [
+      "mock",
+      function () {
+        return "Mock";
+      },
+      false,
+    ],
   ];
   var JIRA_BASE = "https://uwdigi.atlassian.net/browse/";
   function storyMeta(section) {
@@ -1461,7 +1634,10 @@
       ["fail", "Fail"],
       ["na", "N/A"],
     ].forEach(function (option) {
-      var button = el("button", "mark " + option[0] + (saved.mark === option[0] ? " on" : ""));
+      var button = el(
+        "button",
+        "mark " + option[0] + (saved.mark === option[0] ? " on" : ""),
+      );
       button.textContent = option[1];
       button.setAttribute("aria-pressed", String(saved.mark === option[0]));
       button.onclick = function () {
@@ -1550,7 +1726,8 @@
     // its instruction underneath the heading, where it cannot be read.
     var pinned = row.row.parentNode.querySelector(".secrow");
     var reserve = (pinned && !pinned.hidden ? pinned.offsetHeight : 0) + 8;
-    if (top - reserve < body.scrollTop) body.scrollTop = Math.max(0, top - reserve);
+    if (top - reserve < body.scrollTop)
+      body.scrollTop = Math.max(0, top - reserve);
     else if (bottom > body.scrollTop + body.clientHeight) {
       // Bring the end of the step into view, but never far enough to push its
       // instruction off the top: a step read from the middle is worse than one
@@ -1605,9 +1782,22 @@
       ui.reviewer.value = state.reviewer || "";
     }
 
+    var signedIn = Boolean(identity && identity.signedIn);
+    ui.whoami.textContent = signedIn ? "Reviewing as " + identity.name : "";
+    ui.whoami.hidden = !signedIn;
+    // Said once the application has told us nobody is signed in — not while we
+    // are still asking, and never where there is no session endpoint to ask.
+    var anonymous = Boolean(identity && !identity.signedIn);
+    ui.signin.textContent = anonymous
+      ? "Sign in to submit this review. Your answers are saved here meanwhile."
+      : "";
+    ui.signin.hidden = !anonymous;
+
     ui.statusBox.innerHTML = "";
-    if (loading) ui.statusBox.appendChild(status("Refreshing checklist…", "status"));
-    if (loadError) ui.statusBox.appendChild(status(loadError, "status error", "alert"));
+    if (loading)
+      ui.statusBox.appendChild(status("Refreshing checklist…", "status"));
+    if (loadError)
+      ui.statusBox.appendChild(status(loadError, "status error", "alert"));
     // A blocked pop-up is silent, and the reviewer's read of a button that does
     // nothing is that the review tooling is broken.
     if (popoutBlocked) {
@@ -1621,6 +1811,22 @@
     if (buildWarning && !loadError) {
       ui.statusBox.appendChild(status(buildWarning, "status warning"));
     }
+    if (submitStatus) {
+      ui.statusBox.appendChild(
+        status(
+          submitStatus,
+          /submitted/.test(submitStatus) ? "status" : "status warning",
+        ),
+      );
+    }
+    if (ui.submit) {
+      var toSubmit = answersToSubmit().length;
+      ui.submit.disabled = submitting || !toSubmit;
+      ui.submit.textContent = submitting ? "Sending…" : "Submit review";
+      ui.submit.title = toSubmit
+        ? "Hand in " + toSubmit + " answered step" + (toSubmit === 1 ? "" : "s")
+        : "Answer a step first";
+    }
     // The preamble earns its space until the reviewer is under way; after that the
     // checklist needs the room more than the introduction does. Standing down is
     // one-way: tying it to the answer count made it reappear — and shove the
@@ -1632,7 +1838,9 @@
     // Everything below is chrome the reviewer needs occasionally, not while they
     // are working a step. In the compact panel it stands down once it has done
     // its job; expanded, it is all on show.
-    ui.who.hidden = !prefs.expanded && Boolean(state.reviewer);
+    ui.who.hidden =
+      Boolean(identity && identity.signedIn) ||
+      (!prefs.expanded && Boolean(state.reviewer));
     ui.filters.hidden = !prefs.expanded && counts.done === 0;
 
     var shown = {};
@@ -1781,13 +1989,17 @@
     var branch = build.appBranch || "";
     var sha = (build.appSha || "").slice(0, 7);
     if (!branch && !sha) return "";
-    return "Reviewing " + (branch || "unknown branch") + (sha ? " @ " + sha : "");
+    return (
+      "Reviewing " + (branch || "unknown branch") + (sha ? " @ " + sha : "")
+    );
   }
 
   // A raw path is not a label. Show the reviewer where they are going and keep
   // the exact target in the link's title.
   function readableRoute(path) {
-    var clean = String(path).split("?")[0].replace(/^\/+|\/+$/g, "");
+    var clean = String(path)
+      .split("?")[0]
+      .replace(/^\/+|\/+$/g, "");
     if (!clean) return "the home page";
     var last = clean.split("/").pop();
     return last.replace(/[-_]+/g, " ").toLowerCase();
@@ -1808,7 +2020,11 @@
     // One file, not two: a second programmatic download from the same click asks
     // for Chrome's automatic-downloads permission, and a reviewer who dismisses
     // that prompt silently loses half of their review.
-    trigger("oe-review-" + INSTANCE + "-" + stamp + ".md", "text/markdown", report.md);
+    trigger(
+      "oe-review-" + INSTANCE + "-" + stamp + ".md",
+      "text/markdown",
+      report.md,
+    );
   }
 
   function copyReport(button) {
@@ -1836,6 +2052,118 @@
     }
   }
 
+  // ---- handing the review in -------------------------------------------------
+
+  // Only the steps that were answered. An untouched step is not a "not yet" to
+  // record — it is a step this review says nothing about, and writing it down as
+  // one would make silence look like a finding.
+  //
+  // Each answer carries the story's version and revision as they were served, not
+  // as they read now: what a reviewer answered against is the thing in front of
+  // them at the time, and it is the only place that information exists.
+  function answersToSubmit() {
+    var answers = [];
+    (uat.sections || []).forEach(function (section) {
+      (section.steps || []).forEach(function (step) {
+        var mark = state.steps[step.key] || {};
+        if (!mark.mark) return;
+        answers.push({
+          stepKey: step.key,
+          storyKey: section.key || "",
+          storyTitle: section.title || "",
+          storyVersion: section.version || "",
+          storyRevision: section.revision || "",
+          mark: mark.mark,
+          note: mark.note || "",
+          actualUrl: mark.actualUrl || "",
+        });
+      });
+    });
+    return answers;
+  }
+
+  // The page notes are separate observations, each about a URL of its own. There
+  // is one text field on a submission to put them in, so the URL travels in the
+  // line rather than being dropped.
+  function submissionNote() {
+    return state.notes
+      .map(function (note) {
+        return "- " + note.text + (note.url ? " (" + note.url + ")" : "");
+      })
+      .join("\n");
+  }
+
+  function submitReview() {
+    var answers = answersToSubmit();
+    if (!answers.length) return;
+    submitting = true;
+    submitStatus = "";
+    syncPanel();
+
+    fetch(SUBMIT_SRC, {
+      method: "POST",
+      // The reviewer's session with the application is the credential, so the
+      // cookie has to go with the request.
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        checklistRevision: uat.checklistRevision || "",
+        host: location.host,
+        appSha: (build && build.appSha) || "",
+        note: submissionNote(),
+        answers: answers,
+      }),
+    })
+      .then(function (response) {
+        return response.json().then(
+          function (body) {
+            return { status: response.status, body: body };
+          },
+          function () {
+            return { status: response.status, body: {} };
+          },
+        );
+      })
+      .then(function (result) {
+        if (result.status === 201) {
+          var who =
+            (result.body.reviewer && result.body.reviewer.name) ||
+            state.reviewer;
+          submitStatus = "Review submitted" + (who ? " as " + who : "") + ".";
+          return;
+        }
+        if (result.status === 401) {
+          // The local probe can be stale — a session that expired while the
+          // review was being worked. What the service says is what counts, so
+          // the sign-in prompt comes back.
+          identity = { signedIn: false, login: "", name: "" };
+          submitStatus = "Sign in and submit again. Nothing has been lost.";
+          return;
+        }
+        // 404 is the same fact as 501 said by a plainer server: there is no
+        // submission endpoint here. That is the backend-free case the widget is
+        // built for, not a fault to alarm anybody about.
+        if (result.status === 501 || result.status === 404) {
+          submitStatus =
+            "This deployment does not accept submissions. Download the report and send it on instead.";
+          return;
+        }
+        submitStatus =
+          (result.body && result.body.error) || "The review could not be sent.";
+        submitStatus += " Your answers are still here — try again.";
+      })
+      .catch(function () {
+        submitStatus =
+          "The review could not be sent. Your answers are still here — try again.";
+      })
+      .then(function () {
+        // Answers are never cleared here. A reviewer whose work vanished into a
+        // failed request has lost the session and cannot tell what was in it.
+        submitting = false;
+        syncPanel();
+      });
+  }
+
   function buildReport() {
     var total = 0,
       pass = 0,
@@ -1850,7 +2178,9 @@
     lines.push("- Instance: `" + INSTANCE + "` (" + location.origin + ")");
     lines.push("- Reviewer: " + (state.reviewer || "_unnamed_"));
     lines.push("- Generated: " + generated);
-    lines.push("- Checklist revision: `" + (uat.checklistRevision || "unknown") + "`");
+    lines.push(
+      "- Checklist revision: `" + (uat.checklistRevision || "unknown") + "`",
+    );
     if (build) {
       lines.push("- Deployment: `" + (build.deploymentId || "unknown") + "`");
       lines.push(
@@ -1860,14 +2190,14 @@
           (build.appBranch || "unknown") +
           "` @ `" +
           (build.appSha || "unknown") +
-          "`"
+          "`",
       );
       lines.push(
         "- Review tooling: `" +
           (build.harnessSha || "unknown") +
           "` (deployed " +
           (build.deployedAt || "unknown") +
-          ")"
+          ")",
       );
     }
     lines.push("");
@@ -1883,10 +2213,9 @@
         else if (st.mark === "fail") fail++;
         else if (st.mark === "na") na++;
         if (isRequired(step) && (!st.mark || st.stale)) requiredOpen++;
-        var box =
-          st.stale
-            ? "STALE"
-            : st.mark === "pass"
+        var box = st.stale
+          ? "STALE"
+          : st.mark === "pass"
             ? "PASS"
             : st.mark === "fail"
               ? "FAIL"
@@ -1900,7 +2229,7 @@
             step.key +
             "` " +
             (step.do || step.text || "") +
-            (isRequired(step) ? "" : " _(optional)_")
+            (isRequired(step) ? "" : " _(optional)_"),
         );
         if (step.expect) lines.push("    - expected: " + step.expect);
         if (step.route) lines.push("    - route: " + step.route);
@@ -1928,7 +2257,7 @@
         total +
         ") · " +
         requiredOpen +
-        " required open"
+        " required open",
     );
     if (state.notes.length) {
       lines.push("");
@@ -1947,6 +2276,9 @@
         label: LABEL,
         origin: location.origin,
         reviewer: state.reviewer,
+        // The account the application verified, where there was one. The name
+        // above can be typed; this cannot.
+        login: (identity && identity.signedIn && identity.login) || null,
         generated: generated,
         checklistRevision: uat.checklistRevision || null,
         deploymentId: build && build.deploymentId ? build.deploymentId : null,
@@ -1983,7 +2315,7 @@
         feedback: state.notes,
       },
       null,
-      2
+      2,
     );
 
     lines.push("");
@@ -1994,7 +2326,7 @@
     lines.push("```");
     lines.push("");
     lines.push(
-      "_Paste this whole document into Claude to triage into Jira/GitHub. The fenced block above carries the same review as structured data._"
+      "_Paste this whole document into Claude to triage into Jira/GitHub. The fenced block above carries the same review as structured data._",
     );
     return { md: lines.join("\n"), json: json };
   }
@@ -2088,7 +2420,7 @@
       ".panel{box-sizing:border-box;width:min(560px,calc(100vw - 32px));max-height:min(620px,calc(100vh - 120px));display:flex;flex-direction:column;background:#fff;border:1px solid var(--border);border-radius:8px;box-shadow:0 10px 40px rgba(0,0,0,.28);overflow:hidden;}",
       // Only the checklist scrolls. Without this the fixed rows shrink to absorb
       // a long checklist and clip their own text.
-      ".head,.statusbox,.stories,.who,.filters,.fb,.foot{flex:none;}",
+      ".head,.statusbox,.whoami,.signin,.stories,.who,.filters,.fb,.foot{flex:none;}",
       ".panel.expanded{width:min(840px,92vw);max-height:min(760px,calc(100vh - 120px));}",
       ".stories{display:flex;align-items:center;gap:var(--sp3);padding:var(--sp3) var(--sp4);border-bottom:1px solid var(--border);}",
       ".stories label,.who label{font-size:var(--label);color:var(--text2);white-space:nowrap;}",
@@ -2114,6 +2446,9 @@
       ".sub{font-size:var(--label);opacity:.8;margin-top:2px;font-variant-numeric:tabular-nums;}",
       ".icon{background:transparent;border:none;color:inherit;font-size:var(--body);line-height:1;cursor:pointer;min-width:24px;min-height:24px;border-radius:4px;}.icon:hover{background:rgba(255,255,255,.15);}",
       ".statusbox:empty{display:none;}",
+      ".whoami{padding:var(--sp2) var(--sp4);font-size:var(--label);color:var(--text2);border-bottom:1px solid var(--border);}",
+      ".whoami[hidden],.signin[hidden]{display:none;}",
+      ".signin{padding:var(--sp3) var(--sp4);font-size:var(--label);background:var(--blue-bg);color:var(--blue-dark);border-bottom:1px solid var(--blue-soft);}",
       ".status{padding:var(--sp3) var(--sp4);border-bottom:1px solid var(--border);color:var(--text2);}",
       ".status.error{background:#fff1f1;color:#a2191f;font-weight:600;}",
       ".status.warning{background:#fcf4d6;color:#684e00;}",

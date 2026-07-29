@@ -56,6 +56,23 @@ function contentHash(value) {
   return createHash("sha256").update(JSON.stringify(value)).digest("hex");
 }
 
+// Short on purpose: this is written onto every answer and read by humans
+// comparing one review against another, and twelve hex characters is already far
+// past collision mattering for a checklist.
+function storyRevision(section) {
+  return contentHash({
+    title: section.title,
+    links: section.links || null,
+    steps: section.steps.map((step) => ({
+      key: step.key,
+      required: step.required,
+      do: step.do,
+      expect: step.expect || "",
+      route: step.route || "",
+    })),
+  }).slice(0, 12);
+}
+
 // The catalog of stories reviewable on a deployment. The widget uses it to offer
 // a switcher and to say which stories have anything to say about the page the
 // reviewer is currently looking at, so `routes` carries paths only — a step's
@@ -158,6 +175,9 @@ export function buildUatDocument(instance, meta, records, storyRecords = []) {
       key,
       title: String(fields.title || "").trim() || key,
       order: Number(fields.story_order) || 0,
+      // Stated rather than absent: an answer pins the version it was given
+      // against, and "none" is not something a later comparison can reason about.
+      version: String(fields.version || "").trim() || "1.0",
       links: linksOf(fields),
       hosts: hostsOf(fields),
       steps: [],
@@ -200,9 +220,27 @@ export function buildUatDocument(instance, meta, records, storyRecords = []) {
     .filter((story) => story.steps.length)
     .sort((a, b) => a.order - b.order)
     .map((story) => {
-      const section = { title: story.title, key: story.key, steps: story.steps };
+      const section = {
+        title: story.title,
+        key: story.key,
+        // What the author says about this story's history, and what is true of its
+        // text. The version only moves when somebody decides a change invalidates
+        // the answers already given; the revision moves whenever the text does.
+        // Their disagreement is the useful part — it catches an edit made without
+        // anyone deciding which kind it was.
+        version: story.version,
+        steps: story.steps,
+      };
       if (story.links) section.links = story.links;
       if (story.hosts) section.hosts = story.hosts;
+      // What the reviewer was actually judging, so an answer can be pinned to it.
+      // Deliberately narrower than the whole story: it covers the heading and
+      // every step's instruction, expectation, route and required flag, and
+      // nothing else. Where a story sits in the checklist, and what the review
+      // around it is called, change nothing a reviewer weighed — moving the
+      // revision for those would mark every answer stale for no reason, and a
+      // staleness signal nobody believes is worse than none at all.
+      section.revision = storyRevision(section);
       return section;
     });
 

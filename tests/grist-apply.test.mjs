@@ -25,7 +25,12 @@ async function apply(doc, args = [], env = {}) {
   const grist = await startFakeGrist(doc);
   try {
     return await run("node", [SYNC, "apply", ...args], {
-      env: { ...process.env, GRIST_URL: grist.url, GRIST_KEY: "test-key", ...env },
+      env: {
+        ...process.env,
+        GRIST_URL: grist.url,
+        GRIST_KEY: "test-key",
+        ...env,
+      },
     });
   } finally {
     await grist.stop();
@@ -35,23 +40,76 @@ async function apply(doc, args = [], env = {}) {
 // A document as it was before stories existed: steps carrying their group as a
 // repeated title, which is the only state the migration has to work from.
 function legacyDoc() {
-  const col = (id, fields = {}) => ({ id, fields: { type: "Text", label: id, ...fields } });
+  const col = (id, fields = {}) => ({
+    id,
+    fields: { type: "Text", label: id, ...fields },
+  });
   return fakeGristDoc({
     tables: {
       UAT_Meta: {
-        columns: [col("instance"), col("title"), col("intro"), col("jira"), col("published", { type: "Bool" })],
-        records: [{ id: 1, fields: { instance: "amr", title: "Microbiology", published: true } }],
+        columns: [
+          col("instance"),
+          col("title"),
+          col("intro"),
+          col("jira"),
+          col("published", { type: "Bool" }),
+        ],
+        records: [
+          {
+            id: 1,
+            fields: { instance: "amr", title: "Microbiology", published: true },
+          },
+        ],
       },
       UAT_Steps: {
         columns: [
-          col("instance"), col("step_key"), col("required", { type: "Bool" }),
-          col("section"), col("section_order", { type: "Int" }), col("step_order", { type: "Int" }),
-          col("do"), col("expect"), col("route"),
+          col("instance"),
+          col("step_key"),
+          col("required", { type: "Bool" }),
+          col("section"),
+          col("section_order", { type: "Int" }),
+          col("step_order", { type: "Int" }),
+          col("do"),
+          col("expect"),
+          col("route"),
         ],
         records: [
-          { id: 1, fields: { instance: "amr", step_key: "AMR-1", required: true, section: "Open the worklist", section_order: 0, step_order: 0, do: "Sign in" } },
-          { id: 2, fields: { instance: "amr", step_key: "AMR-2", required: true, section: "Open the worklist", section_order: 0, step_order: 1, do: "Open Microbiology" } },
-          { id: 3, fields: { instance: "amr", step_key: "AMR-3", required: true, section: "Enter results", section_order: 1, step_order: 0, do: "Enter an AST result" } },
+          {
+            id: 1,
+            fields: {
+              instance: "amr",
+              step_key: "AMR-1",
+              required: true,
+              section: "Open the worklist",
+              section_order: 0,
+              step_order: 0,
+              do: "Sign in",
+            },
+          },
+          {
+            id: 2,
+            fields: {
+              instance: "amr",
+              step_key: "AMR-2",
+              required: true,
+              section: "Open the worklist",
+              section_order: 0,
+              step_order: 1,
+              do: "Open Microbiology",
+            },
+          },
+          {
+            id: 3,
+            fields: {
+              instance: "amr",
+              step_key: "AMR-3",
+              required: true,
+              section: "Enter results",
+              section_order: 1,
+              step_order: 0,
+              do: "Enter an AST result",
+            },
+          },
         ],
       },
     },
@@ -65,14 +123,30 @@ test("apply migrates a legacy document into stories without losing the grouping"
   const stories = doc.tables.UAT_Stories.records;
   assert.deepEqual(
     stories.map((s) => [s.fields.title, s.fields.story_order]),
-    [["Open the worklist", 0], ["Enter results", 1]],
+    [
+      ["Open the worklist", 0],
+      ["Enter results", 1],
+    ],
     "two sections must become two stories, not one",
   );
 
   // Every step points at the story it was already in.
-  const byKey = Object.fromEntries(doc.tables.UAT_Steps.records.map((r) => [r.fields.step_key, r.fields.story]));
-  assert.equal(byKey["AMR-1"], byKey["AMR-2"], "steps that shared a section share a story");
-  assert.notEqual(byKey["AMR-1"], byKey["AMR-3"], "steps in different sections do not");
+  const byKey = Object.fromEntries(
+    doc.tables.UAT_Steps.records.map((r) => [
+      r.fields.step_key,
+      r.fields.story,
+    ]),
+  );
+  assert.equal(
+    byKey["AMR-1"],
+    byKey["AMR-2"],
+    "steps that shared a section share a story",
+  );
+  assert.notEqual(
+    byKey["AMR-1"],
+    byKey["AMR-3"],
+    "steps in different sections do not",
+  );
   assert.ok(byKey["AMR-3"], "every step ends up in a story");
 });
 
@@ -87,10 +161,18 @@ test("apply retires the old columns only after the migration that reads them", a
 
   const columns = doc.tables.UAT_Steps.columns.map((c) => c.id);
   assert.equal(columns.includes("section"), false, "section is retired");
-  assert.equal(columns.includes("section_order"), false, "section_order is retired");
+  assert.equal(
+    columns.includes("section_order"),
+    false,
+    "section_order is retired",
+  );
 
-  const removedAt = doc.calls.findIndex((call) => call.startsWith("POST /api/docs/docFAKE/apply"));
-  const migratedAt = doc.calls.findIndex((call) => call === "POST /api/docs/docFAKE/tables/UAT_Stories/records");
+  const removedAt = doc.calls.findIndex((call) =>
+    call.startsWith("POST /api/docs/docFAKE/apply"),
+  );
+  const migratedAt = doc.calls.findIndex(
+    (call) => call === "POST /api/docs/docFAKE/tables/UAT_Stories/records",
+  );
   assert.ok(migratedAt >= 0, "the migration created stories");
   assert.ok(
     migratedAt < removedAt,
@@ -103,7 +185,11 @@ test("a story ends up pointing at its review, not at the name it was typed as", 
   await apply(doc);
   const review = doc.tables.UAT_Meta.records[0];
   for (const story of doc.tables.UAT_Stories.records) {
-    assert.equal(story.fields.instance, review.id, "instance is the review's row id");
+    assert.equal(
+      story.fields.instance,
+      review.id,
+      "instance is the review's row id",
+    );
   }
 });
 
@@ -113,8 +199,16 @@ test("apply is idempotent — a second run changes nothing", async () => {
   const after = JSON.stringify(doc.tables);
   doc.calls.length = 0;
   const { stdout } = await apply(doc);
-  assert.equal(JSON.stringify(doc.tables), after, "the document is untouched the second time");
-  assert.equal(/would |retire |convert |repoint /.test(stdout), false, `second run reported work: ${stdout}`);
+  assert.equal(
+    JSON.stringify(doc.tables),
+    after,
+    "the document is untouched the second time",
+  );
+  assert.equal(
+    /would |retire |convert |repoint /.test(stdout),
+    false,
+    `second run reported work: ${stdout}`,
+  );
 });
 
 test("apply --dry-run reports the work and performs none of it", async () => {
@@ -123,7 +217,11 @@ test("apply --dry-run reports the work and performs none of it", async () => {
   const { stdout } = await apply(doc, ["--dry-run"]);
   assert.match(stdout, /would convert/);
   assert.match(stdout, /would retire/);
-  assert.equal(JSON.stringify(doc.tables), before, "a dry run must not touch the document");
+  assert.equal(
+    JSON.stringify(doc.tables),
+    before,
+    "a dry run must not touch the document",
+  );
 });
 
 test("apply splits column patches the API refuses to take together", async () => {
@@ -144,7 +242,12 @@ test("generate exports every review, nesting steps under their story", async () 
   const grist = await startFakeGrist(doc);
   try {
     await run("node", [SYNC, "generate"], {
-      env: { ...process.env, GRIST_URL: grist.url, GRIST_KEY: "test-key", EXPORT_DIR: out },
+      env: {
+        ...process.env,
+        GRIST_URL: grist.url,
+        GRIST_KEY: "test-key",
+        EXPORT_DIR: out,
+      },
     });
   } finally {
     await grist.stop();
@@ -154,7 +257,56 @@ test("generate exports every review, nesting steps under their story", async () 
   const written = JSON.parse(await readFile(join(out, "uat-amr.json"), "utf8"));
   assert.deepEqual(
     written.sections.map((s) => [s.title, s.steps.length]),
-    [["Open the worklist", 2], ["Enter results", 1]],
+    [
+      ["Open the worklist", 2],
+      ["Enter results", 1],
+    ],
   );
   assert.ok(written.sections[0].key, "each section carries its story key");
+});
+
+test("apply builds the tables a submitted review lands in", async () => {
+  const doc = legacyDoc();
+  await apply(doc);
+
+  for (const table of ["UAT_Submissions", "UAT_Answers"]) {
+    assert.ok(doc.tables[table], `${table} must exist after apply`);
+  }
+  const answers = doc.tables.UAT_Answers.columns.map((c) => c.id);
+  for (const col of [
+    "review",
+    "step_key",
+    "story_version",
+    "story_revision",
+    "mark",
+  ]) {
+    assert.ok(
+      answers.includes(col),
+      `UAT_Answers.${col} must exist after apply`,
+    );
+  }
+});
+
+test("the newest submission is the one at the top", async () => {
+  // Grist says descending with a negative column ref. The tool used to drop any
+  // sort entry it could not resolve, so "-submitted_at" would have left the page
+  // unsorted while the run still reported the page created.
+  const doc = legacyDoc();
+  await apply(doc);
+
+  // Sections carry a tableRef, and the fake numbers tables the way Grist does.
+  const tableIds = Object.keys(doc.tables);
+  const submissions = doc.sections.filter(
+    (section) => tableIds[section.tableRef - 1] === "UAT_Submissions",
+  );
+  assert.equal(
+    submissions.length,
+    1,
+    "the Results page lists submissions once",
+  );
+  assert.deepEqual(
+    JSON.parse(submissions[0].fields.sortColRefs).map(Math.sign),
+    [-1],
+    "submitted_at sorts descending, so the newest is read first",
+  );
 });

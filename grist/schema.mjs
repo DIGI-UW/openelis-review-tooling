@@ -22,7 +22,8 @@ export const SCHEMA = {
       },
       title: {
         type: "Text",
-        description: "Shown as the heading of the reviewer's panel and as the report title.",
+        description:
+          "Shown as the heading of the reviewer's panel and as the report title.",
       },
       intro: {
         type: "Text",
@@ -31,7 +32,8 @@ export const SCHEMA = {
       },
       jira: {
         type: "Text",
-        description: "Epic or ticket key (e.g. OGC-1234). Carried into the downloaded report.",
+        description:
+          "Epic or ticket key (e.g. OGC-1234). Carried into the downloaded report.",
       },
       published: {
         type: "Bool",
@@ -42,7 +44,8 @@ export const SCHEMA = {
   },
 
   UAT_Stories: {
-    title: "One row per story: a thing being reviewed, with the steps that check it.",
+    title:
+      "One row per story: a thing being reviewed, with the steps that check it.",
     columns: {
       instance: {
         type: "Ref:UAT_Meta",
@@ -53,7 +56,8 @@ export const SCHEMA = {
         type: "Text",
         description:
           "REQUIRED and unique within the instance. What anything pointing at this story uses, so it survives a retitle — rename the title freely, leave this alone.",
-        formula: '"{}-S{:02d}".format((($instance or "uat").split("-")[0][:4] or "uat").upper(), $id)',
+        formula:
+          '"{}-S{:02d}".format((($instance or "uat").split("-")[0][:4] or "uat").upper(), $id)',
         isFormula: false,
         recalcWhen: 0,
       },
@@ -67,17 +71,28 @@ export const SCHEMA = {
         description:
           "0-based position of this story in the checklist. Reordering is free; answers follow step_key, not position.",
       },
+      version: {
+        type: "Text",
+        description:
+          "major.minor, and the only thing here a person decides. Raise the major when a change means answers already given no longer count; raise the minor for a clarification they survive. Nothing computes this: whether an edit invalidates a review is a judgement, and a review records the version it was answered against so it can be told apart from a later one.",
+        formula: '"1.0"',
+        isFormula: false,
+        recalcWhen: 0,
+      },
       jira: {
         type: "Text",
-        description: "The ticket this story is about — a key like OGC-1234, or its full URL.",
+        description:
+          "The ticket this story is about — a key like OGC-1234, or its full URL.",
       },
       pr: {
         type: "Text",
-        description: "The pull request implementing it, as a URL. One; link the rest from there.",
+        description:
+          "The pull request implementing it, as a URL. One; link the rest from there.",
       },
       mock: {
         type: "Text",
-        description: "The design or mock this was built against, as a URL — Figma, an image, a doc.",
+        description:
+          "The design or mock this was built against, as a URL — Figma, an image, a doc.",
       },
       user_story: {
         type: "Text",
@@ -96,6 +111,7 @@ export const SCHEMA = {
           "Everything wrong with this story, checked as you type. Empty means it is publishable.",
         isFormula: true,
         formula: [
+          "import re",
           "problems = []",
           'k = ($story_key or "").strip()',
           'if not k: problems.append("missing story_key")',
@@ -107,6 +123,10 @@ export const SCHEMA = {
           'if clash: problems.append("another story already has this story_order")',
           "if not UAT_Steps.lookupRecords(story=$id):",
           '  problems.append("no steps — this story is a heading with nothing under it")',
+          'v = ($version or "").strip()',
+          'if not v: problems.append("missing version — say 1.0 if this is the first")',
+          'elif not re.match(r"^\\d+\\.\\d+$", v):',
+          '  problems.append("version should read major.minor, like 2.1")',
           'return ", ".join(problems)',
         ].join("\n"),
       },
@@ -133,7 +153,8 @@ export const SCHEMA = {
         // A default that fires once, on create, rather than a formula: the author
         // must be able to overwrite it, and a reviewer's answers are keyed by
         // whatever it settles on.
-        formula: '"{}-{:03d}".format((($instance or "uat").split("-")[0][:4] or "uat").upper(), $id)',
+        formula:
+          '"{}-{:03d}".format((($instance or "uat").split("-")[0][:4] or "uat").upper(), $id)',
         isFormula: false,
         recalcWhen: 0,
       },
@@ -196,11 +217,143 @@ export const SCHEMA = {
     },
   },
 
+  UAT_Submissions: {
+    title:
+      "One row per review somebody handed in. Written by the widget; not edited here.",
+    columns: {
+      instance: {
+        type: "Ref:UAT_Meta",
+        description: "The review that was worked through.",
+      },
+      login: {
+        type: "Text",
+        description:
+          "Who handed it in, as the application's session named them. This is the attributable one: display names are not unique, and this is the only field here the reviewer could not have typed.",
+      },
+      reviewer: {
+        type: "Text",
+        description:
+          "Their name as it read at the time, for reading rather than for matching on.",
+      },
+      submitted_at: {
+        type: "DateTime:UTC",
+        description:
+          "When it was handed in, taken from the server rather than the reviewer's clock.",
+      },
+      host: {
+        type: "Text",
+        description:
+          "The deployment reviewed (amr.openelis-global.org). The same checklist run against two hosts gives two different answers about the same software.",
+      },
+      app_sha: {
+        type: "Text",
+        description:
+          "The build under review, as target.json reported it. Without this a failure cannot be tied to code, only to a date.",
+      },
+      checklist_revision: {
+        type: "Text",
+        description:
+          "The revision of the whole checklist as served, so two submissions can be told apart when the checklist changed between them.",
+      },
+      note: {
+        type: "Text",
+        description:
+          "Anything the reviewer wanted to say about the review as a whole.",
+      },
+      failed: {
+        type: "Int",
+        computed: true,
+        description:
+          "How many steps were failed. Sort by it to find the submissions worth reading first.",
+        isFormula: true,
+        formula:
+          'return len([a for a in UAT_Answers.lookupRecords(review=$id) if (a.mark or "") == "fail"])',
+      },
+      tally: {
+        type: "Any",
+        computed: true,
+        description:
+          "The submission at a glance: how many passed, failed, and were not applicable.",
+        isFormula: true,
+        formula: [
+          "answers = UAT_Answers.lookupRecords(review=$id)",
+          'def n(mark): return len([a for a in answers if (a.mark or "") == mark])',
+          'return "{} pass · {} fail · {} n/a".format(n("pass"), n("fail"), n("na"))',
+        ].join("\n"),
+      },
+    },
+  },
+
+  UAT_Answers: {
+    title:
+      "One row per step answered. Every field here is a copy taken at the time.",
+    columns: {
+      review: {
+        type: "Ref:UAT_Submissions",
+        description: "The submission this answer was part of.",
+      },
+      // Everything below is written once, by the submission, and never computed.
+      // A formula would follow the story forward: edit a step tomorrow and every
+      // review ever given would start claiming it was answered against the new
+      // wording. These are meant to go stale — that is what makes them evidence.
+      step_key: {
+        type: "Text",
+        description:
+          "The step answered. Text rather than a reference, because the step can be reworded or deleted afterwards and this still says which one it was.",
+      },
+      story_key: {
+        type: "Text",
+        description: "The story the step was in at the time.",
+      },
+      story_title: {
+        type: "Text",
+        description:
+          "Its heading as the reviewer read it, which is not necessarily its heading now.",
+      },
+      story_version: {
+        type: "Text",
+        description:
+          "The version the author had set when this was answered. A submission against 1.3 does not answer for 2.0: raising the major is how an author says the old answers no longer count.",
+      },
+      story_revision: {
+        type: "Text",
+        description:
+          "The story's content revision at the time. Catches the edit nobody thought to raise a version for.",
+      },
+      mark: {
+        type: "Text",
+        description:
+          "pass, fail, or na. A step with no answer produces no row at all, so an absent step_key here means it was never reached rather than that it was fine.",
+      },
+      note: {
+        type: "Text",
+        description: "What the reviewer wrote about this step.",
+      },
+      actual_url: {
+        type: "Text",
+        description:
+          "The page they were on when they answered, which is often the whole of a bug report.",
+      },
+      step: {
+        type: "Ref:UAT_Steps",
+        description:
+          "A way to click through to the step as it stands today. Navigation only — it goes blank if the step is deleted, and step_key is what the answer is actually about.",
+      },
+    },
+  },
 };
 
 // Fields that describe a column rather than a row of data. `computed` and
 // `title` are ours; everything else is Grist's.
-const COLUMN_FIELDS = ["type", "label", "description", "formula", "isFormula", "recalcWhen", "widgetOptions"];
+const COLUMN_FIELDS = [
+  "type",
+  "label",
+  "description",
+  "formula",
+  "isFormula",
+  "recalcWhen",
+  "widgetOptions",
+];
 
 export function declaredFields(colId, spec) {
   const fields = { label: colId };
@@ -211,7 +364,8 @@ export function declaredFields(colId, spec) {
 }
 
 function same(a, b) {
-  if (typeof a === "boolean" || typeof b === "boolean") return Boolean(a) === Boolean(b);
+  if (typeof a === "boolean" || typeof b === "boolean")
+    return Boolean(a) === Boolean(b);
   return String(a ?? "") === String(b ?? "");
 }
 
@@ -219,7 +373,9 @@ function same(a, b) {
 // columns to add, the narrowest patch for the ones that have drifted, and the
 // ones nobody declared — reported rather than removed.
 export function planColumns(liveColumns, declared, retired = []) {
-  const live = new Map((liveColumns || []).map((column) => [column.id, column.fields || {}]));
+  const live = new Map(
+    (liveColumns || []).map((column) => [column.id, column.fields || {}]),
+  );
   const add = [];
   const update = [];
 
@@ -234,7 +390,8 @@ export function planColumns(liveColumns, declared, retired = []) {
     for (const [key, value] of Object.entries(wanted)) {
       if (!same(current[key], value)) drifted[key] = value;
     }
-    if (Object.keys(drifted).length) update.push({ id: colId, fields: drifted });
+    if (Object.keys(drifted).length)
+      update.push({ id: colId, fields: drifted });
   }
 
   const retire = retired.filter((colId) => live.has(colId));
@@ -260,8 +417,18 @@ export const PAGES = [
     // story through the reference the step already carries.
     name: "Story",
     sections: [
-      { table: "UAT_Stories", type: "record", sort: ["instance", "story_order"] },
-      { table: "UAT_Steps", type: "record", linkFrom: 0, linkVia: "story", sort: ["step_order"] },
+      {
+        table: "UAT_Stories",
+        type: "record",
+        sort: ["instance", "story_order"],
+      },
+      {
+        table: "UAT_Steps",
+        type: "record",
+        linkFrom: 0,
+        linkVia: "story",
+        sort: ["step_order"],
+      },
       { table: "UAT_Steps", type: "single", linkFrom: 1 },
     ],
   },
@@ -278,11 +445,55 @@ export const PAGES = [
     name: "Reviews",
     sections: [
       { table: "UAT_Meta", type: "record", sort: ["instance"] },
-      { table: "UAT_Stories", type: "record", linkFrom: 0, linkVia: "instance", sort: ["story_order"] },
-      { table: "UAT_Steps", type: "record", linkFrom: 1, linkVia: "story", sort: ["step_order"] },
+      {
+        table: "UAT_Stories",
+        type: "record",
+        linkFrom: 0,
+        linkVia: "instance",
+        sort: ["story_order"],
+      },
+      {
+        table: "UAT_Steps",
+        type: "record",
+        linkFrom: 1,
+        linkVia: "story",
+        sort: ["step_order"],
+      },
+    ],
+  },
+  {
+    // What came back. Pick a submission, read what that person answered — the
+    // one view the whole exercise exists to produce.
+    name: "Results",
+    sections: [
+      { table: "UAT_Submissions", type: "record", sort: ["-submitted_at"] },
+      { table: "UAT_Answers", type: "record", linkFrom: 0, linkVia: "review" },
+      { table: "UAT_Answers", type: "single", linkFrom: 1 },
     ],
   },
 ];
+
+// A sort entry, which is a column id optionally prefixed with "-" for descending.
+// Shared so the declaration and the tool that builds the pages cannot disagree
+// about what "-submitted_at" means.
+export function sortSpec(entry) {
+  const descending = entry.startsWith("-");
+  return { col: descending ? entry.slice(1) : entry, descending };
+}
+
+// How Grist wants a section sorted: column refs, negated for descending.
+//
+// Refuses a column it cannot resolve. Skipping it would leave the page sorted by
+// whatever survived — or by nothing — while the run still reported the page
+// built, which is the quietest way for a typo in the declaration to ship.
+export function planSortColRefs(table, sort, colRef) {
+  return (sort || []).map((entry) => {
+    const { col, descending } = sortSpec(entry);
+    const ref = colRef.get(`${table}.${col}`);
+    if (!ref) throw new Error(`cannot sort ${table} by unknown column ${col}`);
+    return descending ? -ref : ref;
+  });
+}
 
 // Which declared pages the document is missing. Grist's raw-data views carry the
 // table's own name and are never a page somebody authored, so they cannot stand
@@ -293,7 +504,11 @@ export function planPages(liveViews, declared = PAGES) {
       .filter((view) => (view.fields || {}).type !== "raw_data")
       .map((view) => (view.fields || {}).name),
   );
-  return { create: declared.filter((page) => !authored.has(page.name)).map((page) => page.name) };
+  return {
+    create: declared
+      .filter((page) => !authored.has(page.name))
+      .map((page) => page.name),
+  };
 }
 
 // Turning the section a step names into a story it points at.
@@ -307,7 +522,10 @@ export function planPages(liveViews, declared = PAGES) {
 // time does not build another set of stories over the first.
 export function planStoryMigration(metaRecords, stepRecords) {
   const reviewByName = new Map(
-    (metaRecords || []).map((record) => [String((record.fields || {}).instance || "").trim(), record.id]),
+    (metaRecords || []).map((record) => [
+      String((record.fields || {}).instance || "").trim(),
+      record.id,
+    ]),
   );
   const stories = [];
   const index = new Map();
@@ -351,7 +569,10 @@ export function planStoryMigration(metaRecords, stepRecords) {
 // this.
 export function planInstanceRefs(storyRecords, metaRecords) {
   const byName = new Map(
-    (metaRecords || []).map((record) => [String((record.fields || {}).instance || "").trim(), record.id]),
+    (metaRecords || []).map((record) => [
+      String((record.fields || {}).instance || "").trim(),
+      record.id,
+    ]),
   );
   const assign = [];
   const unmatched = [];
@@ -364,7 +585,10 @@ export function planInstanceRefs(storyRecords, metaRecords) {
     const id = byName.get(name);
     // Reported rather than zeroed. Emptying it would detach the story from its
     // review, and its steps would leave the checklist with nothing saying why.
-    if (!id) { unmatched.push(name); continue; }
+    if (!id) {
+      unmatched.push(name);
+      continue;
+    }
     assign.push({ id: record.id, instance: id });
   }
   return { assign, unmatched };

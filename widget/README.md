@@ -9,10 +9,12 @@ Open `index.html` for a live, backend-free demo.
 ## Embed it
 
 ```html
-<script src="oe-review-widget.js"
-        data-instance="amr"
-        data-label="Microbiology MVP"
-        data-src="https://example.org/uat-amr.json"></script>
+<script
+  src="oe-review-widget.js"
+  data-instance="amr"
+  data-label="Microbiology MVP"
+  data-src="https://example.org/uat-amr.json"
+></script>
 ```
 
 - `data-instance` — a slug used with deployment identity and checklist revision
@@ -23,16 +25,50 @@ Open `index.html` for a live, backend-free demo.
   `/__review/target.json`. Deployments that predate the target contract are still
   served at `/__review/build.json`, which the router keeps as an alias for the
   same document — point this attribute there if you need that URL.
+- `data-identity-src` — URL of the application's session endpoint. Defaults to
+  `/api/OpenELIS-Global/session`. Absent is fine: the reviewer types their name
+  as they always did.
+- `data-submit-src` — where a finished review is handed in. Defaults to
+  `/__review/uat-<instance>/submissions`.
+
+## Who the reviewer is
+
+If the application has a session endpoint, whoever is signed in there is the
+reviewer: the panel says "Reviewing as …" and the "Your name" box goes away,
+because a name nobody typed is the only kind worth attributing a review to.
+
+Somebody who is not signed in is asked to, and otherwise left alone — the prompt
+is about submitting, not about reviewing, and their answers count either way.
+Answers are keyed by the build under review, never by who is signed in, so
+signing in half way through never orphans the work done before it.
+
+## Handing a review in
+
+**Submit review** posts what was answered to `data-submit-src`. The service
+verifies the reviewer's session itself and records the identity it gets back,
+ignoring anything the submission claims about its author; the timestamp is the
+server's for the same reason.
+
+Each answer is pinned to the story's version and content revision **as they were
+served**, so a review still says what it was answered against after the story
+moves on. Only answered steps are sent: an untouched step is not a "not yet" to
+record.
+
+The endpoint must be same-origin, because the session cookie belongs to the
+application's host — a submission from anywhere else arrives without the one
+credential being checked. A deployment that serves no such endpoint answers 501,
+and the panel says so and points at the downloadable report instead. Nothing is
+ever cleared by submitting, failed or not.
 
 ## Open, close or hide it from the URL
 
 Add `?oe-review=` to any page the widget is on:
 
-| Value | Effect |
-| --- | --- |
+| Value                           | Effect                                                                                                              |
+| ------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
 | `open` (or a bare `?oe-review`) | The panel is open when the page loads — this is how you hand someone a link that lands them straight in the review. |
-| `closed` | Mounted but collapsed to its launcher. |
-| `off` | Not mounted at all, for a clean screenshot or a demo. |
+| `closed`                        | Mounted but collapsed to its launcher.                                                                              |
+| `off`                           | Not mounted at all, for a clean screenshot or a demo.                                                               |
 
 The parameter is **consumed**: it is applied once and then removed from the address
 bar, so it cannot keep reopening a panel the reviewer has closed, and it does not
@@ -42,9 +78,12 @@ next page — so `?oe-review=on` is the way back, and the widget logs that remin
 when it stands down.
 
 ### Where the checklist comes from (priority order)
+
 1. **Inline** (fully backend-free): a `window.OE_REVIEW_CHECKLIST` object, or
    ```html
-   <script type="application/json" id="oe-review-checklist"> …checklist… </script>
+   <script type="application/json" id="oe-review-checklist">
+     …checklist…
+   </script>
    ```
 2. **`data-src`** URL.
 3. Default `"/__review/uat-<instance>.json"` (back-compat with a server that serves it).
@@ -63,15 +102,21 @@ when it stands down.
     {
       "title": "A story heading",
       "key": "AMR-S01",
-      "links": { "jira": "OGC-782", "pr": "https://github.com/…/pull/3195",
-                 "mock": "https://figma…", "userStory": "As a … I want …" },
+      "links": {
+        "jira": "OGC-782",
+        "pr": "https://github.com/…/pull/3195",
+        "mock": "https://figma…",
+        "userStory": "As a … I want …"
+      },
       "hosts": ["amr.openelis-global.org"],
       "steps": [
-        { "key": "AMR-001",
+        {
+          "key": "AMR-001",
           "required": true,
           "do": "The action the reviewer performs.",
           "expect": "What they should see (optional).",
-          "route": "/some/path (optional deep-link hint)" }
+          "route": "/some/path (optional deep-link hint)"
+        }
       ]
     }
   ]
@@ -126,8 +171,8 @@ blocks the window says so in the panel rather than doing nothing.
 
 A deployment usually hosts more than one story. If the checklist URL follows either
 `…/uat-<story>.json` or `…/uat/<story>.json`, the widget looks for a catalog beside
-it at `uat-index.json` and offers a **Story** picker, grouped into *On this page*
-and *Other stories* by matching each story's step routes against the current path.
+it at `uat-index.json` and offers a **Story** picker, grouped into _On this page_
+and _Other stories_ by matching each story's step routes against the current path.
 Point `data-index` somewhere else to override that, and any other `data-src` shape
 simply gets no picker. The catalog is optional in the strongest sense: if it is
 missing, malformed or unreachable, the checklist still loads.

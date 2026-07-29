@@ -43,7 +43,10 @@ test("ready target metadata is published only after successful health verificati
   const healthFailure = deploy.indexOf('if [ "\\$healthy" != true ]');
   const targetPublish = deploy.indexOf("publish_target() {");
 
-  assert.ok(healthFailure > -1, "deploy must fail closed after the health loop");
+  assert.ok(
+    healthFailure > -1,
+    "deploy must fail closed after the health loop",
+  );
   assert.ok(
     targetPublish > healthFailure,
     "target publication must happen after health verification",
@@ -116,8 +119,15 @@ test("static checklist examples have complete stable steps", async () => {
       for (const step of section.steps) {
         assert.equal(typeof step.key, "string", `${file} step has a key`);
         assert.equal(typeof step.do, "string", `${file} step has an action`);
-        assert.equal(typeof step.expect, "string", `${file} step has an expectation`);
-        assert.ok(!keys.has(step.key), `${file} step key ${step.key} is unique`);
+        assert.equal(
+          typeof step.expect,
+          "string",
+          `${file} step has an expectation`,
+        );
+        assert.ok(
+          !keys.has(step.key),
+          `${file} step key ${step.key} is unique`,
+        );
         keys.add(step.key);
       }
     }
@@ -131,15 +141,46 @@ test("bootstrap ships every module grist-sync imports", async () => {
   // notice, because nothing here runs bootstrap.
   const sync = await read("grist/grist-sync.mjs");
   const bootstrap = await read("grist/bootstrap.sh");
-  const imports = [...sync.matchAll(/from\s+"\.\/([^"]+)"/g)].map((match) => match[1]);
+  const imports = [...sync.matchAll(/from\s+"\.\/([^"]+)"/g)].map(
+    (match) => match[1],
+  );
   assert.ok(imports.length >= 2, "expected grist-sync to import its helpers");
 
   for (const relative of imports) {
     const shippedByName = bootstrap.includes(`/${relative}"`);
-    const shippedByGlob = !relative.includes("/") && /\$HERE"\/\*\.mjs/.test(bootstrap);
+    const shippedByGlob =
+      !relative.includes("/") && /\$HERE"\/\*\.mjs/.test(bootstrap);
     assert.ok(
       shippedByName || shippedByGlob,
       `bootstrap.sh must copy ${relative} — without it grist-sync cannot start`,
+    );
+  }
+});
+
+test("the checklist service image ships every module the service imports", async () => {
+  // Same hazard as bootstrap, in a different shape: the Dockerfile names the
+  // files it copies, so a module added beside server.mjs is absent from the
+  // image and the container dies at import. Nothing here builds the image, so
+  // nothing here would notice.
+  const server = await read("grist/mcp/server.mjs");
+  const dockerfile = await read("grist/mcp/Dockerfile");
+  const imports = [...server.matchAll(/from\s+"\.\/([^"]+)"/g)].map(
+    (match) => match[1],
+  );
+  assert.ok(
+    imports.length >= 1,
+    "expected server.mjs to import at least one local module",
+  );
+
+  for (const relative of imports) {
+    const byName = new RegExp(
+      `COPY[^\\n]*\\b${relative.replace(".", "\\.")}\\b`,
+    ).test(dockerfile);
+    const byGlob =
+      !relative.includes("/") && /COPY[^\n]*\*\.mjs/.test(dockerfile);
+    assert.ok(
+      byName || byGlob,
+      `grist/mcp/Dockerfile must copy ${relative} — without it the service cannot start`,
     );
   }
 });
