@@ -295,17 +295,24 @@ app.post("/uat/:instance/submissions", async (req, res) => {
       return res.status(404).json({ error: `no review called "${instance}"` });
     }
 
-    // A row id for each step key, so an answer can be clicked through to the
-    // step as it stands today. Navigation only: step_key is what the answer is
-    // about, and it survives the step being deleted.
-    const stepRefs = new Map(
-      (await listRecords("UAT_Steps", { instance: [instance] })).map(
-        (record) => [
-          String((record.fields || {}).step_key || "").trim(),
+    // A row id for each step key and story key, so an answer can be clicked
+    // through to either as they stand today, and so one story's answers can be
+    // shown across every submission — Grist links two widgets through a
+    // reference, never through matching text. Navigation only: the pinned keys
+    // are what the answer is about, and they survive either row being deleted.
+    const [steps, stories] = await Promise.all([
+      listRecords("UAT_Steps", { instance: [instance] }),
+      listRecords("UAT_Stories", { instance: [review.id] }),
+    ]);
+    const refsBy = (records, field) =>
+      new Map(
+        records.map((record) => [
+          String((record.fields || {})[field] || "").trim(),
           record.id,
-        ],
-      ),
-    );
+        ]),
+      );
+    const stepRefs = refsBy(steps, "step_key");
+    const storyRefs = refsBy(stories, "story_key");
 
     const [submission] = await addRecords("UAT_Submissions", [
       {
@@ -349,6 +356,7 @@ app.post("/uat/:instance/submissions", async (req, res) => {
           note: String(answer.note || ""),
           actual_url: String(answer.actualUrl || ""),
           step: stepRefs.get(String(answer.stepKey || "").trim()) || 0,
+          story: storyRefs.get(String(answer.storyKey || "").trim()) || 0,
         })),
       );
     } catch (e) {
@@ -376,8 +384,11 @@ app.post("/uat/:instance/submissions", async (req, res) => {
   }
 });
 
-app.listen(PORT, () =>
+// The port it actually bound, not the one it was asked for: PORT=0 means "pick
+// a free one", and reporting the request rather than the result made the line a
+// lie in exactly the case where somebody needs to read it.
+const server = app.listen(PORT, () =>
   console.error(
-    `[grist-uat] :${PORT} — GET /uat/:file (public read); author via Grist /api/mcp`,
+    `[grist-uat] :${server.address().port} — GET /uat/:file (public read); author via Grist /api/mcp`,
   ),
 );
