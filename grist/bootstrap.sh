@@ -74,6 +74,7 @@ run_node() {
     -e GRIST_KEY="$(cat "$KEYFILE")" \
     -e GRIST_URL=http://grist:8484 \
     -e REVIEW_DIR=/review \
+    -e EXPORT_DIR=/work/checklists \
     "$NODE_IMG" node /work/grist-sync.mjs "$@"
 }
 
