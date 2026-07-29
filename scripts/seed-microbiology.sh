@@ -20,15 +20,31 @@ login_json="$(
     "$API_ROOT/ValidateLogin?apiCall=true"
 )"
 
-csrf="$(
-  printf '%s' "$login_json" |
-    python3 -c '
+printf '%s' "$login_json" |
+  python3 -c '
 import json
 import sys
 
 response = json.load(sys.stdin)
 if not response.get("success"):
     raise SystemExit("OpenELIS demo login failed")
+'
+
+session_json="$(
+  curl -fsSk \
+    -b "$COOKIE_JAR" \
+    "$API_ROOT/session"
+)"
+
+csrf="$(
+  printf '%s' "$session_json" |
+    python3 -c '
+import json
+import sys
+
+response = json.load(sys.stdin)
+if not response.get("authenticated"):
+    raise SystemExit("OpenELIS demo session is not authenticated")
 print(response.get("csrf", ""))
 '
 )"

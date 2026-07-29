@@ -19,7 +19,10 @@ set -euo pipefail
 printf '%s\\n' "$*" >> "$CALLS_FILE"
 case "$*" in
   *ValidateLogin*)
-    printf '{"success":true,"csrf":"test-csrf"}'
+    printf '{"success":true}'
+    ;;
+  *api/OpenELIS-Global/session*)
+    printf '{"authenticated":true,"csrf":"test-csrf"}'
     ;;
   *rest/microbiology/uat/scenarios*)
     [[ "$*" == *"X-CSRF-Token: test-csrf"* ]]
@@ -57,7 +60,8 @@ esac
   );
 
   const calls = await readFile(callsFile, "utf8");
-  assert.equal(calls.trim().split("\n").length, 2);
+  assert.equal(calls.trim().split("\n").length, 3);
   assert.match(calls, /ValidateLogin\?apiCall=true/);
+  assert.match(calls, /api\/OpenELIS-Global\/session/);
   assert.match(calls, /rest\/microbiology\/uat\/scenarios/);
 });
