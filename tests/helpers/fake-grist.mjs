@@ -23,6 +23,9 @@ export function fakeGristDoc(seed = {}) {
     // Every request the tool made, in order, so a test can assert on sequence
     // rather than only on the state left behind.
     calls: [],
+    // Table ids whose writes should fail, so a test can interrupt a service
+    // half way through a multi-table write.
+    failWrites: new Set(seed.failWrites || []),
   };
 }
 
@@ -76,16 +79,31 @@ function applyUserActions(doc, actions) {
         view = { id: doc.views.length + 3, fields: { name: "", type: "" } };
         doc.views.push(view);
       }
-      const section = { id: doc.sections.length + 20, viewRef: view.id, tableRef, fields: {} };
+      const section = {
+        id: doc.sections.length + 20,
+        viewRef: view.id,
+        tableRef,
+        fields: {},
+      };
       doc.sections.push(section);
       retValues.push({ viewRef: view.id, sectionRef: section.id });
+    } else if (name === "BulkRemoveRecord" || name === "RemoveRecord") {
+      const [tableId, rows] = args;
+      const ids = new Set(Array.isArray(rows) ? rows : [rows]);
+      const table = tableOf(doc, tableId);
+      table.records = table.records.filter((record) => !ids.has(record.id));
+      retValues.push(null);
     } else if (name === "UpdateRecord") {
       const [tableId, rowId, fields] = args;
       if (tableId === "_grist_Views") {
-        const view = (doc.views || []).find((candidate) => candidate.id === rowId);
+        const view = (doc.views || []).find(
+          (candidate) => candidate.id === rowId,
+        );
         if (view) Object.assign(view.fields, fields);
       } else if (tableId === "_grist_Views_section") {
-        const section = (doc.sections || []).find((candidate) => candidate.id === rowId);
+        const section = (doc.sections || []).find(
+          (candidate) => candidate.id === rowId,
+        );
         if (section) Object.assign(section.fields, fields);
       }
       retValues.push(null);
@@ -116,12 +134,17 @@ export async function startFakeGrist(doc) {
 
       const tablesRoot = `/api/docs/${doc.id}/tables`;
       if (path === tablesRoot && req.method === "GET") {
-        return send(200, { tables: metaTables(doc).map((t) => ({ id: t.fields.tableId })) });
+        return send(200, {
+          tables: metaTables(doc).map((t) => ({ id: t.fields.tableId })),
+        });
       }
       if (path === tablesRoot && req.method === "POST") {
         for (const spec of parsed.tables) {
           doc.tables[spec.id] = {
-            columns: spec.columns.map((column) => ({ id: column.id, fields: column.fields })),
+            columns: spec.columns.map((column) => ({
+              id: column.id,
+              fields: column.fields,
+            })),
             records: [],
           };
         }
@@ -133,17 +156,25 @@ export async function startFakeGrist(doc) {
         const table = tableOf(doc, columns[1]);
         if (req.method === "GET") return send(200, { columns: table.columns });
         if (req.method === "POST") {
-          table.columns.push(...parsed.columns.map((c) => ({ id: c.id, fields: c.fields })));
+          table.columns.push(
+            ...parsed.columns.map((c) => ({ id: c.id, fields: c.fields })),
+          );
           return send(200, {});
         }
         if (req.method === "PATCH") {
           // The real constraint, and a real 400 this project hit in production.
-          const shapes = new Set(parsed.columns.map((c) => Object.keys(c.fields).sort().join(",")));
+          const shapes = new Set(
+            parsed.columns.map((c) => Object.keys(c.fields).sort().join(",")),
+          );
           if (shapes.size > 1) {
-            return send(400, { error: "PATCH requires all records to have same fields" });
+            return send(400, {
+              error: "PATCH requires all records to have same fields",
+            });
           }
           for (const patch of parsed.columns) {
-            const column = table.columns.find((candidate) => candidate.id === patch.id);
+            const column = table.columns.find(
+              (candidate) => candidate.id === patch.id,
+            );
             if (column) Object.assign(column.fields, patch.fields);
           }
           return send(200, {});
@@ -153,9 +184,12 @@ export async function startFakeGrist(doc) {
       const records = path.match(new RegExp(`^${tablesRoot}/([^/]+)/records$`));
       if (records) {
         const id = records[1];
-        if (id === "_grist_Tables") return send(200, { records: metaTables(doc) });
-        if (id === "_grist_Tables_column") return send(200, { records: metaColumns(doc) });
-        if (id === "_grist_Views") return send(200, { records: doc.views || [] });
+        if (id === "_grist_Tables")
+          return send(200, { records: metaTables(doc) });
+        if (id === "_grist_Tables_column")
+          return send(200, { records: metaColumns(doc) });
+        if (id === "_grist_Views")
+          return send(200, { records: doc.views || [] });
         const table = tableOf(doc, id);
         if (req.method === "GET") {
           const filter = url.searchParams.get("filter");
@@ -173,6 +207,9 @@ export async function startFakeGrist(doc) {
           return send(200, { records: rows });
         }
         if (req.method === "POST") {
+          if (doc.failWrites.has(id)) {
+            return send(500, { error: `writes to ${id} are failing` });
+          }
           const created = parsed.records.map((record) => {
             const row = { id: nextId(table), fields: { ...record.fields } };
             table.records.push(row);
@@ -182,7 +219,9 @@ export async function startFakeGrist(doc) {
         }
         if (req.method === "PATCH") {
           for (const patch of parsed.records) {
-            const row = table.records.find((candidate) => candidate.id === patch.id);
+            const row = table.records.find(
+              (candidate) => candidate.id === patch.id,
+            );
             if (row) Object.assign(row.fields, patch.fields);
           }
           return send(200, {});
@@ -193,7 +232,9 @@ export async function startFakeGrist(doc) {
         return send(200, applyUserActions(doc, parsed));
       }
 
-      return send(404, { error: `fake grist has no route for ${req.method} ${path}` });
+      return send(404, {
+        error: `fake grist has no route for ${req.method} ${path}`,
+      });
     });
   });
 

@@ -265,7 +265,6 @@ test("every answer is stored under the submission with what it was answered agai
       cookie: "JSESSIONID=real",
       payload: {
         checklistRevision: "rev-9",
-        host: "amr.openelis-global.org",
         appSha: "deadbee",
         answers: [
           ANSWER,
@@ -277,7 +276,6 @@ test("every answer is stored under the submission with what it was answered agai
 
   const submission = doc.tables.UAT_Submissions.records[0];
   assert.equal(submission.fields.checklist_revision, "rev-9");
-  assert.equal(submission.fields.host, "amr.openelis-global.org");
   assert.equal(submission.fields.app_sha, "deadbee");
 
   const answers = doc.tables.UAT_Answers.records;
@@ -354,4 +352,70 @@ test("a submission against an unknown review is refused rather than filed under 
   );
   assert.equal(response.status, 404);
   assert.equal(doc.tables.UAT_Submissions.records.length, 0);
+});
+
+test("a config entry that names no backend is refused, not half-read", async () => {
+  // "amr" with no "=" used to map instance "am" to a URL of "amr": indexOf
+  // returns -1, so one slice drops the last character and the other returns the
+  // whole string, and both are truthy enough to survive a filter. A typo in the
+  // deployment's environment became a backend that answers for a review nobody
+  // named.
+  const doc = seededDoc();
+  const { response } = await withService(
+    doc,
+    { "JSESSIONID=real": MERCY },
+    { REVIEW_BACKENDS: "amr" },
+    (base) =>
+      submit(base, {
+        cookie: "JSESSIONID=real",
+        payload: { answers: [ANSWER] },
+        instance: "am",
+      }),
+  );
+  assert.equal(response.status, 501, "no backend was configured for anything");
+  assert.equal(doc.tables.UAT_Submissions.records.length, 0);
+});
+
+test("the host recorded is the one the request arrived on", async () => {
+  // The body is the submitter's word for it. The Host header is what the request
+  // was actually routed by — nginx matched a vhost on it — so it is the one that
+  // says which deployment these answers are about.
+  const doc = seededDoc();
+  await withService(doc, { "JSESSIONID=real": MERCY }, {}, (base) =>
+    submit(base, {
+      cookie: "JSESSIONID=real",
+      payload: { host: "somewhere-else.example.org", answers: [ANSWER] },
+    }),
+  );
+  const [row] = doc.tables.UAT_Submissions.records;
+  assert.match(
+    row.fields.host,
+    /^127\.0\.0\.1:\d+$/,
+    `recorded ${row.fields.host}`,
+  );
+});
+
+test("a submission whose answers fail to save does not survive as an empty review", async () => {
+  // The submission row is written first, because an answer points at it. If the
+  // answers then fail, what is left reads as a review somebody handed in having
+  // answered nothing — and the tally on the page says "0 pass · 0 fail · 0 n/a"
+  // as though that were a finding.
+  const doc = seededDoc();
+  doc.failWrites.add("UAT_Answers");
+  const { response } = await withService(
+    doc,
+    { "JSESSIONID=real": MERCY },
+    {},
+    (base) =>
+      submit(base, {
+        cookie: "JSESSIONID=real",
+        payload: { answers: [ANSWER] },
+      }),
+  );
+  assert.equal(response.status, 502);
+  assert.equal(
+    doc.tables.UAT_Submissions.records.length,
+    0,
+    "the submission row is taken back out again",
+  );
 });

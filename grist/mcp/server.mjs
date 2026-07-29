@@ -9,12 +9,13 @@
 // the widget reads through GET /uat. Authoring uses Grist's native /api/mcp.
 //
 // Env: GRIST_URL, GRIST_KEY | GRIST_KEY_FILE, GRIST_ORG, GRIST_DOC_NAME,
-//      PORT, REVIEW_BACKENDS, SESSION_PATH.
+//      PORT, REVIEW_BACKENDS, REVIEW_TLS_INSECURE_HOSTS, SESSION_PATH.
 
 import express from "express";
 import { readFileSync } from "node:fs";
 import { request as httpRequest } from "node:http";
 import { request as httpsRequest } from "node:https";
+import { parseBackends, verifyTlsFor } from "./backends.mjs";
 import { buildUatDocument, buildUatIndex } from "./uat-document.mjs";
 
 const GRIST_URL = process.env.GRIST_URL || "http://grist:8484";
@@ -27,17 +28,21 @@ const PORT = Number(process.env.PORT || 8585);
 // "amr=https://amr-oe:8443,analyzers=https://analyzers-oe:8443". Keyed by
 // instance rather than taken from a header: the instance is already in the URL,
 // and a header naming the backend would be one a caller could choose.
-const BACKENDS = new Map(
-  (process.env.REVIEW_BACKENDS || "")
-    .split(",")
-    .map((pair) => pair.trim())
-    .filter(Boolean)
-    .map((pair) => {
-      const at = pair.indexOf("=");
-      return [pair.slice(0, at).trim(), pair.slice(at + 1).trim()];
-    })
-    .filter(([instance, url]) => instance && url),
+const { backends: BACKENDS, malformed: BAD_BACKENDS } = parseBackends(
+  process.env.REVIEW_BACKENDS,
 );
+// Said at boot rather than dropped. A deployment whose map did not parse accepts
+// no submissions for that review, and the reason should not have to be inferred
+// from a 501 weeks later.
+if (BAD_BACKENDS.length) {
+  console.error(
+    `[grist-uat] ignoring malformed REVIEW_BACKENDS entries (expected instance=url): ${BAD_BACKENDS.join(", ")}`,
+  );
+}
+// Hostnames whose certificate is not checked — compose aliases on a network no
+// public CA can vouch for. Empty by default, so a backend pointed at a real host
+// is verified like anything else.
+const TLS_INSECURE_HOSTS = process.env.REVIEW_TLS_INSECURE_HOSTS || "";
 const SESSION_PATH = process.env.SESSION_PATH || "/api/OpenELIS-Global/session";
 
 function gristKey() {
@@ -124,12 +129,14 @@ function readSession(backend, cookie) {
         path: url.pathname + url.search,
         method: "GET",
         headers: cookie ? { Cookie: cookie } : {},
-        // The backends sit on a Docker network that is not routable and serve a
-        // self-signed certificate to it; the router in front of them already
-        // proxies with verification off for the same reason. The name being
-        // dialled is a compose alias, so there is no public CA that could vouch
-        // for it.
-        ...(secure ? { rejectUnauthorized: false } : {}),
+        // Verified unless this exact hostname was named in
+        // REVIEW_TLS_INSECURE_HOSTS. The deployment this was built for dials
+        // compose aliases over a network that is not routable, and no public CA
+        // can vouch for a name like "amr-oe" — but that is a property of those
+        // hosts, not a reason to stop checking every backend everywhere.
+        ...(secure && !verifyTlsFor(url.hostname, TLS_INSECURE_HOSTS)
+          ? { rejectUnauthorized: false }
+          : {}),
       },
       (res) => {
         let body = "";
@@ -170,6 +177,14 @@ async function addRecords(table, rows) {
     body: JSON.stringify({ records: rows.map((fields) => ({ fields })) }),
   });
   return (created && created.records) || [];
+}
+
+async function removeRecords(table, ids) {
+  const doc = await docId();
+  await grist(`/api/docs/${doc}/apply`, {
+    method: "POST",
+    body: JSON.stringify([["BulkRemoveRecord", table, ids]]),
+  });
 }
 
 const app = express();
@@ -300,7 +315,10 @@ app.post("/uat/:instance/submissions", async (req, res) => {
         // Grist stores a DateTime as epoch seconds. Taken here rather than from
         // the body: a clock the submitter controls is not a timestamp.
         submitted_at: Math.floor(Date.now() / 1000),
-        host: String((req.body && req.body.host) || ""),
+        // The header, not the body: the request was routed by it — nginx
+        // matched a vhost on it — so it says which deployment these answers are
+        // about. The body is the submitter's word for the same thing.
+        host: String(req.headers.host || ""),
         app_sha: String((req.body && req.body.appSha) || ""),
         checklist_revision: String(
           (req.body && req.body.checklistRevision) || "",
@@ -312,21 +330,41 @@ app.post("/uat/:instance/submissions", async (req, res) => {
     // What the reviewer saw, which is the only place that information exists —
     // the story may already have moved on, and the answer is evidence about the
     // version in front of them at the time.
-    await addRecords(
-      "UAT_Answers",
-      answers.map((answer) => ({
-        review: submission.id,
-        step_key: String(answer.stepKey || ""),
-        story_key: String(answer.storyKey || ""),
-        story_title: String(answer.storyTitle || ""),
-        story_version: String(answer.storyVersion || ""),
-        story_revision: String(answer.storyRevision || ""),
-        mark: String(answer.mark || ""),
-        note: String(answer.note || ""),
-        actual_url: String(answer.actualUrl || ""),
-        step: stepRefs.get(String(answer.stepKey || "").trim()) || 0,
-      })),
-    );
+    //
+    // The submission row had to go first, because every answer points at it. If
+    // these fail, that row is taken back out: left behind it is a review
+    // somebody handed in having answered nothing, and the tally on the page
+    // reports "0 pass · 0 fail · 0 n/a" as though that were the finding.
+    try {
+      await addRecords(
+        "UAT_Answers",
+        answers.map((answer) => ({
+          review: submission.id,
+          step_key: String(answer.stepKey || ""),
+          story_key: String(answer.storyKey || ""),
+          story_title: String(answer.storyTitle || ""),
+          story_version: String(answer.storyVersion || ""),
+          story_revision: String(answer.storyRevision || ""),
+          mark: String(answer.mark || ""),
+          note: String(answer.note || ""),
+          actual_url: String(answer.actualUrl || ""),
+          step: stepRefs.get(String(answer.stepKey || "").trim()) || 0,
+        })),
+      );
+    } catch (e) {
+      try {
+        await removeRecords("UAT_Submissions", [submission.id]);
+      } catch (cleanup) {
+        // Both writes failed, so the empty row is still there. Say so plainly —
+        // it is the one case where the document is left in a state a person has
+        // to look at.
+        console.error(
+          `[grist-uat] submission ${submission.id} for ${instance} has no answers and could not be removed:`,
+          (cleanup && cleanup.message) || cleanup,
+        );
+      }
+      throw e;
+    }
 
     res.status(201).json({ id: submission.id, reviewer });
   } catch (e) {
