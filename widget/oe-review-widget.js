@@ -2140,7 +2140,10 @@
           submitStatus = "Sign in and submit again. Nothing has been lost.";
           return;
         }
-        if (result.status === 501) {
+        // 404 is the same fact as 501 said by a plainer server: there is no
+        // submission endpoint here. That is the backend-free case the widget is
+        // built for, not a fault to alarm anybody about.
+        if (result.status === 501 || result.status === 404) {
           submitStatus =
             "This deployment does not accept submissions. Download the report and send it on instead.";
           return;

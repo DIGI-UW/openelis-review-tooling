@@ -243,3 +243,18 @@ test("the fourth button in the row still fits the narrowest panel", async ({
     panel.x + panel.width + 1,
   );
 });
+
+test("a page with no submission endpoint at all says so the same way", async ({
+  page,
+}) => {
+  // The widget's headline property is that it runs with no backend — index.html
+  // is a live demo of exactly that, and there a submission 404s. That is the
+  // same fact as a 501: there is nowhere to hand this in, download it instead.
+  // Reading it as a fault makes the backend-free demo look broken.
+  await page.route("**/__review/uat-analyzers/submissions", (route) =>
+    route.fulfill({ status: 404, body: "Not found" }),
+  );
+  const widget = await answerOneStep(await openPanel(page));
+  await submitButton(widget).click();
+  await expect(widget.locator(".statusbox")).toContainText(/download/i);
+});
