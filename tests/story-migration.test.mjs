@@ -3,21 +3,28 @@ import test from "node:test";
 import { planStoryMigration } from "../grist/schema.mjs";
 
 const step = (id, fields) => ({ id, fields: { instance: "amr", ...fields } });
+const reviews = [{ id: 7, fields: { instance: "amr" } }, { id: 8, fields: { instance: "analyzers" } }];
 
 test("makes one story per section a review actually has", () => {
-  const plan = planStoryMigration([
+  const plan = planStoryMigration(reviews, [
     step(1, { section: "Open the worklist", section_order: 0 }),
     step(2, { section: "Open the worklist", section_order: 0 }),
     step(3, { section: "Enter results", section_order: 1 }),
   ]);
+  // The review's row id, not its name: instance is a reference now, and a slug
+  // written into one is alt-text Grist cannot resolve back to anything.
   assert.deepEqual(
     plan.stories.map((s) => [s.instance, s.title, s.story_order]),
-    [["amr", "Open the worklist", 0], ["amr", "Enter results", 1]],
+    [[7, "Open the worklist", 0], [7, "Enter results", 1]],
   );
+  // And a key of its own. Leaving it to Grist's trigger means the rows this
+  // creates have none until Grist computes one, and everything downstream is
+  // keyed by it.
+  assert.deepEqual(plan.stories.map((s) => s.story_key), ["AMR-S01", "AMR-S02"]);
 });
 
 test("points every step at the story it was already in", () => {
-  const plan = planStoryMigration([
+  const plan = planStoryMigration(reviews, [
     step(1, { section: "A", section_order: 0 }),
     step(2, { section: "B", section_order: 1 }),
     step(3, { section: "A", section_order: 0 }),
@@ -32,17 +39,17 @@ test("points every step at the story it was already in", () => {
 test("keeps reviews apart even when they name a section the same", () => {
   // Two reviews both starting with "Sign in" are two stories, not one shared by
   // both — merging them would put one review's steps under the other's heading.
-  const plan = planStoryMigration([
+  const plan = planStoryMigration(reviews, [
     step(1, { instance: "amr", section: "Sign in", section_order: 0 }),
     step(2, { instance: "analyzers", section: "Sign in", section_order: 0 }),
   ]);
   assert.equal(plan.stories.length, 2);
-  assert.deepEqual(plan.stories.map((s) => s.instance), ["amr", "analyzers"]);
+  assert.deepEqual(plan.stories.map((s) => s.instance), [7, 8]);
 });
 
 test("leaves a step that already has a story alone", () => {
   // Migrating twice must not build a second set of stories over the first.
-  const plan = planStoryMigration([
+  const plan = planStoryMigration(reviews, [
     step(1, { section: "A", section_order: 0, story: 7 }),
     step(2, { section: "B", section_order: 1 }),
   ]);
@@ -51,13 +58,13 @@ test("leaves a step that already has a story alone", () => {
 });
 
 test("has nothing to do once everything is converted", () => {
-  const plan = planStoryMigration([step(1, { section: "A", section_order: 0, story: 7 })]);
+  const plan = planStoryMigration(reviews, [step(1, { section: "A", section_order: 0, story: 7 })]);
   assert.deepEqual(plan.stories, []);
   assert.deepEqual(plan.assign, []);
 });
 
 test("gives a section that lost its title something a reviewer can read", () => {
-  const plan = planStoryMigration([step(1, { section: "", section_order: 2 })]);
+  const plan = planStoryMigration(reviews, [step(1, { section: "", section_order: 2 })]);
   assert.equal(plan.stories[0].title, "Section 2");
 });
 
@@ -103,9 +110,9 @@ test("keeps the grouping until the migration that reads it has run", () => {
     { id: 2, fields: { instance: "amr", section: "Second", section_order: 1 } },
   ];
   // With the columns still present, two stories.
-  assert.equal(planStoryMigration(steps).stories.length, 2);
+  assert.equal(planStoryMigration(reviews, steps).stories.length, 2);
   // With them already gone, one — which is the damage, and why order matters.
   const stripped = steps.map((s) => ({ id: s.id, fields: { instance: "amr" } }));
-  assert.equal(planStoryMigration(stripped).stories.length, 1);
+  assert.equal(planStoryMigration(reviews, stripped).stories.length, 1);
   assert.equal(order.length, 0);
 });

@@ -184,8 +184,11 @@ async function repointStories(doc, before, { dryRun = false } = {}) {
 }
 
 async function ensureStories(doc, { dryRun = false } = {}) {
-  const steps = (await api(`/api/docs/${doc}/tables/UAT_Steps/records`)).records;
-  const plan = planStoryMigration(steps);
+  const [steps, reviews] = await Promise.all([
+    api(`/api/docs/${doc}/tables/UAT_Steps/records`).then((r) => r.records),
+    api(`/api/docs/${doc}/tables/UAT_Meta/records`).then((r) => r.records),
+  ]);
+  const plan = planStoryMigration(reviews, steps);
   if (!plan.stories.length) return;
   console.log(
     `  ${dryRun ? "would convert" : "convert"} ${plan.assign.length} steps into ${plan.stories.length} stories`,

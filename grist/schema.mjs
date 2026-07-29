@@ -305,21 +305,33 @@ export function planPages(liveViews, declared = PAGES) {
 //
 // A step that already points at a story is left alone, so running this a second
 // time does not build another set of stories over the first.
-export function planStoryMigration(stepRecords) {
+export function planStoryMigration(metaRecords, stepRecords) {
+  const reviewByName = new Map(
+    (metaRecords || []).map((record) => [String((record.fields || {}).instance || "").trim(), record.id]),
+  );
   const stories = [];
   const index = new Map();
   const assign = [];
+  const perReview = new Map();
 
   for (const record of stepRecords || []) {
     const fields = record.fields || {};
     if (fields.story) continue;
-    const instance = String(fields.instance || "").trim();
+    const name = String(fields.instance || "").trim();
     const order = Number(fields.section_order) || 0;
-    const group = `${instance} ${order}`;
+    const group = `${name} ${order}`;
     if (!index.has(group)) {
       index.set(group, stories.length);
+      const seq = (perReview.get(name) || 0) + 1;
+      perReview.set(name, seq);
       stories.push({
-        instance,
+        // The review's row id. instance is a reference, and the name written into
+        // one is alt-text Grist cannot resolve back to a review.
+        instance: reviewByName.get(name) || 0,
+        // Written here rather than left to the column's trigger: the rows this
+        // creates would otherwise have no key until Grist computed one, and
+        // everything downstream is keyed by it.
+        story_key: `${(name.split("-")[0].slice(0, 4) || "uat").toUpperCase()}-S${String(seq).padStart(2, "0")}`,
         // A section that lost its title still needs a heading a reviewer can read.
         title: String(fields.section || "").trim() || `Section ${order}`,
         story_order: order,
@@ -333,9 +345,10 @@ export function planStoryMigration(stepRecords) {
 
 // Turning the review name a story typed into the review it points at.
 //
-// Captured before the column becomes a reference: once it does, the text is no
-// longer something the document can resolve, so the mapping has to be taken from
-// the rows as they still are.
+// For documents whose stories predate the reference: captured before the column
+// becomes one, because afterwards the text is no longer something the document
+// can resolve. A migration running now writes row ids directly and never needs
+// this.
 export function planInstanceRefs(storyRecords, metaRecords) {
   const byName = new Map(
     (metaRecords || []).map((record) => [String((record.fields || {}).instance || "").trim(), record.id]),
