@@ -167,8 +167,10 @@ test("apply retires the old columns only after the migration that reads them", a
     "section_order is retired",
   );
 
+  // By action, not by endpoint: /apply carries every user action there is, so
+  // matching the URL alone found whichever one happened to come first.
   const removedAt = doc.calls.findIndex((call) =>
-    call.startsWith("POST /api/docs/docFAKE/apply"),
+    call.includes("RemoveColumn"),
   );
   const migratedAt = doc.calls.findIndex(
     (call) => call === "POST /api/docs/docFAKE/tables/UAT_Stories/records",
@@ -213,12 +215,18 @@ test("apply is idempotent — a second run changes nothing", async () => {
 
 test("apply --dry-run reports the work and performs none of it", async () => {
   const doc = legacyDoc();
-  const before = JSON.stringify(doc.tables);
+  // A page it would remove, so "none of it" covers pages too. Snapshotting only
+  // the tables let a dry run delete pages and still look like it had changed
+  // nothing.
+  doc.views = [{ id: 1, fields: { name: "UAT_Steps", type: "raw_data" } }];
+  const before = JSON.stringify({ tables: doc.tables, views: doc.views });
+
   const { stdout } = await apply(doc, ["--dry-run"]);
   assert.match(stdout, /would convert/);
   assert.match(stdout, /would retire/);
+  assert.match(stdout, /would remove the raw page/);
   assert.equal(
-    JSON.stringify(doc.tables),
+    JSON.stringify({ tables: doc.tables, views: doc.views }),
     before,
     "a dry run must not touch the document",
   );
@@ -308,5 +316,68 @@ test("the newest submission is the one at the top", async () => {
     JSON.parse(submissions[0].fields.sortColRefs).map(Math.sign),
     [-1],
     "submitted_at sorts descending, so the newest is read first",
+  );
+});
+
+test("apply does not leave behind the pages Grist makes for the tables it creates", async () => {
+  // Creating a table through the API gives it a primary view, which shows up in
+  // the left-hand nav as a raw dump of that table. Two of those appeared beside
+  // the Results page that presents the same rows properly, and nothing removed
+  // them: planPages ignores raw_data views when deciding what to create, so they
+  // were invisible to the only code that looks at pages.
+  //
+  // Cleaning up a side effect of its own create is not the same as owning the
+  // document — a page somebody authored is still left alone.
+  const doc = legacyDoc();
+  await apply(doc);
+
+  const named = (doc.views || []).map((view) => view.fields.name);
+  for (const table of ["UAT_Submissions", "UAT_Answers"]) {
+    assert.equal(
+      named.includes(table),
+      false,
+      `${table}'s auto-created page must be removed, leaving: ${named.join(", ")}`,
+    );
+  }
+  // The declared ones are still there.
+  for (const page of ["Story", "All steps", "Reviews", "Results"]) {
+    assert.ok(named.includes(page), `${page} must survive`);
+  }
+});
+
+test("leaves alone a page it did not create, raw or authored", async () => {
+  // The other half of the cleanup above, and the more important half. Removing
+  // its own side effect is fine; removing a page because of what type it is
+  // would take out the raw view of a table that was already here, and a page
+  // somebody made for themselves.
+  const doc = legacyDoc();
+  doc.views = [
+    { id: 1, fields: { name: "Legacy_Notes", type: "raw_data" } },
+    { id: 2, fields: { name: "Scratch", type: "empty" } },
+  ];
+  await apply(doc);
+
+  const named = doc.views.map((view) => view.fields.name);
+  assert.ok(
+    named.includes("Legacy_Notes"),
+    "the raw view of a table this declaration says nothing about is not ours",
+  );
+  assert.ok(
+    named.includes("Scratch"),
+    "a page somebody authored is left alone",
+  );
+});
+
+test("clears a raw page that a previous run already left behind", async () => {
+  // The version of this that only cleaned up tables it had just created would
+  // have tidied a fresh document and never touched one that had already run —
+  // which is every document that matters, including the live one.
+  const doc = legacyDoc();
+  doc.views = [{ id: 1, fields: { name: "UAT_Steps", type: "raw_data" } }];
+  await apply(doc);
+  assert.equal(
+    doc.views.some((view) => view.fields.name === "UAT_Steps"),
+    false,
+    "a leftover raw page for a declared table goes on the next run",
   );
 });
