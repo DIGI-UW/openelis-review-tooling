@@ -124,13 +124,21 @@ async function withService(doc, sessions, env, body) {
   child.stderr.on("data", (chunk) => logs.push(String(chunk)));
 
   try {
-    for (let attempt = 0; attempt < 100; attempt++) {
+    let up = false;
+    for (let attempt = 0; attempt < 100 && !up; attempt++) {
       try {
-        const health = await fetch(`http://127.0.0.1:${port}/healthz`);
-        if (health.ok) break;
+        up = (await fetch(`http://127.0.0.1:${port}/healthz`)).ok;
       } catch {
         await new Promise((resolve) => setTimeout(resolve, 50));
       }
+    }
+    // Otherwise every assertion below fails with "fetch failed" and the reason —
+    // which the service printed and this captured — is thrown away. That is how
+    // a missing dependency reads as eight broken tests.
+    if (!up) {
+      throw new Error(
+        `the review service did not start on :${port}\n${logs.join("") || "(it printed nothing)"}`,
+      );
     }
     const response = await body(`http://127.0.0.1:${port}`);
     return { response, app, logs: logs.join("") };
