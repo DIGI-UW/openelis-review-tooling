@@ -16,6 +16,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { promisify } from "node:util";
+import { PAGES } from "../grist/schema.mjs";
 import { fakeGristDoc, startFakeGrist } from "./helpers/fake-grist.mjs";
 
 const run = promisify(execFile);
@@ -339,8 +340,9 @@ test("apply does not leave behind the pages Grist makes for the tables it create
       `${table}'s auto-created page must be removed, leaving: ${named.join(", ")}`,
     );
   }
-  // The declared ones are still there.
-  for (const page of ["Story", "All steps", "Reviews", "Results"]) {
+  // The declared ones are still there. Read off the declaration rather than
+  // listed here, so renaming a page cannot quietly stop this checking it.
+  for (const page of PAGES.map((declared) => declared.name)) {
     assert.ok(named.includes(page), `${page} must survive`);
   }
 });
@@ -379,5 +381,43 @@ test("clears a raw page that a previous run already left behind", async () => {
     doc.views.some((view) => view.fields.name === "UAT_Steps"),
     false,
     "a leftover raw page for a declared table goes on the next run",
+  );
+});
+
+test("apply renames a page rather than building its new name beside the old one", async () => {
+  // The page is its widgets, their links and whatever layout somebody dragged
+  // into place. Creating "Checklists" and leaving "Reviews" behind would double
+  // the nav and lose none of the ambiguity the rename exists to remove.
+  const doc = legacyDoc();
+  doc.views = [
+    { id: 1, fields: { name: "Reviews", type: "" } },
+    { id: 2, fields: { name: "Results", type: "" } },
+  ];
+  await apply(doc);
+
+  const named = doc.views.map((view) => view.fields.name);
+  assert.ok(named.includes("Checklists"), `renamed, got: ${named.join(", ")}`);
+  assert.ok(named.includes("Submitted reviews"));
+  assert.equal(named.includes("Reviews"), false, "the old name is gone");
+  assert.equal(named.includes("Results"), false);
+
+  // The same view, renamed — not a replacement built alongside it.
+  assert.equal(doc.views.find((v) => v.fields.name === "Checklists").id, 1);
+  assert.equal(
+    doc.views.find((v) => v.fields.name === "Submitted reviews").id,
+    2,
+  );
+});
+
+test("a second run has nothing left to rename", async () => {
+  const doc = legacyDoc();
+  doc.views = [{ id: 1, fields: { name: "Reviews", type: "" } }];
+  await apply(doc);
+  doc.calls.length = 0;
+  const { stdout } = await apply(doc);
+  assert.equal(
+    /rename/.test(stdout),
+    false,
+    `second run renamed something: ${stdout}`,
   );
 });

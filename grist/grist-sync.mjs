@@ -263,6 +263,24 @@ async function ensureStories(doc, { dryRun = false } = {}) {
 async function ensurePages(doc, { dryRun = false, rebuild = false } = {}) {
   let views = (await api(`/api/docs/${doc}/tables/_grist_Views/records`))
     .records;
+
+  // Renames first, and before anything reads the list by name. A page is its
+  // widgets, their links, and whatever layout somebody dragged into place, and
+  // all of that survives a rename — whereas creating the new name and leaving
+  // the old page behind is worse than the ambiguity being fixed.
+  const renames = planPages(views, PAGES).rename;
+  for (const { id, from, to } of renames) {
+    console.log(
+      `  ${dryRun ? "would rename" : "renamed"} page ${from} to ${to}`,
+    );
+    if (dryRun) continue;
+    await userActions(doc, [
+      ["UpdateRecord", "_grist_Views", id, { name: to }],
+    ]);
+    const view = views.find((candidate) => candidate.id === id);
+    if (view) view.fields.name = to;
+  }
+
   if (rebuild) {
     // A page is created whole or not at all, so changing its shape means removing
     // the one that is there. Only pages this repository declares, and only when

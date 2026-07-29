@@ -7,7 +7,6 @@
 
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { createServer } from "node:http";
 import test from "node:test";
 import { fakeGristDoc, startFakeGrist } from "./helpers/fake-grist.mjs";
 import { startFakeOpenELIS } from "./helpers/fake-openelis.mjs";
@@ -87,6 +86,8 @@ function seededDoc() {
           col("mark"),
           col("note"),
           col("actual_url"),
+          col("step", { type: "Ref:UAT_Steps" }),
+          col("story", { type: "Ref:UAT_Stories" }),
         ],
         records: [],
       },
@@ -94,25 +95,21 @@ function seededDoc() {
   });
 }
 
-async function freePort() {
-  const probe = createServer();
-  await new Promise((resolve) => probe.listen(0, "127.0.0.1", resolve));
-  const { port } = probe.address();
-  await new Promise((resolve) => probe.close(resolve));
-  return port;
-}
-
 // Runs the real service, unmodified, against the two fakes it talks to.
+//
+// PORT=0 rather than a port picked here: choosing one meant binding it, closing
+// it, and handing the number to a process that binds it again — and between
+// those two, another test file running in parallel can take it. That produced a
+// failure in a full run that passed on its own, which is the worst kind.
 async function withService(doc, sessions, env, body) {
   const grist = await startFakeGrist(doc);
   const app = await startFakeOpenELIS(sessions);
-  const port = await freePort();
   const child = spawn("node", [SERVER], {
     env: {
       ...process.env,
       GRIST_URL: grist.url,
       GRIST_KEY: "test-key",
-      PORT: String(port),
+      PORT: "0",
       // ghost is a verifiable deployment with no review of that name, which is
       // a different refusal from a deployment that cannot verify anyone.
       REVIEW_BACKENDS: `amr=${app.url},ghost=${app.url}`,
@@ -124,20 +121,20 @@ async function withService(doc, sessions, env, body) {
   child.stderr.on("data", (chunk) => logs.push(String(chunk)));
 
   try {
-    let up = false;
-    for (let attempt = 0; attempt < 100 && !up; attempt++) {
-      try {
-        up = (await fetch(`http://127.0.0.1:${port}/healthz`)).ok;
-      } catch {
-        await new Promise((resolve) => setTimeout(resolve, 50));
-      }
+    // The service announces the port it bound; waiting for that line is both the
+    // address and the readiness signal.
+    let port = null;
+    for (let attempt = 0; attempt < 200 && port === null; attempt++) {
+      const announced = /\[grist-uat\] :(\d+)/.exec(logs.join(""));
+      if (announced) port = announced[1];
+      else await new Promise((resolve) => setTimeout(resolve, 25));
     }
     // Otherwise every assertion below fails with "fetch failed" and the reason —
     // which the service printed and this captured — is thrown away. That is how
     // a missing dependency reads as eight broken tests.
-    if (!up) {
+    if (port === null) {
       throw new Error(
-        `the review service did not start on :${port}\n${logs.join("") || "(it printed nothing)"}`,
+        `the review service never announced a port\n${logs.join("") || "(it printed nothing)"}`,
       );
     }
     const response = await body(`http://127.0.0.1:${port}`);
@@ -418,4 +415,37 @@ test("a submission whose answers fail to save does not survive as an empty revie
     0,
     "the submission row is taken back out again",
   );
+});
+
+test("an answer points at the story it was about, so one story can be read whole", async () => {
+  // Navigation, like `step`: the pinned story_key and story_version stay the
+  // record. Without it there is no way to show one story's answers across every
+  // submission, because Grist links two widgets through a reference and never
+  // through matching text.
+  const doc = seededDoc();
+  await withService(doc, { "JSESSIONID=real": MERCY }, {}, (base) =>
+    submit(base, { cookie: "JSESSIONID=real", payload: { answers: [ANSWER] } }),
+  );
+  const [answer] = doc.tables.UAT_Answers.records;
+  assert.equal(answer.fields.story, 3, "AMR-S01 is story row 3 in this review");
+  assert.equal(
+    answer.fields.story_key,
+    "AMR-S01",
+    "and the pinned key is untouched",
+  );
+});
+
+test("an answer about a story that is gone still records the answer", async () => {
+  // The reference is a convenience; the answer is evidence either way. A story
+  // key matching nothing leaves the reference empty rather than refusing.
+  const doc = seededDoc();
+  await withService(doc, { "JSESSIONID=real": MERCY }, {}, (base) =>
+    submit(base, {
+      cookie: "JSESSIONID=real",
+      payload: { answers: [{ ...ANSWER, storyKey: "AMR-S99" }] },
+    }),
+  );
+  const [answer] = doc.tables.UAT_Answers.records;
+  assert.equal(answer.fields.story, 0);
+  assert.equal(answer.fields.story_key, "AMR-S99");
 });

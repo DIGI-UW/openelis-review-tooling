@@ -339,6 +339,11 @@ export const SCHEMA = {
         description:
           "A way to click through to the step as it stands today. Navigation only — it goes blank if the step is deleted, and step_key is what the answer is actually about.",
       },
+      story: {
+        type: "Ref:UAT_Stories",
+        description:
+          "The story as it stands today, for the same reason as step: navigation. It is also what lets a page show one story's answers across every submission, because Grist links two widgets through a reference and not through matching text. story_key and story_version remain what this answer is a record of.",
+      },
     },
   },
 };
@@ -441,8 +446,15 @@ export const PAGES = [
     ],
   },
   {
-    // One review, whole: its stories, and the steps of whichever story is picked.
-    name: "Reviews",
+    // One checklist, whole: its stories, and the steps of whichever story is
+    // picked. This is the authored side — what reviewers will be asked.
+    //
+    // It was called "Reviews", which is what UAT_Meta rows are called, and sat
+    // beside a "Results" page holding the reviews people had actually given.
+    // Two pages, both fairly described as reviews, and no way to tell from the
+    // nav which was which.
+    name: "Checklists",
+    renamedFrom: ["Reviews"],
     sections: [
       { table: "UAT_Meta", type: "record", sort: ["instance"] },
       {
@@ -462,12 +474,41 @@ export const PAGES = [
     ],
   },
   {
-    // What came back. Pick a submission, read what that person answered — the
-    // one view the whole exercise exists to produce.
-    name: "Results",
+    // What came back, by person. Pick a submission, read what that reviewer
+    // answered.
+    name: "Submitted reviews",
+    renamedFrom: ["Results"],
     sections: [
       { table: "UAT_Submissions", type: "record", sort: ["-submitted_at"] },
       { table: "UAT_Answers", type: "record", linkFrom: 0, linkVia: "review" },
+      { table: "UAT_Answers", type: "single", linkFrom: 1 },
+    ],
+  },
+  {
+    // What came back, by story — the other axis, and usually the one worth
+    // reading. "Submitted reviews" answers what one person said; this answers
+    // how one story did, across everybody who tried it.
+    //
+    // Possible only because an answer carries a reference to its story: Grist
+    // links two widgets through a reference, never through matching text, and
+    // story_key is deliberately text so it cannot follow a story that moves.
+    name: "Story results",
+    sections: [
+      {
+        table: "UAT_Stories",
+        type: "record",
+        sort: ["instance", "story_order"],
+      },
+      {
+        table: "UAT_Answers",
+        type: "record",
+        linkFrom: 0,
+        linkVia: "story",
+        // Ascending mark puts fail above na above pass. That is alphabetical
+        // order doing the work rather than a rule anybody wrote, so the tests
+        // assert it holds for the three marks a widget can produce.
+        sort: ["mark"],
+      },
       { table: "UAT_Answers", type: "single", linkFrom: 1 },
     ],
   },
@@ -495,20 +536,33 @@ export function planSortColRefs(table, sort, colRef) {
   });
 }
 
-// Which declared pages the document is missing. Grist's raw-data views carry the
+// Which declared pages the document is missing, and which are there under a
+// name this declaration has since changed. Grist's raw-data views carry the
 // table's own name and are never a page somebody authored, so they cannot stand
 // in for one.
+//
+// Renaming rather than rebuilding: a page is its widgets, their links and
+// whatever layout somebody dragged into place, and all of that survives a
+// rename. Creating the new name and leaving the old page behind would be worse
+// than the ambiguity the rename is fixing.
 export function planPages(liveViews, declared = PAGES) {
-  const authored = new Set(
-    (liveViews || [])
-      .filter((view) => (view.fields || {}).type !== "raw_data")
-      .map((view) => (view.fields || {}).name),
+  const views = (liveViews || []).filter(
+    (view) => (view.fields || {}).type !== "raw_data",
   );
-  return {
-    create: declared
-      .filter((page) => !authored.has(page.name))
-      .map((page) => page.name),
-  };
+  const byName = new Map(views.map((view) => [(view.fields || {}).name, view]));
+
+  const create = [];
+  const rename = [];
+  for (const page of declared) {
+    if (byName.has(page.name)) continue;
+    const old = (page.renamedFrom || []).find((name) => byName.has(name));
+    if (old) {
+      rename.push({ id: byName.get(old).id, from: old, to: page.name });
+      continue;
+    }
+    create.push(page.name);
+  }
+  return { create, rename };
 }
 
 // Turning the section a step names into a story it points at.

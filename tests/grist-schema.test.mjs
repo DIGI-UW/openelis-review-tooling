@@ -241,7 +241,7 @@ test("plans the retirement of a column that is still there, and only that one", 
 test("hangs a review's stories and steps off the review itself", () => {
   // Without this there is nowhere to see one review whole: the story page lists
   // every story of every review, and the reviews page has nothing under it.
-  const reviews = PAGES.find((page) => page.name === "Reviews");
+  const reviews = PAGES.find((page) => page.name === "Checklists");
   const [list, stories, steps] = reviews.sections;
   assert.equal(list.table, "UAT_Meta");
   assert.equal(stories.table, "UAT_Stories");
@@ -329,8 +329,8 @@ test("nothing an answer pins is recomputed from the story it points at", () => {
 });
 
 test("a review can be read whole, from the person down to the answers", () => {
-  const page = PAGES.find((p) => p.name === "Results");
-  assert.ok(page, "there must be a Results page");
+  const page = PAGES.find((p) => p.name === "Submitted reviews");
+  assert.ok(page, "there must be a Submitted reviews page");
   const [submissions, answers] = page.sections;
   assert.equal(submissions.table, "UAT_Submissions");
   assert.equal(answers.table, "UAT_Answers");
@@ -359,4 +359,121 @@ test("a page that names a column the table does not have is refused, not sorted 
     () => planSortColRefs("UAT_Submissions", ["submited_at"], refs),
     /unknown column submited_at/,
   );
+});
+
+// ---- reading a story's answers across everyone who gave them ---------------
+
+test("an answer can be clicked back to the story it was about", () => {
+  // Navigation only, exactly like `step`. The pinned story_key and story_version
+  // remain what the answer is a record of — this is what lets a page link a
+  // story picker to the answers, which Grist can only do through a reference.
+  const story = SCHEMA.UAT_Answers.columns.story;
+  assert.ok(story, "UAT_Answers.story must be declared");
+  assert.equal(story.type, "Ref:UAT_Stories");
+  assert.equal(
+    Boolean(story.isFormula),
+    false,
+    "a reference is written once, not computed",
+  );
+});
+
+test("one story, every answer anyone gave it", () => {
+  // The view the whole exercise is for: not "what did this person say", which is
+  // the submissions page, but "how did this story do".
+  const page = PAGES.find((p) => p.name === "Story results");
+  assert.ok(page, "there must be a Story results page");
+  const [picker, answers, detail] = page.sections;
+  assert.equal(picker.table, "UAT_Stories");
+  assert.equal(answers.table, "UAT_Answers");
+  assert.equal(answers.linkFrom, 0);
+  assert.equal(answers.linkVia, "story", "the answers follow the story picked");
+  assert.equal(detail.linkFrom, 1, "and the card follows the answer picked");
+});
+
+test("failures come first among a story's answers", () => {
+  const answers = PAGES.find((p) => p.name === "Story results").sections[1];
+  assert.deepEqual(answers.sort, ["mark"]);
+  // Which puts fail above na above pass — worth asserting rather than trusting,
+  // because it is alphabetical order doing the work, not a rule anybody wrote.
+  assert.deepEqual(["pass", "fail", "na"].sort(), ["fail", "na", "pass"]);
+});
+
+test("the two pages that both read as 'reviews' are named apart", () => {
+  const names = PAGES.map((page) => page.name);
+  assert.ok(names.includes("Checklists"), "the authored side");
+  assert.ok(names.includes("Submitted reviews"), "what came back");
+  for (const gone of ["Reviews", "Results"]) {
+    assert.equal(names.includes(gone), false, `${gone} was the ambiguous name`);
+  }
+});
+
+test("a renamed page says what it used to be called", () => {
+  // Otherwise apply creates the new one and leaves the old sitting beside it,
+  // which is worse than the name it was fixing.
+  const checklists = PAGES.find((page) => page.name === "Checklists");
+  const submitted = PAGES.find((page) => page.name === "Submitted reviews");
+  assert.deepEqual(checklists.renamedFrom, ["Reviews"]);
+  assert.deepEqual(submitted.renamedFrom, ["Results"]);
+});
+
+test("planPages renames rather than duplicating when the old page is there", () => {
+  const live = [{ id: 9, fields: { name: "Reviews", type: "" } }];
+  const plan = planPages(live, [
+    { name: "Checklists", renamedFrom: ["Reviews"] },
+  ]);
+  assert.deepEqual(
+    plan.create,
+    [],
+    "nothing to create — it already exists under its old name",
+  );
+  assert.deepEqual(plan.rename, [{ id: 9, from: "Reviews", to: "Checklists" }]);
+});
+
+test("planPages leaves an already-renamed page alone", () => {
+  const live = [{ id: 9, fields: { name: "Checklists", type: "" } }];
+  const plan = planPages(live, [
+    { name: "Checklists", renamedFrom: ["Reviews"] },
+  ]);
+  assert.deepEqual(plan.create, []);
+  assert.deepEqual(plan.rename, []);
+});
+
+test("planPages creates a page whose old name is not there either", () => {
+  const plan = planPages(
+    [],
+    [{ name: "Checklists", renamedFrom: ["Reviews"] }],
+  );
+  assert.deepEqual(plan.create, ["Checklists"]);
+  assert.deepEqual(plan.rename, []);
+});
+
+test("every link a page declares goes through a real reference to the right table", () => {
+  // Grist links two widgets through a reference column on the target pointing
+  // back at the source table. Text that merely holds a matching key links
+  // nothing, and the page comes out as two unrelated lists side by side — which
+  // looks like a working page until you click a row.
+  //
+  // Checked across every page rather than named one by one, so a column quietly
+  // becoming text cannot slip through on whichever link nobody listed.
+  for (const page of PAGES) {
+    page.sections.forEach((section, index) => {
+      if (section.linkVia === undefined) return;
+      assert.notEqual(
+        section.linkFrom,
+        undefined,
+        `${page.name}[${index}] links via a column but names no source`,
+      );
+      const source = page.sections[section.linkFrom].table;
+      const column = SCHEMA[section.table].columns[section.linkVia];
+      assert.ok(
+        column,
+        `${page.name}: ${section.table}.${section.linkVia} is not declared`,
+      );
+      assert.equal(
+        column.type,
+        `Ref:${source}`,
+        `${page.name}: ${section.table}.${section.linkVia} must reference ${source}`,
+      );
+    });
+  }
 });
