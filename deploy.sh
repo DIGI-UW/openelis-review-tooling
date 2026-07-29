@@ -624,7 +624,9 @@ cat > /tmp/oe-reload-router.sh <<'RTREOF'
 $(cat "$HERE/scripts/reload-router.sh")
 RTREOF
 chmod +x /tmp/oe-reload-router.sh
-REMOTE_USER='$OS_USER' PROBE_DOMAIN='$domain' PROBE_INSTANCE='$instance' /tmp/oe-reload-router.sh"
+REMOTE_USER='$OS_USER' PROBE_DOMAIN='$domain' PROBE_INSTANCE='$instance' \
+AMR_DOMAIN='$AMR_DOMAIN' ANALYZERS_DOMAIN='$ANALYZERS_DOMAIN' GRIST_DOMAIN='$GRIST_DOMAIN' \
+/tmp/oe-reload-router.sh"
 }
 
 cmd_review() {

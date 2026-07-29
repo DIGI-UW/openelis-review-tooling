@@ -132,12 +132,30 @@ untouched:
 touch the router, so a change to `router/nginx.conf.template` is still inert
 after it: the template becomes `nginx.conf` in the container's entrypoint, and
 until the container is recreated the old routes keep serving.
+`grist apply` runs from the checkout **on the host**, not from yours, so it must
+come after `review deploy` has moved that checkout. Run it first against a box
+still on the old commit and it reconciles the document to the old schema — which
+reports "nothing to do" and looks like the change was already applied.
+
 `review reload-router` is that recreate, and only that one — `--no-deps` keeps
 it off both application stacks, so nobody mid-review is interrupted. It forces
 the recreate, because a template-only change leaves the image identical and
 Compose would otherwise find nothing to do and report success. It then probes
 the submissions route and fails on a 404, which is the state it exists to
 prevent: routes that were never rendered, reported as deployed.
+
+Deploying a change that touches all three therefore goes:
+
+```text
+./deploy.sh review deploy --ref <sha> --scope all   # moves the checkout, then the widget + service
+./deploy.sh grist apply --dry-run                   # read the plan against the moved checkout
+./deploy.sh grist apply
+./deploy.sh review reload-router                    # last: the route needs the service behind it
+```
+
+The router goes last because its probe expects the checklist service to answer
+the submissions route; against an older service the probe sees a 404 and
+correctly refuses.
 
 Targeted delivery supports `instance=amr` and `instance=analyzers`. It tags the
 current frontend/backend images before replacement, publishes target metadata

@@ -22,6 +22,7 @@ function harness({
   labels = {},
   composeFiles = ["docker-compose.router.yml"],
   status = "400",
+  failFirst = 0,
 } = {}) {
   const root = mkdtempSync(join(tmpdir(), "oe-reload-router-"));
   const bin = join(root, "bin");
@@ -57,6 +58,9 @@ function harness({
       ),
       `  printf '\\n'; exit 0`,
       `fi`,
+      // The domains are what the entrypoint renders into server_name and the
+      // certificate paths, so whether they arrived is the whole question.
+      `printf 'env AMR_DOMAIN=%s ANALYZERS_DOMAIN=%s GRIST_DOMAIN=%s\\n' "\${AMR_DOMAIN-unset}" "\${ANALYZERS_DOMAIN-unset}" "\${GRIST_DOMAIN-unset}" >> ${JSON.stringify(join(root, "docker.log"))}`,
       `printf '%s\\n' "$*" >> ${JSON.stringify(join(root, "docker.log"))}`,
     ].join("\n"),
   );
@@ -64,7 +68,11 @@ function harness({
     "sudo",
     [
       `[ "$1" = -u ] && { printf 'user=%s\\n' "$2" >> ${JSON.stringify(join(root, "sudo.log"))}; shift 2; }`,
-      `exec "$@"`,
+      // Real sudo resets the environment (env_reset is the default), keeping
+      // only a secure PATH. Inheriting it here would let the script look like it
+      // hands the domains across when it does not — which is the outage this
+      // whole file exists downstream of.
+      `exec env -i PATH="$PATH" "$@"`,
     ].join("\n"),
   );
   // curl -sSk -o BODY -w '%{http_code}' … : the status is what the script reads.
@@ -79,6 +87,11 @@ function harness({
       `  shift`,
       `done`,
       `printf '%s\\n' "$url" >> ${JSON.stringify(join(root, "curl.log"))}`,
+      // Counts its own calls, so the first N can refuse the connection the way
+      // curl really does: 000 through -w, and a non-zero exit alongside it.
+      `n=$(cat ${JSON.stringify(join(root, "curl.n"))} 2>/dev/null || echo 0)`,
+      `n=$((n + 1)); printf '%s' "$n" > ${JSON.stringify(join(root, "curl.n"))}`,
+      `if [ "$n" -le ${failFirst} ]; then printf '000'; exit 7; fi`,
       `printf 'body-for-%s' ${JSON.stringify(status)} > "$out"`,
       `printf '%s' ${JSON.stringify(status)}`,
     ].join("\n"),
@@ -93,6 +106,9 @@ function harness({
         env: {
           PATH: `${bin}:/usr/bin:/bin`,
           REMOTE_USER: "ubuntu",
+          AMR_DOMAIN: "amr.example.org",
+          ANALYZERS_DOMAIN: "analyzers.example.org",
+          GRIST_DOMAIN: "grist.example.org",
           PROBE_DOMAIN: "amr.example.org",
           PROBE_INSTANCE: "amr",
           PROBE_ATTEMPTS: "2",
@@ -183,4 +199,46 @@ test("refuses when no Compose file is resolved at all", () => {
 test("refuses when the running router cannot be resolved", () => {
   const rig = harness({ labels: { "com.docker.compose.project": "" } });
   assert.throws(() => rig.run(), /could not resolve the running router/);
+});
+
+test("waits for the router to come back rather than probing it once", () => {
+  // A recreated container has not bound 443 the instant Compose returns. curl
+  // reports that as 000 through -w *and* a non-zero exit, and appending another
+  // 000 to that made the value "000000" — never equal to the 000 the retry
+  // tested for, so the loop broke immediately and a working reload was reported
+  // as an unexpected status.
+  const rig = harness({ failFirst: 2, status: "400" });
+  assert.match(rig.run({ PROBE_ATTEMPTS: "5" }), /router reloaded/);
+});
+
+test("gives up if the router never answers, and says so as a connection failure", () => {
+  const rig = harness({ failFirst: 99 });
+  assert.throws(() => rig.run({ PROBE_ATTEMPTS: "3" }), /unexpected 000/);
+});
+
+test("refuses to recreate the router without the domains it renders", () => {
+  // Recreating it without these yields a configuration naming no host and
+  // pointing at no certificate: nginx starts and serves nothing on 443. That is
+  // an outage rather than a failed reload, so it has to be impossible to do by
+  // omission.
+  const rig = harness();
+  for (const missing of ["AMR_DOMAIN", "ANALYZERS_DOMAIN", "GRIST_DOMAIN"]) {
+    assert.throws(
+      () => rig.run({ [missing]: "" }),
+      new RegExp(missing),
+      `${missing} must be required`,
+    );
+  }
+});
+
+test("hands the domains to the compose that renders them", () => {
+  // Not merely required of the caller — actually passed across the sudo
+  // boundary, which drops the environment by default. Recreating the router
+  // without them renders a configuration naming no host and pointing at no
+  // certificate, and nginx then serves nothing on 443.
+  const rig = harness();
+  rig.run();
+  assert.match(rig.dockerLog(), /AMR_DOMAIN=amr\.example\.org/);
+  assert.match(rig.dockerLog(), /ANALYZERS_DOMAIN=analyzers\.example\.org/);
+  assert.match(rig.dockerLog(), /GRIST_DOMAIN=grist\.example\.org/);
 });
