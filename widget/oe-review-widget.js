@@ -1325,13 +1325,18 @@
     return box;
   }
 
+  function isUrl(value) {
+    return /^https?:\/\//i.test(value);
+  }
+  // Only jira takes a bare value: a key arrives bare more often than as a URL, so
+  // resolving it against the tracker is right. pr and mock are URLs, and sending a
+  // malformed one to the tracker would point the reviewer somewhere confidently
+  // wrong — worse than not offering the link.
   var LINK_LABELS = [
-    ["jira", function (value) { return /^https?:/i.test(value) ? "Ticket" : value; }],
-    ["pr", function () { return "PR"; }],
-    ["mock", function () { return "Mock"; }],
+    ["jira", function (value) { return isUrl(value) ? "Ticket" : value; }, true],
+    ["pr", function () { return "PR"; }, false],
+    ["mock", function () { return "Mock"; }, false],
   ];
-  // Jira keys arrive bare more often than as URLs, so the bare form is resolved
-  // against the tracker rather than rendered as dead text.
   var JIRA_BASE = "https://uwdigi.atlassian.net/browse/";
   function storyMeta(section) {
     var links = section.links;
@@ -1340,8 +1345,10 @@
     LINK_LABELS.forEach(function (pair) {
       var value = String(links[pair[0]] || "").trim();
       if (!value) return;
+      var bareIsAKey = pair[2];
+      if (!isUrl(value) && !bareIsAKey) return;
       var a = el("a", "storylink");
-      a.href = /^https?:/i.test(value) ? value : JIRA_BASE + encodeURIComponent(value);
+      a.href = isUrl(value) ? value : JIRA_BASE + encodeURIComponent(value);
       a.textContent = pair[1](value);
       a.target = "_blank";
       a.rel = "noopener noreferrer";

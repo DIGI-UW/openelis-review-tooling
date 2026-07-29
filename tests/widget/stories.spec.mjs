@@ -57,3 +57,41 @@ test("counts only the steps the reviewer can actually reach", async ({ page }) =
   await widget.getByRole("button", { name: "Minimize" }).click();
   await expect(widget.locator(".tab")).toContainText("0/2");
 });
+
+test("does not send a malformed pr or mock to the issue tracker", async ({ page }) => {
+  // Served just for this test rather than added to the shared fixture: a story
+  // there changes the step counts a dozen other tests assert on.
+  await page.route("**/tests/widget/uat.json", (route) =>
+    route.fulfill({
+      json: {
+        schemaVersion: 2,
+        checklistRevision: "malformed-links",
+        title: "Analyzer QC review",
+        instance: "analyzers",
+        sections: [
+          {
+            title: "Links an author got wrong",
+            key: "AN-BADLINKS",
+            // What an author who types a PR number rather than its URL produces.
+            links: { jira: "OGC-1054", pr: "3195", mock: "the-figma-one" },
+            steps: [{ key: "AN-QC-800", required: true, do: "A step under it" }],
+          },
+        ],
+      },
+    }),
+  );
+
+  const widget = await openPanel(page);
+  const links = widget.locator(".secrow").first().locator(".storylink");
+
+  // A bare Jira key is the common case and worth resolving. A bare pr or mock is
+  // not a Jira key — pointing it at the tracker sends the reviewer somewhere
+  // confidently wrong, which is worse than not offering the link at all.
+  await expect(links.filter({ hasText: /^PR$/ })).toHaveCount(0);
+  await expect(links.filter({ hasText: /^Mock$/ })).toHaveCount(0);
+  for (const href of await links.evaluateAll((els) => els.map((e) => e.getAttribute("href")))) {
+    expect(href).not.toMatch(/browse\/(3195|the-figma-one)/);
+  }
+  // The Jira key still resolves against the tracker.
+  await expect(links.filter({ hasText: "OGC-1054" })).toHaveAttribute("href", /browse\/OGC-1054/);
+});

@@ -94,9 +94,6 @@ async function ensureTables(doc, { dryRun = false } = {}) {
         `  ${dryRun ? "would update" : "update"} ${id}.${column.id}: ${Object.keys(column.fields).join(", ")}`,
       );
     }
-    for (const colId of plan.retire) {
-      console.log(`  ${dryRun ? "would retire" : "retire"} ${id}.${colId}`);
-    }
     if (dryRun) continue;
     if (plan.add.length) {
       await api(`/api/docs/${doc}/tables/${id}/columns`, {
@@ -112,9 +109,21 @@ async function ensureTables(doc, { dryRun = false } = {}) {
         body: JSON.stringify({ columns: [column] }),
       });
     }
-    // Last, and only names the declaration retired: everything above may still
-    // have been reading the column being dropped.
-    for (const colId of plan.retire) {
+  }
+}
+
+// Separate from ensureTables on purpose, and run last. The columns being retired
+// are the ones the migration reads to build stories from, so dropping them while
+// reconciling the schema would destroy the grouping before anything had used it:
+// on a fresh document, or a restore, every step would collapse into one story.
+async function retireColumns(doc, { dryRun = false } = {}) {
+  for (const [id, spec] of Object.entries(SCHEMA)) {
+    if (!spec.retired || !spec.retired.length) continue;
+    const live = (await api(`/api/docs/${doc}/tables/${id}/columns`)).columns;
+    const { retire } = planColumns(live, spec.columns, spec.retired);
+    for (const colId of retire) {
+      console.log(`  ${dryRun ? "would retire" : "retire"} ${id}.${colId}`);
+      if (dryRun) continue;
       await api(`/api/docs/${doc}/apply`, {
         method: "POST",
         body: JSON.stringify([["RemoveColumn", id, colId]]),
@@ -387,6 +396,7 @@ async function seed(replaceAll) {
 
 async function generate() {
   const doc = await resolveDoc();
+  const storyRecs = (await api(`/api/docs/${doc}/tables/UAT_Stories/records`)).records;
   const meta = {};
   for (const r of (await api(`/api/docs/${doc}/tables/UAT_Meta/records`)).records)
     meta[r.fields.instance] = r.fields;
@@ -397,7 +407,7 @@ async function generate() {
   mkdirSync(EXPORT_DIR, { recursive: true });
   for (const [inst, rows] of Object.entries(byInstance)) {
     const m = meta[inst] || {};
-    const out = buildUatDocument(inst, m, rows);
+    const out = buildUatDocument(inst, m, rows, storyRecs);
     const path = join(EXPORT_DIR, `uat-${inst}.json`);
     writeFileSync(path, JSON.stringify(out, null, 2) + "\n");
     console.log(
@@ -435,6 +445,8 @@ if (mode === "apply") {
   await ensureTables(doc, { dryRun });
   await ensureStories(doc, { dryRun });
   await repointStories(doc, storyNames, { dryRun });
+  // After the migration that reads them, never before.
+  await retireColumns(doc, { dryRun });
   await ensurePages(doc, { dryRun, rebuild });
   console.log(dryRun ? `dry run against ${doc}` : `applied schema to ${doc}`);
 } else if (mode === "migrate") await migrate();

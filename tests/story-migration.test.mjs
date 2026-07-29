@@ -91,3 +91,21 @@ test("reports a name matching no review instead of quietly emptying it", () => {
   assert.deepEqual(plan.assign, []);
   assert.deepEqual(plan.unmatched, ["typo"]);
 });
+
+test("keeps the grouping until the migration that reads it has run", () => {
+  // The retirement and the migration read the same two columns. If apply drops
+  // them before ensureStories() runs, planStoryMigration sees nothing to group by
+  // and every step in the document collapses into one story — on a fresh document
+  // or a restore, which is exactly when the migration is load-bearing.
+  const order = [];
+  const steps = [
+    { id: 1, fields: { instance: "amr", section: "First", section_order: 0 } },
+    { id: 2, fields: { instance: "amr", section: "Second", section_order: 1 } },
+  ];
+  // With the columns still present, two stories.
+  assert.equal(planStoryMigration(steps).stories.length, 2);
+  // With them already gone, one — which is the damage, and why order matters.
+  const stripped = steps.map((s) => ({ id: s.id, fields: { instance: "amr" } }));
+  assert.equal(planStoryMigration(stripped).stories.length, 1);
+  assert.equal(order.length, 0);
+});

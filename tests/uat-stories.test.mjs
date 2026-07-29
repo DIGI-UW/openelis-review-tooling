@@ -140,3 +140,15 @@ test("keeps emitting sections, so a deployed widget still renders it", () => {
   assert.equal(doc.sections[0].steps[0].do, "Do 1");
   assert.equal(doc.sections[0].steps[0].required, true);
 });
+
+test("a bare value is a Jira key only where a Jira key belongs", () => {
+  // pr and mock are documented as URLs. Resolving a malformed one against the
+  // tracker sends a reviewer somewhere confidently wrong, which is worse than
+  // showing nothing.
+  const doc = buildUatDocument("amr", {}, [step(1, 1)], [
+    story(1, { jira: "OGC-782", pr: "3195", mock: "not-a-url" }),
+  ]);
+  // The document carries what the author typed; it is the widget that decides
+  // what is linkable, so all three survive the build unchanged.
+  assert.deepEqual(doc.sections[0].links, { jira: "OGC-782", pr: "3195", mock: "not-a-url" });
+});
