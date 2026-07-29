@@ -61,7 +61,11 @@ when it stands down.
   "intro": "Optional preamble shown at the top of the panel.",
   "sections": [
     {
-      "title": "A section heading",
+      "title": "A story heading",
+      "key": "AMR-S01",
+      "links": { "jira": "OGC-782", "pr": "https://github.com/…/pull/3195",
+                 "mock": "https://figma…", "userStory": "As a … I want …" },
+      "hosts": ["amr.openelis-global.org"],
       "steps": [
         { "key": "AMR-001",
           "required": true,

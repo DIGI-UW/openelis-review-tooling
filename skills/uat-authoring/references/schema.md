@@ -7,7 +7,7 @@ review. A single row set — keyed by an **instance slug** — is one checklist.
 Live instances today: `amr` (Microbiology MVP, OGC-782) and `analyzers`
 (Analyzer Types & Mapping, OGC-1054).
 
-## `UAT_Meta` — one row per instance
+## `UAT_Meta` — one row per review
 
 | Column | Type | Notes |
 |---|---|---|
@@ -15,20 +15,38 @@ Live instances today: `amr` (Microbiology MVP, OGC-782) and `analyzers`
 | `title` | Text | Shown as the panel header and the report title. |
 | `intro` | Text | Orientation text at the top of the panel. Say anything a reviewer needs before starting (credentials, known gaps). |
 | `jira` | Text | Epic/ticket key, carried into the report. |
+| `published` | Bool | Lists the review in the public catalog. Off until someone says otherwise. |
+
+## `UAT_Stories` — one row per story
+
+A story is a thing being reviewed, and the steps that check it.
+
+| Column | Type | Notes |
+|---|---|---|
+| `instance` | Ref → `UAT_Meta` | The review this belongs to. A **row id**, not the slug — which is why a typo can no longer create a second, empty checklist. |
+| `story_key` | Text | **Unique within the review.** Fills itself in (`AMR-S01`). Survives a retitle, so it is what anything pointing at the story uses. |
+| `title` | Text | The heading above this story's steps. |
+| `story_order` | Int | 0-based position in the checklist. |
+| `jira` | Text | The ticket, as a key or URL. One. |
+| `pr` | Text | The pull request implementing it, as a URL. One. |
+| `mock` | Text | The design it was built against, as a URL. One. |
+| `user_story` | Text | The user story in words — prose, not a link. |
+| `hosts` | Text | Deployments this story applies to, one per line. Blank shows everywhere. |
+| `problems` | Any | Computed. Empty means publishable. |
 
 ## `UAT_Steps` — one row per step
 
 | Column | Type | Notes |
 |---|---|---|
-| `instance` | Text | Must match a `UAT_Meta.instance` exactly. A typo produces a checklist nobody can find. |
-| `step_key` | Text | **Mandatory, unique within the instance, immutable.** Reviewer answers are keyed by it. |
+| `instance` | Text | The review's slug. |
+| `step_key` | Text | **Mandatory, unique, immutable.** Reviewer answers are keyed by it. |
 | `required` | Bool | **Set explicitly.** Grist writes `false` for untouched rows, so an unset step is silently optional. |
-| `section` | Text | Group heading. Every row sharing a `section_order` must use the identical title. |
-| `section_order` | Int | 0-based. Orders sections. |
-| `step_order` | Int | 0-based within the section. |
+| `story` | Ref → `UAT_Stories` | The story this step is under. A step without one is refused. |
+| `step_order` | Int | 0-based within the story. |
 | `do` | Text | The action the reviewer performs. Required — a step without it is rejected. |
 | `expect` | Text | What should happen. This is what makes a Fail meaningful. |
 | `route` | Text | Optional same-origin path (`/Microbiology/worklist`). Rendered as a "Go to" link. |
+| `problems` | Any | Computed. Empty means publishable. |
 
 ## What reviewers actually receive
 
@@ -85,8 +103,9 @@ step could let a report claim completeness over an incomplete checklist:
 
 - missing or blank `step_key`
 - duplicate `step_key` within the instance
-- duplicate `section_order`/`step_order` pair
-- conflicting section titles for one `section_order`
+- duplicate `step_order` within one story
+- a step with no `story`
+- a story with no steps
 - missing `do`
 - `route` that resolves off-origin
 
