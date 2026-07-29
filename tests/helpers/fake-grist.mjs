@@ -23,6 +23,9 @@ export function fakeGristDoc(seed = {}) {
     // Every request the tool made, in order, so a test can assert on sequence
     // rather than only on the state left behind.
     calls: [],
+    // Pages the document already had, so a test can put something in the way of
+    // anything that removes pages.
+    views: structuredClone(seed.views || []),
     // Table ids whose writes should fail, so a test can interrupt a service
     // half way through a multi-table write.
     failWrites: new Set(seed.failWrites || []),
@@ -147,6 +150,14 @@ export async function startFakeGrist(doc) {
             })),
             records: [],
           };
+          // Grist gives a new table a primary view, and that view is a page in
+          // the left-hand nav. Modelling it is the only way a test can see the
+          // raw table dumps a create leaves behind beside the authored pages.
+          doc.views = doc.views || [];
+          doc.views.push({
+            id: doc.views.length + 3,
+            fields: { name: spec.id, type: "raw_data" },
+          });
         }
         return send(200, {});
       }
@@ -229,6 +240,11 @@ export async function startFakeGrist(doc) {
       }
 
       if (path === `/api/docs/${doc.id}/apply` && req.method === "POST") {
+        // Named in the call log, because /apply carries every user action there
+        // is: a test asserting on order needs to know which one this was, not
+        // merely that something was applied.
+        doc.calls[doc.calls.length - 1] =
+          `POST ${path} ${parsed.map((action) => action[0]).join(",")}`;
         return send(200, applyUserActions(doc, parsed));
       }
 

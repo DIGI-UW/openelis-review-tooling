@@ -113,6 +113,39 @@ async function ensureTables(doc, { dryRun = false } = {}) {
       });
     }
   }
+  await dropRawPages(doc, { dryRun });
+}
+
+// Creating a table gives it a page.
+//
+// POST /tables sends AddTable, and AddTable is
+// `doAddTable(..., primary_view=True, raw_section=True, ...)` — so every table
+// this declaration creates arrives with a page in the left-hand nav showing a
+// raw dump of it. Beside the pages PAGES builds, which present the same rows
+// already arranged, those are noise nobody asked for. planPages cannot see
+// them: it ignores raw_data views when deciding what to create, which is right,
+// but nothing removed them.
+//
+// Scoped to raw views of tables this declaration owns, because how its own
+// tables are presented is exactly what PAGES is for. A page somebody authored
+// is left alone, and so is the raw view of a table that is none of our
+// business.
+//
+// Deliberately not scoped to the tables this run created: that would tidy a
+// fresh document and never touch one where the pages are already sitting there,
+// which is every document that has run this before.
+async function dropRawPages(doc, { dryRun = false } = {}) {
+  const ours = new Set(Object.keys(SCHEMA));
+  const views = (await api(`/api/docs/${doc}/tables/_grist_Views/records`))
+    .records;
+  for (const view of views) {
+    const fields = view.fields || {};
+    if (fields.type !== "raw_data" || !ours.has(fields.name)) continue;
+    console.log(
+      `  ${dryRun ? "would remove" : "removed"} the raw page Grist added for ${fields.name}`,
+    );
+    if (!dryRun) await userActions(doc, [["RemoveView", view.id]]);
+  }
 }
 
 // Separate from ensureTables on purpose, and run last. The columns being retired
