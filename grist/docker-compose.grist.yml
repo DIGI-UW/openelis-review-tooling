@@ -101,6 +101,11 @@ services:
       - GRIST_DOC_NAME=UAT Checklists
       - GRIST_KEY_FILE=/run/grist-state/.api-key
       - PORT=8585
+      # Which application vouches for the reviewers of each review. A submission
+      # is attributed to whoever holds the session cookie there, so an instance
+      # missing from this map cannot be submitted to at all — recording a name
+      # nothing checked would be indistinguishable from one that was verified.
+      - REVIEW_BACKENDS=${REVIEW_BACKENDS:-amr=https://amr-oe:8443,analyzers=https://analyzers-oe:8443}
     volumes:
       - ${GRIST_STATE_DIR:-/home/ubuntu/oe-grist}:/run/grist-state:ro
     networks:
