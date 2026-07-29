@@ -207,7 +207,7 @@ test("does not leak internal ordering keys into the document", () => {
   // A story carries bookkeeping while the document is being built — the orders it
   // has already seen — and none of it belongs on the wire.
   assert.equal(serialized.includes("_seen"), false);
-  assert.deepEqual(Object.keys(doc.sections[0]).sort(), ["key", "steps", "title"]);
+  assert.deepEqual(Object.keys(doc.sections[0]).sort(), ["key", "revision", "steps", "title", "version"]);
 });
 
 test("the revision is content identity: stable under reorder, changed by edits", () => {

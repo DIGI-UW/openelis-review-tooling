@@ -67,6 +67,14 @@ export const SCHEMA = {
         description:
           "0-based position of this story in the checklist. Reordering is free; answers follow step_key, not position.",
       },
+      version: {
+        type: "Text",
+        description:
+          "major.minor, and the only thing here a person decides. Raise the major when a change means answers already given no longer count; raise the minor for a clarification they survive. Nothing computes this: whether an edit invalidates a review is a judgement, and a review records the version it was answered against so it can be told apart from a later one.",
+        formula: '"1.0"',
+        isFormula: false,
+        recalcWhen: 0,
+      },
       jira: {
         type: "Text",
         description: "The ticket this story is about — a key like OGC-1234, or its full URL.",
@@ -96,6 +104,7 @@ export const SCHEMA = {
           "Everything wrong with this story, checked as you type. Empty means it is publishable.",
         isFormula: true,
         formula: [
+          "import re",
           "problems = []",
           'k = ($story_key or "").strip()',
           'if not k: problems.append("missing story_key")',
@@ -107,6 +116,10 @@ export const SCHEMA = {
           'if clash: problems.append("another story already has this story_order")',
           "if not UAT_Steps.lookupRecords(story=$id):",
           '  problems.append("no steps — this story is a heading with nothing under it")',
+          'v = ($version or "").strip()',
+          'if not v: problems.append("missing version — say 1.0 if this is the first")',
+          "elif not re.match(r\"^\\d+\\.\\d+$\", v):",
+          '  problems.append("version should read major.minor, like 2.1")',
           'return ", ".join(problems)',
         ].join("\n"),
       },
