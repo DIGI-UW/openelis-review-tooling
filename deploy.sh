@@ -204,7 +204,7 @@ AMR_DOMAIN="$AMR_DOMAIN" ANALYZERS_DOMAIN="$ANALYZERS_DOMAIN" \\
 
 echo "[deploy] amr stack build+up"
 cd "$AMR_DIR"
-docker compose -p amr -f build.docker-compose.yml \\
+OE_UAT_SCENARIOS_ENABLED=true docker compose -p amr -f build.docker-compose.yml \\
   -f "$EDGE_DIR/amr/docker-compose.override.yml" \\
   up -d --build certs db.openelis.org oe.openelis.org fhir.openelis.org frontend.openelis.org
 
@@ -340,7 +340,7 @@ cmd_certs() {
 #   analyzers — the harness's own seed-analyzers.sh (9-device Madagascar fleet:
 #               ASTM + HL7/MLLP + FILE, mock networks wired to the bridge)
 #   amr       — scripts/seed-microbiology.sh (a bacteriology + sibling TB case,
-#               reusing the PR's own test-fixture SQL) so the configured
+#               provisioned through OpenELIS services) so the configured
 #               /Microbiology/worklist and case routes have something to review.
 cmd_seed() {
   require_aws
@@ -352,7 +352,7 @@ cmd_seed() {
 $(cat "$HERE/scripts/seed-microbiology.sh")
 SEEDEOF
 chmod +x /tmp/seed-microbiology.sh
-DB_CONTAINER=amr-openelisglobal-database BASE_URL=https://$AMR_DOMAIN /tmp/seed-microbiology.sh" \
+BASE_URL=https://$AMR_DOMAIN /tmp/seed-microbiology.sh" \
     || warn "microbiology seed failed — see output above"
   log "seed complete. Microbiology worklist:"
   log "  https://$AMR_DOMAIN/Microbiology/worklist"
@@ -652,7 +652,7 @@ cmd_data_seed() {
 $(cat "$HERE/scripts/seed-microbiology.sh")
 SEEDEOF
 chmod +x /tmp/seed-microbiology.sh
-DB_CONTAINER=amr-openelisglobal-database BASE_URL=https://$AMR_DOMAIN /tmp/seed-microbiology.sh"
+BASE_URL=https://$AMR_DOMAIN /tmp/seed-microbiology.sh"
 }
 
 cmd_data() {

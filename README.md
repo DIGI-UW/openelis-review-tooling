@@ -101,9 +101,11 @@ that deployment provenance with the live checklist revision.
 Fresh instances come up with zero demo data. `./deploy.sh seed`:
 - **analyzers** — the harness's own `seed-analyzers.sh`: a 9-analyzer fleet
   (ASTM + HL7/MLLP + FILE) with mock networks wired to the bridge.
-- **amr** — `scripts/seed-microbiology.sh`: a bacteriology case + a sibling TB case
-  sharing one specimen, plus AST reference data, left at `stage=RECEIVED` so a
-  reviewer drives the isolate/AST steps.
+- **amr** — `scripts/seed-microbiology.sh`: calls the ADMIN-only, AMR-demo-gated
+  OpenELIS scenario endpoint to provision a bacteriology case + a sibling TB
+  case through application services. The stable scenario key makes reruns
+  idempotent; both cases remain at `stage=RECEIVED` so a reviewer drives the
+  isolate/AST steps.
 
 The Microbiology worklist is available from the configured sidenav and at the
 stable `/Microbiology/worklist` route.

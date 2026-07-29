@@ -89,6 +89,17 @@ test("committed Microbiology review routes use the stable route family", async (
   assert.match(seed, /\/Microbiology\/worklist/);
 });
 
+test("Microbiology review data is provisioned through OpenELIS services", async () => {
+  const seed = await read("scripts/seed-microbiology.sh");
+
+  assert.match(seed, /\/rest\/microbiology\/uat\/scenarios/);
+  assert.match(seed, /"scenario": "WORKLIST"/);
+  assert.match(seed, /review-amr-microbiology-mvp/);
+  assert.doesNotMatch(seed, /\bpsql\b/);
+  assert.doesNotMatch(seed, /docker exec/);
+  assert.doesNotMatch(seed, /\bINSERT\b/i);
+});
+
 test("static checklist examples have complete stable steps", async () => {
   for (const file of [
     "widget/examples/uat-amr.json",
