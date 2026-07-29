@@ -5,15 +5,15 @@ describes the current system, including state intentionally kept outside Git.
 
 ## Runtime Components
 
-| Compose project | Component | Purpose | Durable state |
-|---|---|---|---|
-| `oe-edge` | `oe-edge-router` | TLS, host routing, widget injection, live checklist proxy | Let's Encrypt files and self-signed fallback volume |
-| `oe-grist` | `oe-edge-grist` | Human checklist authoring and native MCP at `/api/mcp` | `oe-grist_grist-data` |
-| `oe-grist` | `oe-edge-dex` | Grist sign-in | Configuration in Git; secrets supplied at runtime |
-| `oe-grist` | `oe-edge-redis` | Native MCP OAuth token state | None; users reauthenticate after loss |
-| `oe-grist` | `oe-edge-grist-uat-read` | Public, read-only Grist-to-widget adapter | Server-side Grist API key mounted read-only |
-| `amr` | OpenELIS AMR stack | Microbiology review target | OpenELIS database and application volumes |
-| `analyzers` | OpenELIS analyzer stack | Analyzer review target | OpenELIS database and application volumes |
+| Compose project | Component                | Purpose                                                   | Durable state                                       |
+| --------------- | ------------------------ | --------------------------------------------------------- | --------------------------------------------------- |
+| `oe-edge`       | `oe-edge-router`         | TLS, host routing, widget injection, live checklist proxy | Let's Encrypt files and self-signed fallback volume |
+| `oe-grist`      | `oe-edge-grist`          | Human checklist authoring and native MCP at `/api/mcp`    | `oe-grist_grist-data`                               |
+| `oe-grist`      | `oe-edge-dex`            | Grist sign-in                                             | Configuration in Git; secrets supplied at runtime   |
+| `oe-grist`      | `oe-edge-redis`          | Native MCP OAuth token state                              | None; users reauthenticate after loss               |
+| `oe-grist`      | `oe-edge-grist-uat-read` | Public, read-only Grist-to-widget adapter                 | Server-side Grist API key mounted read-only         |
+| `amr`           | OpenELIS AMR stack       | Microbiology review target                                | OpenELIS database and application volumes           |
+| `analyzers`     | OpenELIS analyzer stack  | Analyzer review target                                    | OpenELIS database and application volumes           |
 
 Grist is the checklist source of truth. The read adapter reshapes rows into
 `/uat/<instance>.json`; router caches are limited to about 30 seconds. There is
@@ -32,16 +32,16 @@ The deploy command never embeds the host-side secret values in an SSM command
 body. Provision `${EDGE_DIR}/.env` through an approved operator channel before
 the first deployment.
 
-| Value | Used for | Secret |
-|---|---|---|
-| `AMR_DOMAIN`, `ANALYZERS_DOMAIN`, `GRIST_DOMAIN` | Router hosts and certificates | No |
-| `LETSENCRYPT_EMAIL`, `LETSENCRYPT_STAGING` | ACME registration | No |
-| `AMR_BRANCH`, `ANALYZERS_BRANCH` | Current full-stack deployment inputs | No |
-| `REGION`, `INSTANCE_ID`, `EIP`, `SG_ID`, `OS_USER`, `SSH_KEY` | AWS/SSM host access | `SSH_KEY` is a local path; do not commit the key |
-| `EDGE_DIR`, `AMR_DIR`, `ANALYZERS_DIR` | Host checkout layout | No |
-| `GRIST_STATE_DIR` | Server-side API-key mount | No |
-| `DEX_GRIST_CLIENT_SECRET` | Dex-to-Grist OIDC client | Yes |
-| `DEX_REVIEWER_PASSWORD_HASH` | Demo reviewer login hash | Yes |
+| Value                                                         | Used for                             | Secret                                           |
+| ------------------------------------------------------------- | ------------------------------------ | ------------------------------------------------ |
+| `AMR_DOMAIN`, `ANALYZERS_DOMAIN`, `GRIST_DOMAIN`              | Router hosts and certificates        | No                                               |
+| `LETSENCRYPT_EMAIL`, `LETSENCRYPT_STAGING`                    | ACME registration                    | No                                               |
+| `AMR_BRANCH`, `ANALYZERS_BRANCH`                              | Current full-stack deployment inputs | No                                               |
+| `REGION`, `INSTANCE_ID`, `EIP`, `SG_ID`, `OS_USER`, `SSH_KEY` | AWS/SSM host access                  | `SSH_KEY` is a local path; do not commit the key |
+| `EDGE_DIR`, `AMR_DIR`, `ANALYZERS_DIR`                        | Host checkout layout                 | No                                               |
+| `GRIST_STATE_DIR`                                             | Server-side API-key mount            | No                                               |
+| `DEX_GRIST_CLIENT_SECRET`                                     | Dex-to-Grist OIDC client             | Yes                                              |
+| `DEX_REVIEWER_PASSWORD_HASH`                                  | Demo reviewer login hash             | Yes                                              |
 
 AWS credentials remain in the operator's normal AWS CLI session. They are
 never copied into `.env`, Grist, the widget, or MCP.
@@ -124,8 +124,20 @@ untouched:
 ./deploy.sh app verify <instance>
 ./deploy.sh app rollback <instance>
 ./deploy.sh review deploy --ref <sha> --scope widget
+./deploy.sh review reload-router [--instance amr] [--domain <host>]
 ./deploy.sh data seed <instance> --fixture <name>
 ```
+
+`review deploy` ships the widget and rebuilds the checklist service. It does not
+touch the router, so a change to `router/nginx.conf.template` is still inert
+after it: the template becomes `nginx.conf` in the container's entrypoint, and
+until the container is recreated the old routes keep serving.
+`review reload-router` is that recreate, and only that one — `--no-deps` keeps
+it off both application stacks, so nobody mid-review is interrupted. It forces
+the recreate, because a template-only change leaves the image identical and
+Compose would otherwise find nothing to do and report success. It then probes
+the submissions route and fails on a 404, which is the state it exists to
+prevent: routes that were never rendered, reported as deployed.
 
 Targeted delivery supports `instance=amr` and `instance=analyzers`. It tags the
 current frontend/backend images before replacement, publishes target metadata

@@ -32,6 +32,8 @@
 #   ./deploy.sh app verify <instance>
 #   ./deploy.sh app rollback <instance>
 #   ./deploy.sh review deploy --ref <sha> --scope widget|service|all
+#   ./deploy.sh review reload-router [--instance amr] [--domain <host>]
+#                                   # re-render nginx from the template, router only
 #   ./deploy.sh data seed amr --fixture microbiology-mvp
 #   ./deploy.sh up-to-certs --yes   # configure -> deploy -> certs -> seed
 set -euo pipefail
@@ -600,11 +602,37 @@ SVCEOF
 fi"
 }
 
+# Recreating the router is what turns a changed nginx.conf.template into live
+# routes. The full deploy does it too, but it brings up both application stacks
+# with it and so interrupts anybody mid-review; this is the narrow path.
+cmd_review_reload_router() {
+  shift || true
+  require_aws
+  local instance="amr" domain="$AMR_DOMAIN"
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --instance) instance="${2:-}"; shift 2 ;;
+      --domain) domain="${2:-}"; shift 2 ;;
+      *) die "unknown reload-router option '$1'" ;;
+    esac
+  done
+  log "reloading the router (probing $domain/__review/uat-$instance/submissions)"
+  ssm_run "set -euo pipefail
+# Shipped as a real script rather than inlined here, so it is covered by
+# shellcheck and by tests that actually run it against stubs.
+cat > /tmp/oe-reload-router.sh <<'RTREOF'
+$(cat "$HERE/scripts/reload-router.sh")
+RTREOF
+chmod +x /tmp/oe-reload-router.sh
+REMOTE_USER='$OS_USER' PROBE_DOMAIN='$domain' PROBE_INSTANCE='$instance' /tmp/oe-reload-router.sh"
+}
+
 cmd_review() {
   local action="${1:-}"
   case "$action" in
     deploy) cmd_review_deploy "$@" ;;
-    *) die "unknown review action '$action' (deploy)" ;;
+    reload-router) cmd_review_reload_router "$@" ;;
+    *) die "unknown review action '$action' (deploy, reload-router)" ;;
   esac
 }
 
