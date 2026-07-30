@@ -105,10 +105,12 @@ http {
         }
 
 
-        # Handing a review in. Same-origin on purpose: the reviewer's session
-        # cookie belongs to this host, so a submission from anywhere else would
-        # arrive without the one credential the service checks. Never cached.
-        location ~ ^/__review/uat-(?<uat_submit_instance>[a-z0-9_-]+)/submissions$ {
+        # Handing a review in. Under the application's context path on purpose:
+        # the servlet container scopes JSESSIONID to /api/OpenELIS-Global, so a
+        # submission sent outside it arrives with no cookie at all and the service
+        # can only refuse it. The bare prefix is still matched so a widget already
+        # loaded in somebody's tab is answered rather than 404'd. Never cached.
+        location ~ ^(?:/api/OpenELIS-Global)?/__review/uat-(?<uat_submit_instance>[a-z0-9_-]+)/submissions$ {
             set $uat_up "uat-read";
             proxy_pass http://$uat_up:8585/uat/$uat_submit_instance/submissions;
             proxy_set_header Host $host;
@@ -205,7 +207,7 @@ http {
         # Handing a review in. Same-origin on purpose: the reviewer's session
         # cookie belongs to this host, so a submission from anywhere else would
         # arrive without the one credential the service checks. Never cached.
-        location ~ ^/__review/uat-(?<uat_submit_instance>[a-z0-9_-]+)/submissions$ {
+        location ~ ^(?:/api/OpenELIS-Global)?/__review/uat-(?<uat_submit_instance>[a-z0-9_-]+)/submissions$ {
             set $uat_up "uat-read";
             proxy_pass http://$uat_up:8585/uat/$uat_submit_instance/submissions;
             proxy_set_header Host $host;

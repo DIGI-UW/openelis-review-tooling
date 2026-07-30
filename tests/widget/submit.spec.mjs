@@ -258,3 +258,37 @@ test("a page with no submission endpoint at all says so the same way", async ({
   await submitButton(widget).click();
   await expect(widget.locator(".statusbox")).toContainText(/download/i);
 });
+
+test("carries the session cookie the application scoped to its own path", async ({
+  page,
+  context,
+}) => {
+  // OpenELIS is a servlet app: Tomcat scopes JSESSIONID to the context path, so
+  // the cookie only travels to URLs under it. `secure` is off here only because
+  // the fixture is served over http; the property under test is the path.
+  await context.addCookies([
+    {
+      name: "JSESSIONID",
+      value: "session-token",
+      domain: "127.0.0.1",
+      path: "/api/OpenELIS-Global",
+      httpOnly: true,
+      sameSite: "Lax",
+    },
+  ]);
+
+  const seen = [];
+  await page.route("**/submissions", async (route) => {
+    seen.push(route.request().headers().cookie || "");
+    await ok(route);
+  });
+
+  const widget = await answerOneStep(await openPanel(page));
+  await submitButton(widget).click();
+
+  await expect.poll(() => seen.length).toBe(1);
+  // Same-origin is not enough. A submission sent outside the cookie's path
+  // arrives anonymous, and the service can only answer 401 — however signed in
+  // the reviewer is, and however confidently the panel says so.
+  expect(seen[0]).toContain("JSESSIONID=session-token");
+});

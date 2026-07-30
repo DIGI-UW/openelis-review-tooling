@@ -44,14 +44,25 @@
     "/api/OpenELIS-Global/session";
   // null = not looked yet or no endpoint there; otherwise { signedIn, login, name }.
   var identity = null;
-  // Where a finished review is handed in. Same-origin by construction: the
-  // session cookie the service checks belongs to the application's host, so a
-  // submission sent anywhere else arrives without the one credential that
-  // matters. Deployments that serve no such endpoint answer 501 and the
-  // downloadable report remains the way to hand a review over.
+  // Where a finished review is handed in. Same origin is necessary but not
+  // sufficient: a servlet container scopes its session cookie to its context
+  // path, so a submission sent outside that path arrives with no cookie at all
+  // and the service can only refuse it — however signed in the reviewer is, and
+  // however confidently this panel says so. Derived from the identity endpoint
+  // rather than written out, so the two cannot drift apart again.
+  // Deployments that serve no such endpoint answer 501 and the downloadable
+  // report remains the way to hand a review over.
+  function submissionsUnder(identitySrc, instance) {
+    return (
+      String(identitySrc).replace(/\/[^/]*$/, "") +
+      "/__review/uat-" +
+      instance +
+      "/submissions"
+    );
+  }
   var SUBMIT_SRC =
     (self && self.getAttribute("data-submit-src")) ||
-    "/__review/uat-" + INSTANCE + "/submissions";
+    submissionsUnder(IDENTITY_SRC, INSTANCE);
   // "" | a message to show. Never a reason to discard answers.
   var submitStatus = "";
   // Drives the button's label and its disabled state, which is what stops a
