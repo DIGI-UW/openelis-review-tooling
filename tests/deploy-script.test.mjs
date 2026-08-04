@@ -200,6 +200,17 @@ test("ready metadata is published only after health and route smoke checks", () 
   assert.match(appDeployScript, /"health":"passed","smoke":"passed"/);
 });
 
+test("target metadata names only a branch whose tip is the deployed SHA", () => {
+  assert.match(appDeployScript, /ls-remote --heads origin/);
+  assert.match(appDeployScript, /\$1 == sha/);
+  assert.match(
+    appDeployScript,
+    /\[ -n "\$resolved_app_branch" \] \|\| resolved_app_branch="detached"/,
+  );
+  assert.match(appDeployScript, /"appBranch":"\$resolved_app_branch"/);
+  assert.doesNotMatch(appDeployScript, /"appBranch":"\$APP_BRANCH"/);
+});
+
 test("failed candidates and explicit rollback restore saved images", () => {
   assert.match(appDeployScript, /restore_previous_images/);
   assert.match(appDeployScript, /rollback-\$DEPLOYMENT_ID/);

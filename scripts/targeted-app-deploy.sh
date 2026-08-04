@@ -48,6 +48,7 @@ BACKEND_CONTAINER="$APP_CONTAINER"
 candidate_started=false
 schema_affecting=false
 previous_app_sha=""
+resolved_app_branch=""
 deployment_complete=false
 
 repo_git() {
@@ -141,6 +142,13 @@ app_sha="$(repo_git "$APP_DIR" rev-parse HEAD)"
   echo "fetched SHA $app_sha does not match requested SHA $APP_REF" >&2
   exit 1
 }
+resolved_app_branch="$(
+  repo_git "$APP_DIR" ls-remote --heads origin |
+    awk -v sha="$app_sha" '$1 == sha { sub(/^refs\/heads\//, "", $2); print $2 }' |
+    LC_ALL=C sort |
+    head -n 1
+)"
+[ -n "$resolved_app_branch" ] || resolved_app_branch="detached"
 repo_git "$APP_DIR" submodule update --init --depth 1 dataexport plugins
 
 if repo_git "$APP_DIR" diff --name-only "$previous_app_sha" "$app_sha" -- \
@@ -203,7 +211,7 @@ harness_sha="$(repo_git "$EDGE_DIR" rev-parse HEAD)"
 deployed_at="$(date -u +%FT%TZ)"
 target_tmp="$(mktemp "$EDGE_DIR/runtime/.target-$INSTANCE.XXXXXX")"
 cat > "$target_tmp" <<JSON
-{"instance":"$INSTANCE","deploymentId":"$DEPLOYMENT_ID","state":"ready","appRepo":"$APP_REPO","appBranch":"$APP_BRANCH","appSha":"$app_sha","harnessSha":"$harness_sha","deployedAt":"$deployed_at","scope":"$APP_SCOPE","schemaAffecting":$schema_affecting,"verification":{"health":"passed","smoke":"passed"}}
+{"instance":"$INSTANCE","deploymentId":"$DEPLOYMENT_ID","state":"ready","appRepo":"$APP_REPO","appBranch":"$resolved_app_branch","appSha":"$app_sha","harnessSha":"$harness_sha","deployedAt":"$deployed_at","scope":"$APP_SCOPE","schemaAffecting":$schema_affecting,"verification":{"health":"passed","smoke":"passed"}}
 JSON
 chmod 0644 "$target_tmp"
 mv "$target_tmp" "$TARGET_FILE"
