@@ -190,11 +190,18 @@ keeps Escape local to the disclosure instead of minimizing the whole review.
 This keeps a milestone or project from appearing as one giant story while
 preserving one Grist source and one checklist endpoint.
 
-The older schema-v1 catalog remains supported: its entries identify separate
-checklist endpoints using either `…/uat-<instance>.json` or
-`…/uat/<instance>.json`. Point `data-index` somewhere else to override discovery.
-The catalog is optional in the strongest sense: if it is missing, malformed or
-unreachable, the injected checklist still loads.
+Only the schema-v2 story catalog is accepted. A `404` means the deployment has a
+single checklist and needs no story navigator. Any catalog that is present but
+uses another schema, is malformed, or cannot be read is shown as a load failure;
+the widget never disguises a catalog contract failure by rendering the aggregate
+checklist. Point `data-index` somewhere else to override discovery.
+
+Each catalog story must provide a stable `review--key` `id`, matching `review`
+and `key`, a non-empty `title`, integer `steps` and `required` counts, and a
+`routes` array. The matching aggregate checklist must contain exactly one section
+with that key. A story choice is committed only after both documents validate;
+on failure, the previous story and its answers remain active. Concurrent refreshes
+are generation-checked so a late response cannot replace a newer checklist.
 
 Each story keeps its own answers, so switching never shows one story's marks
 against another's steps. A schema-v2 story switch reuses the parent checklist
@@ -204,7 +211,9 @@ between visits falls back to a current story from the injected review.
 
 Story prose is presented as a labeled, full-size description above the steps. It
 is not squeezed into the link metadata or pinned with the section heading, so it
-remains readable and scrolls away naturally when work begins.
+remains readable and scrolls away naturally when work begins. Route-selected
+defaults open on the first actionable step; deliberately choosing a story brings
+its description into view first.
 
 The `...` menu's **Copy report** action puts the whole review on the clipboard,
 which is what the reviewer is asked to paste into Claude. **Download report** writes

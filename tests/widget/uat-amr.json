@@ -6,33 +6,45 @@
   "intro": "Task-based review of the Microbiology / AMR MVP. Sign in, open Review, and work each step. Use the configured Microbiology navigation and canonical worklist and case URLs; mark Pass, Fail, or N/A and note anything confusing or broken.",
   "sections": [
     {
-      "title": "Open the microbiology worklist",
+      "title": "M1 - Find and route microbiology work",
+      "key": "AMR-S01",
+      "version": "1.0",
+      "revision": "111111111111",
+      "links": {
+        "jira": "OGC-782",
+        "userStory": "As a laboratory user, I can find and route bacteriology work into a stable worklist."
+      },
       "steps": [
         {
           "key": "AMR-1",
           "required": true,
           "do": "Sign in, open the main navigation, expand Microbiology, and choose Microbiology worklist.",
           "expect": "The worklist opens at /Microbiology/worklist, the Microbiology navigation remains visible without covering the page, and seeded cases are listed.",
-          "route": "/Dashboard"
+          "route": "/tests/widget/app-fixture.html"
         },
         {
           "key": "AMR-2",
           "required": true,
           "do": "Set Workflow to Bacteriology and Sort to Newest, then refresh the page.",
-          "expect": "The URL keeps workflow=BACTERIOLOGY and sort=newest, and the same filters remain selected after refresh.",
-          "route": "/Microbiology/worklist"
+          "expect": "The URL keeps workflow=BACTERIOLOGY and sort=newest, and the same filters remain selected after refresh."
         },
         {
           "key": "AMR-3",
           "required": true,
           "do": "Clear the worklist filters.",
-          "expect": "The filter values return to their defaults and the URL returns to /Microbiology/worklist without stale query parameters.",
-          "route": "/Microbiology/worklist?workflow=BACTERIOLOGY&sort=newest"
+          "expect": "The filter values return to their defaults and the URL returns to /Microbiology/worklist without stale query parameters."
         }
       ]
     },
     {
-      "title": "Open and navigate the seeded case",
+      "title": "M1 - Work the seeded bacteriology case",
+      "key": "AMR-S02",
+      "version": "1.0",
+      "revision": "222222222222",
+      "links": {
+        "jira": "OGC-782",
+        "userStory": "As a bench user, I can record culture setup and identify an isolate without losing case context."
+      },
       "steps": [
         {
           "key": "AMR-4",
@@ -56,7 +68,14 @@
       ]
     },
     {
-      "title": "Drive the workflow",
+      "title": "M1 - AST, critical communication, and reporting",
+      "key": "AMR-S03",
+      "version": "1.0",
+      "revision": "333333333333",
+      "links": {
+        "jira": "OGC-782",
+        "userStory": "As a microbiology reviewer, I can interpret AST, document critical communication, and release reportable results."
+      },
       "steps": [
         {
           "key": "AMR-6",
@@ -79,17 +98,23 @@
       ]
     },
     {
-      "title": "Shared-specimen and overall review",
+      "title": "M1 - Shared-specimen reflection",
+      "key": "AMR-S04",
+      "version": "1.0",
+      "revision": "444444444444",
+      "links": {
+        "jira": "OGC-782",
+        "userStory": "As a reviewer, I can assess how sibling microbiology cases share a specimen without losing their distinct workflows."
+      },
       "steps": [
         {
           "key": "AMR-21",
           "required": true,
           "do": "Find the sibling TB case on the same specimen, then identify the single most important missing part of the bench workflow.",
-          "expect": "The bacterial and TB cases remain distinct without hiding or corrupting one another, and the reviewer records one clear highest-value gap for the next iteration.",
-          "route": "/Microbiology/worklist"
+          "expect": "The bacterial and TB cases remain distinct without hiding or corrupting one another, and the reviewer records one clear highest-value gap for the next iteration."
         }
       ]
     }
   ],
-  "checklistRevision": "dense-revision-one"
+  "checklistRevision": "production-schema-v2-fixture"
 }

@@ -8,20 +8,22 @@
   // being reviewed, so switching never shows one story's marks against another's
   // steps; the deployment identity and the reviewer's layout preferences stay
   // keyed to the deployment, because those are not per-story facts.
-  var activeStory = INSTANCE;
-  // The story browser starts with the page-specific subset whenever there is one.
-  // Showing everything is an explicit reviewer choice and resets after navigation,
-  // so a worklist does not inherit a 16-story menu opened on the login page.
-  var showAllStories = false;
-  var storyMenuOpen = false;
-  var focusStoryTrigger = false;
-  var explicitStoryPath = null;
-  var revealStoryOverview = false;
+  var storyNavigation = {
+    selectedId: INSTANCE,
+    selectedPath: null,
+    committedId: INSTANCE,
+    committedPath: null,
+    requestVersion: 0,
+    showAll: false,
+    menuOpen: false,
+    focusTrigger: false,
+    revealOverview: false,
+  };
   function storePrefixFor(story) {
     return "oe-review:v2:" + story + ":";
   }
   function storePrefix() {
-    return storePrefixFor(activeStory);
+    return storePrefixFor(storyNavigation.committedId);
   }
   var STORE_KEY = null;
   var BUILD_SRC =
@@ -106,10 +108,10 @@
     // is <review>--<story>, while the document remains the parent review's
     // aggregate checklist. Resolve that parent directly so reload never probes a
     // made-up per-story endpoint first.
-    if (!review && activeStory.indexOf("--") > 0) {
-      review = activeStory.split("--")[0];
+    if (!review && storyNavigation.selectedId.indexOf("--") > 0) {
+      review = storyNavigation.selectedId.split("--")[0];
     }
-    return storyUrl(review || activeStory) || SRC;
+    return storyUrl(review || storyNavigation.selectedId) || SRC;
   }
   function inlineChecklist() {
     try {
@@ -198,6 +200,12 @@
   // know whether its launcher opens a panel or raises a window that already exists.
   var POPOUT_KEY = "oe-review:v2:" + INSTANCE + ":popped-out";
   var prefs = loadPrefs();
+  function isStoryId(value) {
+    return (
+      typeof value === "string" &&
+      /^[A-Za-z0-9_-]+--[A-Za-z0-9_-]+$/.test(value)
+    );
+  }
   function loadPrefs() {
     var stored = null;
     try {
@@ -210,7 +218,11 @@
       anchor: ANCHORS.indexOf(stored.anchor) === -1 ? null : stored.anchor,
       filter: FILTERS.indexOf(stored.filter) === -1 ? "all" : stored.filter,
       expanded: Boolean(stored.expanded),
-      story: typeof stored.story === "string" ? stored.story : null,
+      story: isStoryId(stored.story) ? stored.story : null,
+      storyPath:
+        typeof stored.storyPath === "string" && stored.storyPath.startsWith("/")
+          ? stored.storyPath
+          : null,
       hidden: Boolean(stored.hidden),
     };
   }
@@ -221,7 +233,64 @@
       /* storage unavailable — the panel simply opens the default way next time */
     }
   }
-  if (prefs.story) activeStory = prefs.story;
+  function persistStoryPreference(story, path) {
+    prefs.story = story === INSTANCE ? null : story;
+    prefs.storyPath = path;
+    savePrefs();
+  }
+  function persistStorySelection() {
+    persistStoryPreference(
+      storyNavigation.selectedId,
+      storyNavigation.selectedPath,
+    );
+  }
+  function persistCommittedStorySelection() {
+    persistStoryPreference(
+      storyNavigation.committedId,
+      storyNavigation.committedPath,
+    );
+  }
+  function setStorySelection(story, path) {
+    storyNavigation.selectedId = story;
+    storyNavigation.selectedPath = path || null;
+  }
+  function commitStorySelection() {
+    storyNavigation.committedId = storyNavigation.selectedId;
+    storyNavigation.committedPath = storyNavigation.selectedPath;
+    persistStorySelection();
+  }
+  function restoreCommittedStorySelection() {
+    setStorySelection(
+      storyNavigation.committedId,
+      storyNavigation.committedPath,
+    );
+    persistCommittedStorySelection();
+  }
+  function clearStorySelection() {
+    setStorySelection(INSTANCE, null);
+    commitStorySelection();
+  }
+  function setStoryMenuOpen(open) {
+    storyNavigation.menuOpen = Boolean(open);
+  }
+  function resetStoryNavigationForRoute() {
+    if (storyNavigation.selectedId !== storyNavigation.committedId) {
+      storyNavigation.requestVersion += 1;
+      setStorySelection(
+        storyNavigation.committedId,
+        storyNavigation.committedPath,
+      );
+      loading = false;
+    }
+    storyNavigation.showAll = false;
+    storyNavigation.selectedPath = null;
+  }
+  if (prefs.story) {
+    storyNavigation.selectedId = prefs.story;
+    storyNavigation.selectedPath = prefs.storyPath;
+    storyNavigation.committedId = prefs.story;
+    storyNavigation.committedPath = prefs.storyPath;
+  }
 
   // ---- ?oe-review= ----------------------------------------------------------
   // A URL is the only handle anyone has on somebody else's browser, so this is how
@@ -318,14 +387,18 @@
   function deploymentIdentity(target) {
     return identityOf(target) || lastKnownIdentity() || "unbound";
   }
-  function contextPrefix(target) {
-    return storePrefix() + encodeURIComponent(deploymentIdentity(target)) + ":";
+  function contextPrefix(target, story) {
+    return (
+      storePrefixFor(story || storyNavigation.committedId) +
+      encodeURIComponent(deploymentIdentity(target)) +
+      ":"
+    );
   }
-  function contextKey(target, checklist) {
-    return contextPrefix(target) + checklist.checklistRevision;
+  function contextKey(target, checklist, story) {
+    return contextPrefix(target, story) + checklist.checklistRevision;
   }
-  function loadContext(target, checklist) {
-    STORE_KEY = contextKey(target, checklist);
+  function loadContext(target, checklist, story) {
+    STORE_KEY = contextKey(target, checklist, story);
     try {
       // Answers from before stable step keys, kept under the pre-v2 key. They are
       // keyed by position, so not one of them can be matched to a step: there is
@@ -342,12 +415,12 @@
     var exact = loadStored(STORE_KEY);
     if (exact) return exact;
 
-    var prefix = contextPrefix(target);
+    var prefix = contextPrefix(target, story);
     // target.json only publishes after health verification, so early in a rollout
     // there is no identity and answers land under the unbound prefix. Adopt those
     // once the real identity appears, or a reviewer working during a deploy loses
     // everything the moment it finishes.
-    var unbound = storePrefix() + "unbound:";
+    var unbound = storePrefixFor(story || storyNavigation.committedId) + "unbound:";
     var prefixes = prefix === unbound ? [prefix] : [prefix, unbound];
     var latest = null;
     try {
@@ -730,23 +803,35 @@
     }
     if (event.key === PREFS_KEY) {
       var hidden = prefs.hidden;
-      prefs = loadPrefs();
+      var incomingPrefs = loadPrefs();
       // Hiding is this window's own answer to its own query string; adopting it
       // from the other one would make a popped-out panel able to unmount the page.
-      prefs.hidden = hidden;
-      var story = prefs.story || INSTANCE;
+      incomingPrefs.hidden = hidden;
+      var story = incomingPrefs.story || INSTANCE;
       // A stale tab can still be running an older widget. Never let an unknown
       // value from it replace a catalog-backed selection or start a request loop.
       if (!knownStory(story)) {
-        prefs.story = activeStory;
+        incomingPrefs.story =
+          storyNavigation.committedId === INSTANCE
+            ? null
+            : storyNavigation.committedId;
+        incomingPrefs.storyPath = storyNavigation.committedPath;
+        prefs = incomingPrefs;
+        persistCommittedStorySelection();
         if (ui) syncPanel();
         applyAnchor();
         return;
       }
-      if (story !== activeStory) {
-        selectStory(story);
+      prefs = incomingPrefs;
+      if (story !== storyNavigation.committedId) {
+        activateStory(story, {
+          path: incomingPrefs.storyPath,
+          refresh: true,
+        });
         return;
       }
+      setStorySelection(story, incomingPrefs.storyPath);
+      commitStorySelection();
       if (ui) syncPanel();
       applyAnchor();
       return;
@@ -876,22 +961,33 @@
     next.sections = (next.sections || []).filter(storyAppliesHere);
     var selected = selectedStory();
     if (selected && selected.key) {
-      next.sections = next.sections.filter(function (section) {
+      var matchingSections = next.sections.filter(function (section) {
         return section.key === selected.key;
       });
+      if (matchingSections.length !== 1) {
+        throw new Error(
+          "Story " +
+            selected.id +
+            " does not resolve to exactly one checklist section.",
+        );
+      }
+      next.sections = matchingSections;
       next.title = selected.title + " - review";
     }
     var minimized = state.minimized;
     var deployment = identityOf(target);
     if (deployment) rememberIdentity(deployment);
-    state = loadContext(target, next);
+    state = loadContext(target, next, storyNavigation.selectedId);
     var hasStoryOverview = next.sections.some(function (section) {
       return Boolean(
         String((section.links && section.links.userStory) || "").trim(),
       );
     });
-    revealStoryOverview =
-      hasStoryOverview && (revealStoryOverview || !state.current);
+    // Route-derived defaults open on the actionable step. The story overview is
+    // shown when the reviewer deliberately chooses a story, so it never consumes
+    // the compact panel's working area by accident.
+    storyNavigation.revealOverview =
+      hasStoryOverview && storyNavigation.revealOverview;
     adoptIdentity();
     // Honour the persisted panel state on first load; only preserve the in-session
     // value once the reviewer has actually opened or closed it, so a background
@@ -915,10 +1011,14 @@
     state.checklistRevision = next.checklistRevision;
     state.deploymentId = deploymentIdentity(target);
     state.current = currentKey();
+    commitStorySelection();
     save();
   }
 
   function refreshChecklist() {
+    var requestVersion = ++storyNavigation.requestVersion;
+    var nextBuildWarning = "";
+    var checklistSrc = currentSrc();
     loading = true;
     loadError = "";
     buildWarning = "";
@@ -926,9 +1026,9 @@
     // here would stamp the new story id onto the old rows; because both stories
     // share the aggregate checklist revision, the completed fetch would then look
     // current and those stale rows would remain on screen.
-    if (!ui || ui.story === activeStory) render();
+    if (!ui || ui.story === storyNavigation.committedId) render();
     return Promise.all([
-      fetch(currentSrc(), { cache: "no-store" }).then(function (response) {
+      fetch(checklistSrc, { cache: "no-store" }).then(function (response) {
         if (!response.ok) {
           var failure = new Error(
             "Could not load checklist (" + response.status + ").",
@@ -941,77 +1041,142 @@
       fetch(BUILD_SRC, { cache: "no-store" })
         .then(function (response) {
           if (!response.ok) {
-            buildWarning = "Build information is unavailable.";
+            nextBuildWarning = "Build information is unavailable.";
             return null;
           }
           return response.json();
         })
         .catch(function () {
-          buildWarning = "Build information is unavailable.";
+          nextBuildWarning = "Build information is unavailable.";
           return null;
         }),
       fetchCatalog(),
     ])
       .then(function (values) {
+        if (requestVersion !== storyNavigation.requestVersion) return;
         // A failed target fetch must not change the deployment identity: that
         // identity is part of the storage key, so replacing it with null would
         // re-key the panel and hide answers the reviewer already gave. Keep the
         // last known target and surface buildWarning instead.
+        buildWarning = nextBuildWarning;
         if (values[1]) build = values[1];
-        if (values[2]) catalog = values[2];
+        catalog = values[2];
+        // A missing catalog is a legitimate single-checklist deployment, but a
+        // remembered per-story preference from an earlier deployment cannot be
+        // allowed to label that aggregate document.
+        if (!catalog && storyNavigation.selectedId !== INSTANCE) {
+          clearStorySelection();
+        }
         chooseInitialStory();
         applyChecklist(values[0], build);
       })
       .catch(function (error) {
+        if (requestVersion !== storyNavigation.requestVersion) return;
         // Only a checklist that is genuinely gone justifies moving the reviewer
         // to a different story. A transient outage, or a checklist this widget
         // refused to accept, has to say so: silently switching what is being
         // reviewed is the same failure the deployment identity was hardened
         // against, on the story axis — and it would swallow the route-origin
         // guard's only visible signal.
-        if (error.status === 404 && activeStory !== INSTANCE) {
-          activeStory = INSTANCE;
-          prefs.story = null;
-          savePrefs();
+        if (error.status === 404 && storyNavigation.selectedId !== INSTANCE) {
+          clearStorySelection();
           ui = null;
           return refreshChecklist();
         }
+        // Story selection is transactional: an invalid or unavailable checklist
+        // cannot relabel the rows from the last successfully loaded story.
+        restoreCommittedStorySelection();
+        storyNavigation.focusTrigger = false;
+        storyNavigation.revealOverview = false;
         loadError = error.message || String(error);
       })
       .finally(function () {
+        if (requestVersion !== storyNavigation.requestVersion) return;
         loading = false;
         render();
       });
   }
 
   // ---- the other stories on this deployment ---------------------------------
+  function validateCatalog(value) {
+    if (!value || value.schemaVersion !== 2) {
+      throw new Error("Story catalog schemaVersion 2 is required.");
+    }
+    if (!Array.isArray(value.stories)) {
+      throw new Error("Story catalog must contain a stories array.");
+    }
+    var ids = {};
+    value.stories.forEach(function (story, index) {
+      var label = "Story catalog entry " + (index + 1);
+      if (
+        !story ||
+        !isStoryId(story.id) ||
+        typeof story.review !== "string" ||
+        typeof story.key !== "string" ||
+        story.id !== story.review + "--" + story.key ||
+        typeof story.title !== "string" ||
+        !story.title.trim() ||
+        !Number.isInteger(story.steps) ||
+        story.steps < 1 ||
+        !Number.isInteger(story.required) ||
+        story.required < 0 ||
+        story.required > story.steps ||
+        !Array.isArray(story.routes)
+      ) {
+        throw new Error(label + " does not match the schema-v2 story contract.");
+      }
+      if (ids[story.id]) {
+        throw new Error("Story catalog contains duplicate id " + story.id + ".");
+      }
+      ids[story.id] = true;
+      story.routes.forEach(function (route) {
+        if (
+          typeof route !== "string" ||
+          route.charAt(0) !== "/" ||
+          route.indexOf("//") === 0
+        ) {
+          throw new Error(label + " contains an invalid route.");
+        }
+      });
+      if (
+        story.hosts !== null &&
+        story.hosts !== undefined &&
+        (!Array.isArray(story.hosts) ||
+          story.hosts.some(function (host) {
+            return typeof host !== "string" || !host.trim();
+          }))
+      ) {
+        throw new Error(label + " contains invalid hosts.");
+      }
+    });
+    return value;
+  }
   function fetchCatalog() {
     if (!INDEX_SRC) return Promise.resolve(null);
     return fetch(INDEX_SRC, { cache: "no-store" })
       .then(function (response) {
-        return response.ok ? response.json() : null;
+        if (response.status === 404) return null;
+        if (!response.ok) {
+          var failure = new Error(
+            "Could not load story catalog (" + response.status + ").",
+          );
+          failure.status = response.status;
+          throw failure;
+        }
+        return response.json();
       })
       .then(function (value) {
-        // A deployment that serves no catalog is not broken, it just has one
-        // story; never let a missing or malformed index fail the checklist load.
-        return value && Array.isArray(value.stories) ? value : null;
-      })
-      .catch(function () {
-        return null;
+        return value === null ? null : validateCatalog(value);
       });
   }
 
   function stories() {
-    var available = (catalog && catalog.stories) || [];
-    if (catalog && Number(catalog.schemaVersion) >= 2) {
-      available = available.filter(function (story) {
-        return story.review === INSTANCE && storyAppliesHere(story);
-      });
-    }
-    return available;
+    return ((catalog && catalog.stories) || []).filter(function (story) {
+      return story.review === INSTANCE && storyAppliesHere(story);
+    });
   }
   function storyId(story) {
-    return story.id || story.instance;
+    return story.id;
   }
   function storyById(id) {
     return stories().find(function (story) {
@@ -1022,10 +1187,47 @@
     return !catalog ? id === INSTANCE : Boolean(storyById(id));
   }
   function selectedStory() {
-    return storyById(activeStory);
+    return storyById(storyNavigation.selectedId);
+  }
+  function committedStory() {
+    return storyById(storyNavigation.committedId);
+  }
+  function activateStory(story, options) {
+    options = options || {};
+    if (!knownStory(story)) return false;
+    var needsLoad = story !== storyNavigation.committedId;
+    var cancelsPending =
+      !needsLoad &&
+      storyNavigation.selectedId !== storyNavigation.committedId;
+    setStoryMenuOpen(false);
+    // Close the disclosure while it still describes the committed story. The
+    // requested story does not become visible state until its checklist passes
+    // validation below.
+    if ((needsLoad || cancelsPending) && ui) syncStories();
+    if (options.focus) storyNavigation.focusTrigger = true;
+    if (options.reveal) storyNavigation.revealOverview = true;
+    setStorySelection(story, options.path);
+    if (needsLoad && options.refresh !== false) {
+      refreshChecklist();
+    } else if (!needsLoad) {
+      if (cancelsPending) {
+        storyNavigation.requestVersion += 1;
+        loading = false;
+        loadError = "";
+      }
+      commitStorySelection();
+      if (ui) {
+        syncPanel();
+        if (storyNavigation.revealOverview) {
+          scrollStoryOverviewIntoView();
+          storyNavigation.revealOverview = false;
+        }
+      }
+    }
+    return true;
   }
   function chooseInitialStory() {
-    if (!catalog || Number(catalog.schemaVersion) < 2) return;
+    if (!catalog) return;
     var available = stories();
     if (!available.length) return;
     var here = available.filter(coversHere);
@@ -1035,14 +1237,15 @@
     // better default than stale preference state from somewhere else in the app.
     if (
       selected &&
-      (explicitStoryPath === location.pathname ||
+      (storyNavigation.selectedPath === location.pathname ||
         !here.length ||
         coversHere(selected))
     )
       return;
-    activeStory = storyId(here[0] || available[0]);
-    prefs.story = activeStory;
-    savePrefs();
+    activateStory(storyId(here[0] || available[0]), {
+      path: null,
+      refresh: false,
+    });
   }
   // A story is about this page when one of its steps points here. Query strings
   // pick a filter rather than a page, so the catalog publishes paths only.
@@ -1053,16 +1256,12 @@
     });
   }
   function selectStory(story) {
-    if (!knownStory(story)) return;
-    if (story === activeStory) return;
-    storyMenuOpen = false;
-    focusStoryTrigger = true;
-    revealStoryOverview = true;
-    explicitStoryPath = location.pathname;
-    activeStory = story;
-    prefs.story = story;
-    savePrefs();
-    refreshChecklist();
+    activateStory(story, {
+      path: location.pathname,
+      refresh: true,
+      focus: true,
+      reveal: true,
+    });
   }
 
   // ---- placement ------------------------------------------------------------
@@ -1081,18 +1280,20 @@
       // already changed the path the story grouping is derived from.
       if (ui && location.pathname !== lastPath) {
         lastPath = location.pathname;
-        showAllStories = false;
-        explicitStoryPath = null;
+        resetStoryNavigationForRoute();
         var here = stories().filter(coversHere);
-        var selected = selectedStory();
+        var selected = committedStory();
         if (
           catalog &&
-          Number(catalog.schemaVersion) >= 2 &&
           here.length &&
           (!selected || !coversHere(selected))
         ) {
-          selectStory(storyId(here[0]));
+          activateStory(storyId(here[0]), {
+            path: null,
+            refresh: true,
+          });
         } else {
+          commitStorySelection();
           syncPanel();
         }
       }
@@ -1220,7 +1421,7 @@
     if (
       !ui ||
       ui.revision !== uat.checklistRevision ||
-      ui.story !== activeStory
+      ui.story !== storyNavigation.committedId
     ) {
       wrap.innerHTML = "";
       ui = buildPanel();
@@ -1228,15 +1429,18 @@
       built = true;
     }
     syncPanel();
-    var restoreStoryFocus = focusStoryTrigger && ui.storyTrigger;
-    focusStoryTrigger = false;
+    var selectionCommitted =
+      storyNavigation.selectedId === storyNavigation.committedId;
+    var restoreStoryFocus =
+      selectionCommitted && storyNavigation.focusTrigger && ui.storyTrigger;
+    if (selectionCommitted) storyNavigation.focusTrigger = false;
     applyAnchor();
     // Only on a fresh panel: a background refresh must not yank the checklist away
     // from wherever the reviewer has scrolled it.
     if (built) {
-      if (revealStoryOverview) {
+      if (storyNavigation.revealOverview) {
         scrollStoryOverviewIntoView();
-        revealStoryOverview = false;
+        storyNavigation.revealOverview = false;
       } else {
         scrollCurrentIntoView(undefined, true);
       }
@@ -1322,7 +1526,7 @@
   function buildPanel() {
     var parts = {
       revision: uat.checklistRevision,
-      story: activeStory,
+      story: storyNavigation.committedId,
       rows: {},
       detailKey: null,
     };
@@ -1337,9 +1541,9 @@
       // own dialogs, and a document-level handler here would close them.
       if (event.key === "Escape") {
         event.stopPropagation();
-        if (storyMenuOpen && parts.storyTrigger) {
+        if (storyNavigation.menuOpen && parts.storyTrigger) {
           event.preventDefault();
-          storyMenuOpen = false;
+          setStoryMenuOpen(false);
           syncStories();
           parts.storyTrigger.focus();
           return;
@@ -1521,8 +1725,8 @@
     parts.storyTrigger.appendChild(parts.storyTriggerProgress);
     parts.storyTrigger.appendChild(chevron);
     parts.storyTrigger.onclick = function () {
-      storyMenuOpen = !storyMenuOpen;
-      if (storyMenuOpen) closeMoreActions(parts);
+      setStoryMenuOpen(!storyNavigation.menuOpen);
+      if (storyNavigation.menuOpen) closeMoreActions(parts);
       syncStories();
     };
     box.appendChild(parts.storyTrigger);
@@ -1532,7 +1736,7 @@
       if (event.key !== "Escape") return;
       event.preventDefault();
       event.stopPropagation();
-      storyMenuOpen = false;
+      setStoryMenuOpen(false);
       syncStories();
       parts.storyTrigger.focus();
     };
@@ -1551,7 +1755,7 @@
     parts.storyScopeToggle = el("button", "storyscopetoggle");
     parts.storyScopeToggle.type = "button";
     parts.storyScopeToggle.onclick = function () {
-      showAllStories = !showAllStories;
+      storyNavigation.showAll = !storyNavigation.showAll;
       syncStories();
       var first = parts.storyList.querySelector('[role="option"]');
       if (first) first.focus();
@@ -1569,7 +1773,7 @@
 
   function storedStoryProgress(story) {
     var id = storyId(story);
-    if (id === activeStory) return progress();
+    if (id === storyNavigation.committedId) return progress();
     var identityKey = encodeURIComponent(deploymentIdentity(build));
     var prefix = storePrefixFor(id) + identityKey + ":";
     var latest = null;
@@ -1615,13 +1819,16 @@
     option.setAttribute("data-story-id", storyId(story));
     option.setAttribute(
       "aria-selected",
-      String(storyId(story) === activeStory),
+      String(storyId(story) === storyNavigation.committedId),
     );
     option.setAttribute(
       "aria-label",
       story.title + ", " + counts.done + " of " + counts.total + " complete",
     );
-    option.classList.toggle("selected", storyId(story) === activeStory);
+    option.classList.toggle(
+      "selected",
+      storyId(story) === storyNavigation.committedId,
+    );
     option.classList.toggle(
       "complete",
       counts.total > 0 && counts.done === counts.total,
@@ -1668,7 +1875,7 @@
     if (!ui || !ui.storyTrigger) return;
     var available = stories();
     var here = storiesForPage();
-    var pageScoped = here.length > 0 && !showAllStories;
+    var pageScoped = here.length > 0 && !storyNavigation.showAll;
     var visible = pageScoped ? here : available;
     var scopeLabel = pageScoped ? "Stories on this page" : "All server stories";
     var grouping = visible
@@ -1677,7 +1884,7 @@
         return storyId(story) + ":" + counts.done + "/" + counts.total;
       })
       .join(",");
-    var selected = selectedStory();
+    var selected = committedStory();
     var selectedCounts = selected
       ? storedStoryProgress(selected)
       : { done: 0, total: 0 };
@@ -1687,8 +1894,11 @@
       : "Choose a story";
     ui.storyTriggerProgress.textContent =
       selectedCounts.done + "/" + selectedCounts.total;
-    ui.storyTrigger.setAttribute("aria-expanded", String(storyMenuOpen));
-    ui.storyMenu.hidden = !storyMenuOpen;
+    ui.storyTrigger.setAttribute(
+      "aria-expanded",
+      String(storyNavigation.menuOpen),
+    );
+    ui.storyMenu.hidden = !storyNavigation.menuOpen;
     ui.storyMenuTitle.textContent = scopeLabel;
     ui.storyMenuCount.textContent =
       visible.length + " " + (visible.length === 1 ? "story" : "stories");
@@ -1699,7 +1909,7 @@
     ui.storyNotice.hidden = Boolean(here.length);
     var canChangeScope = here.length > 0 && here.length < available.length;
     ui.storyScopeToggle.hidden = !canChangeScope;
-    ui.storyScopeToggle.textContent = showAllStories
+    ui.storyScopeToggle.textContent = storyNavigation.showAll
       ? "Show " +
         here.length +
         " " +
@@ -1744,8 +1954,8 @@
     }
     toggle.onclick = function () {
       var open = menu.hidden;
-      if (open && storyMenuOpen) {
-        storyMenuOpen = false;
+      if (open && storyNavigation.menuOpen) {
+        setStoryMenuOpen(false);
         syncStories();
       }
       setOpen(open);
@@ -2135,7 +2345,7 @@
     // it is something a reviewer checks once and refers to in a bug report.
     var sha = build && build.appSha ? build.appSha.slice(0, 7) : "";
     ui.progress.textContent =
-      activeStory +
+      storyNavigation.committedId +
       " · " +
       counts.done +
       " of " +
@@ -2912,7 +3122,6 @@
       ".moreitem.filter.on{background:var(--blue-bg);color:var(--blue-dark);font-weight:600;}",
       ".moredivider{height:1px;margin:var(--sp2) 0;background:var(--border);}",
       ".moreitem.danger{color:#a2191f;}.moreitem.danger:hover,.moreitem.danger:focus-visible{background:#fff1f1;color:#a2191f;}",
-      ".storydescription{padding:2px var(--sp3) var(--sp2);font-size:var(--label);color:var(--text2);}",
       ".storysource{color:var(--blue-dark);}",
       // The bottom sheet is for an overlay on a narrow screen. A popped-out window
       // is narrow too but is not over anything, and this rule matches it selector

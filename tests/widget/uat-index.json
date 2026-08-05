@@ -1,26 +1,72 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
+  "warnings": [],
   "stories": [
     {
-      "instance": "amr",
-      "title": "Microbiology MVP",
+      "id": "amr--AMR-S01",
+      "review": "amr",
+      "key": "AMR-S01",
+      "title": "M1 - Find and route microbiology work",
       "jira": "OGC-782",
-      "steps": 10,
-      "required": 10,
+      "order": 0,
+      "steps": 3,
+      "required": 3,
       "routes": [
-        "/Dashboard",
-        "/Microbiology/worklist"
-      ]
+        "/tests/widget/app-fixture.html"
+      ],
+      "hosts": null
     },
     {
-      "instance": "orders",
+      "id": "amr--AMR-S02",
+      "review": "amr",
+      "key": "AMR-S02",
+      "title": "M1 - Work the seeded bacteriology case",
+      "jira": "OGC-782",
+      "order": 1,
+      "steps": 3,
+      "required": 3,
+      "routes": [
+        "/Microbiology/worklist"
+      ],
+      "hosts": null
+    },
+    {
+      "id": "amr--AMR-S03",
+      "review": "amr",
+      "key": "AMR-S03",
+      "title": "M1 - AST, critical communication, and reporting",
+      "jira": "OGC-782",
+      "order": 2,
+      "steps": 3,
+      "required": 3,
+      "routes": [],
+      "hosts": null
+    },
+    {
+      "id": "amr--AMR-S04",
+      "review": "amr",
+      "key": "AMR-S04",
+      "title": "M1 - Shared-specimen reflection",
+      "jira": "OGC-782",
+      "order": 3,
+      "steps": 1,
+      "required": 1,
+      "routes": [],
+      "hosts": null
+    },
+    {
+      "id": "orders--ORD-S01",
+      "review": "orders",
+      "key": "ORD-S01",
       "title": "Order entry",
       "jira": "OGC-900",
+      "order": 0,
       "steps": 2,
       "required": 2,
       "routes": [
-        "/tests/widget/app-fixture.html"
-      ]
+        "/orders"
+      ],
+      "hosts": null
     }
   ]
 }

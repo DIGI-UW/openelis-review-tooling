@@ -27,7 +27,7 @@ test("keeps the reviewer's place in the checklist when a step is marked", async 
   page,
 }) => {
   const widget = await openPanel(page);
-  const step = widget.locator(".step").nth(6);
+  const step = widget.locator(".step").nth(2);
   await step.locator(".steptop").click();
   await expect(step).toHaveClass(/current/);
   const before = await step.boundingBox();
@@ -38,7 +38,7 @@ test("keeps the reviewer's place in the checklist when a step is marked", async 
   expect(after).not.toBeNull();
   // The panel may reflow as the step collapses, but the step the reviewer just
   // answered has to stay where they can see it. Being returned to step one after
-  // every mark is what makes a ten-step review unworkable.
+  // every mark is what makes a multi-step review unworkable.
   expect(Math.abs(after.y - before.y)).toBeLessThan(120);
   await expect(step).toBeInViewport();
 });
@@ -48,7 +48,7 @@ test("shows one step at a time instead of a keyhole onto all of them", async ({
 }) => {
   const widget = await openPanel(page);
   const steps = widget.locator(".step");
-  await expect(steps).toHaveCount(10);
+  await expect(steps).toHaveCount(3);
 
   // Every step is listed, so the reviewer can see the scope of the review…
   await expect(steps.first()).toBeVisible();
@@ -222,7 +222,7 @@ test("numbers every step and says where each one stands", async ({ page }) => {
   // A reviewer reporting a problem needs to be able to name the step, and a
   // reviewer scanning the list needs to see its state without reading it.
   await expect(steps.nth(0).locator(".num")).toHaveText("1");
-  await expect(steps.nth(9).locator(".num")).toHaveText("10");
+  await expect(steps.nth(2).locator(".num")).toHaveText("3");
   await expect(steps.nth(0)).toHaveAttribute("data-state", "todo");
 
   await widget
@@ -341,7 +341,7 @@ test("shows progress on the collapsed launcher", async ({ page }) => {
 
   const launcher = widget.getByRole("button", { name: /review/i });
   await expect(launcher).toBeVisible();
-  await expect(launcher).toContainText("1/10");
+  await expect(launcher).toContainText("1/3");
 });
 
 test("is reachable and operable without a mouse", async ({ page }) => {
@@ -351,7 +351,7 @@ test("is reachable and operable without a mouse", async ({ page }) => {
   await expect(panel).toHaveAttribute("role", "complementary");
   await expect(panel).toHaveAttribute("aria-label", /review/i);
   await expect(widget.getByRole("heading", { level: 2 })).toHaveCount(1);
-  await expect(widget.getByRole("heading", { level: 3 })).toHaveCount(4);
+  await expect(widget.getByRole("heading", { level: 3 })).toHaveCount(1);
 
   const pass = widget
     .locator(".step.current .detail")

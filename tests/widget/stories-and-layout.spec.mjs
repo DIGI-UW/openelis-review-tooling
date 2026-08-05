@@ -1,9 +1,8 @@
 import { expect, test } from "@playwright/test";
 
-// app-fixture.html is served at /tests/widget/app-fixture.html and its checklist
-// at /tests/widget/uat-amr.json, so the catalog sits alongside at uat-index.json.
-// The "orders" story claims the fixture's own path; "amr" claims /Dashboard and
-// /Microbiology/worklist, so exactly one of them covers the page under test.
+// app-fixture.html uses the same schema-v2 split as production: uat-index.json
+// identifies individual stories while uat-amr.json remains their aggregate
+// transport document. Routes leave exactly one story relevant to each test page.
 const APP = "/tests/widget/app-fixture.html";
 
 async function openPanel(page) {
@@ -32,98 +31,27 @@ async function chooseStory(widget, name, { showAll = false } = {}) {
   await list.getByRole("option", { name }).click();
 }
 
-test("shows each Grist story separately instead of one aggregate review", async ({
+test("uses the production catalog to show one story without aggregate fallback", async ({
   page,
 }) => {
   const checklistRequests = [];
   page.on("request", (request) => {
     if (request.url().includes("/uat-")) checklistRequests.push(request.url());
   });
-  await page.route("**/tests/widget/uat-index.json", (route) =>
-    route.fulfill({
-      json: {
-        schemaVersion: 2,
-        stories: [
-          {
-            id: "amr--AMR-S01",
-            review: "amr",
-            key: "AMR-S01",
-            title: "Find and route microbiology work",
-            order: 0,
-            steps: 2,
-            required: 2,
-            routes: ["/tests/widget/app-fixture.html"],
-          },
-          {
-            id: "amr--AMR-S02",
-            review: "amr",
-            key: "AMR-S02",
-            title: "Work the bacteriology case",
-            order: 1,
-            steps: 1,
-            required: 1,
-            routes: ["/Microbiology/worklist"],
-          },
-          {
-            id: "analyzers--AN-S01",
-            review: "analyzers",
-            key: "AN-S01",
-            title: "Configure an analyzer",
-            order: 0,
-            steps: 1,
-            required: 1,
-            routes: ["/analyzers"],
-          },
-        ],
-      },
-    }),
-  );
-  await page.route("**/tests/widget/uat-amr.json", (route) =>
-    route.fulfill({
-      json: {
-        schemaVersion: 2,
-        checklistRevision: "amr-story-catalog",
-        title: "Microbiology release review",
-        intro:
-          "Review the full microbiology release across routing, clinical completeness, reference administration, surveillance export, and shared administration. Complete each task against the deployed build, preserve the evidence behind every answer, and record anything confusing or broken before handing the review over.",
-        instance: "amr",
-        sections: [
-          {
-            key: "AMR-S01",
-            title: "Find and route microbiology work",
-            links: {
-              userStory:
-                "As a laboratory user, I can route microbiology work safely.",
-            },
-            steps: [
-              { key: "AMR-1", do: "Open the worklist" },
-              { key: "AMR-2", do: "Route the order" },
-            ],
-          },
-          {
-            key: "AMR-S02",
-            title: "Work the bacteriology case",
-            links: {
-              userStory: "As a bench user, I can complete a bacteriology case.",
-            },
-            steps: [{ key: "AMR-3", do: "Open the case" }],
-          },
-        ],
-      },
-    }),
-  );
-
-  const widget = await openPanel(page);
-  const trigger = widget.getByRole("button", { name: "Choose story" });
-  await expect(trigger).toContainText("Find and route microbiology work");
-  await expect(widget.locator(".step")).toHaveCount(2);
+  let widget = await openPanel(page);
+  let trigger = widget.getByRole("button", { name: "Choose story" });
+  await expect(trigger).toContainText("M1 - Find and route microbiology work");
+  await expect(widget.locator(".step")).toHaveCount(3);
   await expect(widget.getByRole("heading", { level: 2 })).toHaveText(
-    "Find and route microbiology work - review",
+    "M1 - Find and route microbiology work - review",
   );
+  await expect(
+    widget.getByText("From a filtered worklist, open the seeded bacteriology case."),
+  ).toHaveCount(0);
   let list = await openStoryChecklist(widget);
   await expect(list.getByRole("option")).toHaveCount(1);
   await expect(list.getByRole("option").first()).toContainText(
-    "0 of 2 complete",
+    "0 of 3 complete",
   );
   await page.evaluate(() => {
     const key = "oe-review:v2:amr:prefs";
@@ -134,33 +62,53 @@ test("shows each Grist story separately instead of one aggregate review", async 
     window.dispatchEvent(new StorageEvent("storage", { key, newValue: value }));
   });
   await expect(list).toBeVisible();
-  await expect(trigger).toContainText("Find and route microbiology work");
+  await expect(trigger).toContainText("M1 - Find and route microbiology work");
   expect(
     checklistRequests.filter((url) => url.includes("uat-undefined")),
   ).toEqual([]);
+  expect(
+    await page.evaluate(() =>
+      JSON.parse(localStorage.getItem("oe-review:v2:amr:prefs") || "{}").story,
+    ),
+  ).toBe("amr--AMR-S01");
   await expect(
-    list.getByRole("option", { name: /Work the bacteriology case/ }),
+    list.getByRole("option", { name: /Work the seeded bacteriology case/ }),
   ).toHaveCount(0);
   await widget
-    .getByRole("button", { name: "Show all 2 server stories" })
+    .getByRole("button", { name: "Show all 4 server stories" })
     .click();
-  await expect(list.getByRole("option")).toHaveCount(2);
+  await expect(list.getByRole("option")).toHaveCount(4);
   await list
-    .getByRole("option", { name: /Work the bacteriology case/ })
+    .getByRole("option", { name: /Work the seeded bacteriology case/ })
     .click();
-  await expect(widget.locator(".step")).toHaveCount(1);
-  await expect(widget.locator(".step")).toHaveAttribute("data-state", "todo");
+  await expect(widget.locator(".step")).toHaveCount(3);
+  await expect(widget.locator(".step").first()).toHaveAttribute("data-state", "todo");
   await expect(widget.getByRole("heading", { level: 2 })).toHaveText(
-    "Work the bacteriology case - review",
+    "M1 - Work the seeded bacteriology case - review",
   );
   await expect(widget.getByRole("complementary")).toHaveAccessibleName(
-    "Review checklist: Work the bacteriology case - review",
+    "Review checklist: M1 - Work the seeded bacteriology case - review",
   );
   await expect(trigger).toBeFocused();
 
+  await widget.getByRole("button", { name: "Refresh checklist" }).click();
+  await expect(trigger).toContainText("M1 - Work the seeded bacteriology case");
+  await expect(widget.locator(".step")).toHaveCount(3);
+  expect(
+    checklistRequests.filter((url) => url.includes("uat-undefined")),
+  ).toEqual([]);
+
+  await page.reload();
+  widget = page.locator("#oe-review-host");
+  trigger = widget.getByRole("button", { name: "Choose story" });
+  await expect(widget.getByRole("heading", { level: 2 })).toHaveText(
+    "M1 - Work the seeded bacteriology case - review",
+  );
+  await expect(widget.locator(".step")).toHaveCount(3);
+
   list = await openStoryChecklist(widget);
   await list
-    .getByRole("option", { name: /Find and route microbiology work/ })
+    .getByRole("option", { name: /M1 - Find and route microbiology work/ })
     .click();
   const overview = widget.locator(".storydescription");
   await expect(overview).toBeVisible();
@@ -177,8 +125,8 @@ test("shows each Grist story separately instead of one aggregate review", async 
     }),
   ).toBe(true);
   await widget.getByRole("button", { name: "Refresh checklist" }).click();
-  await expect(trigger).toContainText("Find and route microbiology work");
-  await expect(widget.locator(".step")).toHaveCount(2);
+  await expect(trigger).toContainText("M1 - Find and route microbiology work");
+  await expect(widget.locator(".step")).toHaveCount(3);
   expect(
     checklistRequests.filter((url) => url.includes("uat-undefined")),
   ).toEqual([]);
@@ -192,6 +140,69 @@ test("shows each Grist story separately instead of one aggregate review", async 
   );
 });
 
+test("refuses a schema-v1 catalog instead of rendering its aggregate checklist", async ({
+  page,
+}) => {
+  await page.route("**/tests/widget/uat-index.json", (route) =>
+    route.fulfill({
+      json: {
+        schemaVersion: 1,
+        stories: [
+          {
+            instance: "amr",
+            title: "Legacy aggregate review",
+            steps: 10,
+          },
+        ],
+      },
+    }),
+  );
+
+  const widget = await openPanel(page);
+  await expect(widget.getByRole("alert")).toContainText(
+    "Story catalog schemaVersion 2 is required",
+  );
+  await expect(widget.locator(".step")).toHaveCount(0);
+  await expect(widget.locator(".stories")).toHaveCount(0);
+  await expect(widget.getByText("Open the microbiology worklist")).toHaveCount(0);
+});
+
+test("refuses catalog and checklist drift instead of showing aggregate rows", async ({
+  page,
+}) => {
+  await page.route("**/tests/widget/uat-index.json", (route) =>
+    route.fulfill({
+      json: {
+        schemaVersion: 2,
+        warnings: [],
+        stories: [
+          {
+            id: "amr--AMR-S99",
+            review: "amr",
+            key: "AMR-S99",
+            title: "Missing story",
+            jira: "OGC-782",
+            order: 99,
+            steps: 1,
+            required: 1,
+            routes: ["/tests/widget/app-fixture.html"],
+            hosts: null,
+          },
+        ],
+      },
+    }),
+  );
+
+  const widget = await openPanel(page);
+  await expect(widget.getByRole("alert")).toContainText(
+    "does not resolve to exactly one checklist section",
+  );
+  await expect(widget.locator(".step")).toHaveCount(0);
+  await expect(
+    widget.getByText("Sign in, open the main navigation"),
+  ).toHaveCount(0);
+});
+
 test("shows only stories for the current URL by default", async ({ page }) => {
   const widget = await openPanel(page);
   const list = await openStoryChecklist(widget);
@@ -200,10 +211,12 @@ test("shows only stories for the current URL by default", async ({ page }) => {
     "Stories on this page",
   );
   await expect(list.getByRole("option")).toHaveCount(1);
-  await expect(list.getByRole("option").first()).toContainText("Order entry");
-  await expect(list.getByText("Microbiology MVP")).toHaveCount(0);
+  await expect(list.getByRole("option").first()).toContainText(
+    "M1 - Find and route microbiology work",
+  );
+  await expect(list.getByText("Order entry")).toHaveCount(0);
   await expect(
-    widget.getByRole("button", { name: "Show all 2 server stories" }),
+    widget.getByRole("button", { name: "Show all 4 server stories" }),
   ).toBeVisible();
 });
 
@@ -213,7 +226,9 @@ test("re-groups the stories as the reviewer moves through the application", asyn
   const widget = await openPanel(page);
   let list = await openStoryChecklist(widget);
   await expect(list.getByRole("option")).toHaveCount(1);
-  await expect(list.getByRole("option").first()).toContainText("Order entry");
+  await expect(list.getByRole("option").first()).toContainText(
+    "M1 - Find and route microbiology work",
+  );
   await widget.getByRole("button", { name: "Choose story" }).click();
 
   // A single-page app routes without reloading, so nothing re-runs on its own.
@@ -222,7 +237,7 @@ test("re-groups the stories as the reviewer moves through the application", asyn
   list = await openStoryChecklist(widget);
   await expect(list.getByRole("option")).toHaveCount(1);
   await expect(list.getByRole("option").first()).toContainText(
-    "Microbiology MVP",
+    "M1 - Work the seeded bacteriology case",
   );
 });
 
@@ -240,6 +255,7 @@ test("falls back to every server story when the current URL has no match", async
             key: "AMR-S01",
             title: "Route microbiology work",
             steps: 2,
+            required: 2,
             routes: ["/Dashboard"],
           },
           {
@@ -248,6 +264,7 @@ test("falls back to every server story when the current URL has no match", async
             key: "AMR-S02",
             title: "Review AST results",
             steps: 3,
+            required: 3,
             routes: ["/Microbiology/worklist"],
           },
         ],
@@ -309,6 +326,46 @@ test("keeps the story checklist open while the current checklist refreshes", asy
   await expect(widget.locator(".panel")).toBeVisible();
 });
 
+test("keeps the newest checklist when an older refresh finishes late", async ({
+  page,
+}) => {
+  const widget = await openPanel(page);
+  let releaseFirst;
+  let finishFirst;
+  const firstRelease = new Promise((resolve) => {
+    releaseFirst = resolve;
+  });
+  const firstFinished = new Promise((resolve) => {
+    finishFirst = resolve;
+  });
+  let requestCount = 0;
+
+  await page.route("**/tests/widget/uat-amr.json", async (route) => {
+    requestCount += 1;
+    const requestNumber = requestCount;
+    const response = await route.fetch();
+    const checklist = await response.json();
+    checklist.checklistRevision = `refresh-${requestNumber}`;
+    checklist.sections[0].steps[0].do =
+      requestNumber === 1 ? "Stale refresh" : "Latest refresh";
+    if (requestNumber === 1) await firstRelease;
+    await route.fulfill({ json: checklist });
+    if (requestNumber === 1) finishFirst();
+  });
+
+  const refresh = widget.getByRole("button", { name: "Refresh checklist" });
+  await refresh.click();
+  await expect.poll(() => requestCount).toBe(1);
+  await refresh.click();
+  await expect.poll(() => requestCount).toBe(2);
+  await expect(widget.getByText("Latest refresh")).toBeVisible();
+
+  releaseFirst();
+  await firstFinished;
+  await expect(widget.getByText("Latest refresh")).toBeVisible();
+  await expect(widget.getByText("Stale refresh")).toHaveCount(0);
+});
+
 test("keeps story navigation usable in the mobile bottom sheet", async ({
   page,
 }) => {
@@ -343,18 +400,18 @@ test("switching story loads its checklist and keeps the answers apart", async ({
   await widget.locator(".step.current .detail").getByRole("button", { name: "Pass" }).click();
   await expect(widget.locator(".step").nth(0)).toHaveAttribute("data-state", "pass");
 
-  await chooseStory(widget, /Order entry/);
+  await chooseStory(widget, /Work the seeded bacteriology case/, { showAll: true });
   await expect(widget.getByRole("heading", { level: 2 })).toHaveText(
-    "Order entry review",
+    "M1 - Work the seeded bacteriology case - review",
   );
-  await expect(widget.locator(".step")).toHaveCount(2);
+  await expect(widget.locator(".step")).toHaveCount(3);
   await expect(widget.locator(".step").nth(0)).toHaveAttribute(
     "data-state",
     "todo",
   );
 
-  await chooseStory(widget, /Microbiology MVP/, { showAll: true });
-  await expect(widget.locator(".step")).toHaveCount(10);
+  await chooseStory(widget, /Find and route microbiology work/);
+  await expect(widget.locator(".step")).toHaveCount(3);
   await expect(widget.locator(".step").nth(0)).toHaveAttribute("data-state", "pass");
 });
 
@@ -362,10 +419,10 @@ test("says a story is unreachable rather than quietly reviewing a different one"
   page,
 }) => {
   const widget = await openPanel(page);
-  await chooseStory(widget, /Order entry/);
-  await expect(widget.locator(".step")).toHaveCount(2);
+  await chooseStory(widget, /Work the seeded bacteriology case/, { showAll: true });
+  await expect(widget.locator(".step")).toHaveCount(3);
 
-  await page.route("**/tests/widget/uat-orders.json", (route) =>
+  await page.route("**/tests/widget/uat-amr.json", (route) =>
     route.fulfill({ status: 503, body: "unavailable" }),
   );
   await widget.getByRole("button", { name: "Refresh checklist" }).click();
@@ -375,27 +432,28 @@ test("says a story is unreachable rather than quietly reviewing a different one"
   await expect(widget.getByRole("alert")).toContainText("503");
   await expect(
     widget.getByRole("button", { name: "Choose story" }),
-  ).toContainText("Order entry");
+  ).toContainText("M1 - Work the seeded bacteriology case");
 });
 
 test("reports a checklist it refuses instead of swallowing the reason", async ({
   page,
 }) => {
   const widget = await openPanel(page);
-  await page.route("**/tests/widget/uat-orders.json", (route) =>
+  await page.route("**/tests/widget/uat-amr.json", (route) =>
     route.fulfill({
       json: {
         schemaVersion: 2,
-        checklistRevision: "orders-bad",
-        title: "Order entry review",
-        instance: "orders",
+        checklistRevision: "amr-bad",
+        title: "Microbiology MVP - review",
+        instance: "amr",
         sections: [
           {
-            title: "Add an order",
+            title: "M1 - Work the seeded bacteriology case",
+            key: "AMR-S02",
             // Resolves off-origin: the URL parser reads the backslash as an
             // authority separator.
             steps: [
-              { key: "ORD-1", do: "Open add order", route: "/\\evil.example" },
+              { key: "AMR-4", do: "Open the case", route: "/\\evil.example" },
             ],
           },
         ],
@@ -403,44 +461,58 @@ test("reports a checklist it refuses instead of swallowing the reason", async ({
     }),
   );
 
-  await chooseStory(widget, /Order entry/);
+  await chooseStory(widget, /Work the seeded bacteriology case/, { showAll: true });
   await expect(widget.getByRole("alert")).toContainText("same-origin");
+  await expect(widget.getByRole("heading", { level: 2 })).toHaveText(
+    "M1 - Find and route microbiology work - review",
+  );
+  await expect(
+    widget.getByRole("button", { name: "Choose story" }),
+  ).toContainText("M1 - Find and route microbiology work");
+  await expect(widget.locator(".step")).toHaveCount(3);
 });
 
 test("falls back to the injected story when one is retired from the catalog", async ({
   page,
 }) => {
   const widget = await openPanel(page);
-  await chooseStory(widget, /Order entry/);
-  await expect(widget.locator(".step")).toHaveCount(2);
+  await chooseStory(widget, /Work the seeded bacteriology case/, { showAll: true });
+  await expect(widget.locator(".step")).toHaveCount(3);
 
-  await page.route("**/tests/widget/uat-orders.json", (route) =>
-    route.fulfill({ status: 404, body: "gone" }),
-  );
+  await page.route("**/tests/widget/uat-index.json", async (route) => {
+    const response = await route.fetch();
+    const catalog = await response.json();
+    await route.fulfill({
+      json: {
+        ...catalog,
+        stories: catalog.stories.filter((story) => story.id !== "amr--AMR-S02"),
+      },
+    });
+  });
   await page.reload();
 
   const reopened = page.locator("#oe-review-host");
   await expect(reopened.getByRole("heading", { level: 2 })).toHaveText(
-    "Microbiology MVP - review",
+    "M1 - Find and route microbiology work - review",
   );
-  await expect(reopened.locator(".step")).toHaveCount(10);
+  await expect(reopened.locator(".step")).toHaveCount(3);
 });
 
 test("remembers the story the reviewer was last working on", async ({
   page,
 }) => {
   const widget = await openPanel(page);
-  await chooseStory(widget, /Order entry/);
-  await expect(widget.locator(".step")).toHaveCount(2);
+  await chooseStory(widget, /Work the seeded bacteriology case/, { showAll: true });
+  await expect(widget.locator(".step")).toHaveCount(3);
 
   await page.reload();
   const reopened = page.locator("#oe-review-host");
   await expect(reopened.getByRole("heading", { level: 2 })).toHaveText(
-    "Order entry review",
+    "M1 - Work the seeded bacteriology case - review",
   );
   await expect(
     reopened.getByRole("button", { name: "Choose story" }),
-  ).toContainText("Order entry");
+  ).toContainText("M1 - Work the seeded bacteriology case");
 });
 
 test("expands to show every step in full, and comes back", async ({ page }) => {
@@ -451,9 +523,9 @@ test("expands to show every step in full, and comes back", async ({ page }) => {
   await widget.getByRole("button", { name: "Expand panel" }).click();
   const expanded = await widget.locator(".panel").boundingBox();
   expect(expanded.width).toBeGreaterThan(compact.width);
-  await expect(widget.locator(".expect")).toHaveCount(10);
+  await expect(widget.locator(".expect")).toHaveCount(3);
   await expect(
-    widget.locator(".step").nth(9).getByRole("button", { name: "Pass" }),
+    widget.locator(".step").nth(2).getByRole("button", { name: "Pass" }),
   ).toBeVisible();
 
   // Expanding is worth nothing if each step simply gets taller: the extra width
@@ -538,7 +610,7 @@ test("keeps how the panel was set up across a reload", async ({ page }) => {
 
   await page.reload();
   const reopened = page.locator("#oe-review-host");
-  await expect(reopened.locator(".expect")).toHaveCount(10);
+  await expect(reopened.locator(".expect")).toHaveCount(3);
   const restored = await reopened.locator(".panel").boundingBox();
   expect(restored.x).toBeCloseTo(arranged.x, 0);
   expect(restored.width).toBeCloseTo(arranged.width, 0);
