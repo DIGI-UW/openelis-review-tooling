@@ -163,8 +163,9 @@ test("shows each Grist story separately instead of one aggregate review", async 
     .locator(".step.current .detail")
     .getByRole("button", { name: "Pass" })
     .click();
-  await expect(widget.locator(".step").first().locator(".chip")).toHaveText(
-    "Pass",
+  await expect(widget.locator(".step").first()).toHaveAttribute(
+    "data-state",
+    "pass",
   );
 });
 
@@ -316,13 +317,8 @@ test("switching story loads its checklist and keeps the answers apart", async ({
   page,
 }) => {
   const widget = await openPanel(page);
-  await widget
-    .locator(".step.current .detail")
-    .getByRole("button", { name: "Pass" })
-    .click();
-  await expect(widget.locator(".step").nth(0).locator(".chip")).toHaveText(
-    "Pass",
-  );
+  await widget.locator(".step.current .detail").getByRole("button", { name: "Pass" }).click();
+  await expect(widget.locator(".step").nth(0)).toHaveAttribute("data-state", "pass");
 
   await chooseStory(widget, /Order entry/);
   await expect(widget.getByRole("heading", { level: 2 })).toHaveText(
@@ -336,9 +332,7 @@ test("switching story loads its checklist and keeps the answers apart", async ({
 
   await chooseStory(widget, /Microbiology MVP/, { showAll: true });
   await expect(widget.locator(".step")).toHaveCount(10);
-  await expect(widget.locator(".step").nth(0).locator(".chip")).toHaveText(
-    "Pass",
-  );
+  await expect(widget.locator(".step").nth(0)).toHaveAttribute("data-state", "pass");
 });
 
 test("says a story is unreachable rather than quietly reviewing a different one", async ({
@@ -495,17 +489,20 @@ test("filters down to what still needs doing, and to what failed", async ({
     .getByRole("button", { name: "Fail" })
     .click();
 
-  await widget.getByRole("button", { name: "To do", exact: true }).click();
+  await widget.getByRole("button", { name: "More review actions" }).click();
+  await widget.getByRole("button", { name: "To do" }).click();
   await expect(steps.nth(0)).toBeHidden();
   await expect(steps.nth(1)).toBeHidden();
   await expect(steps.nth(2)).toBeVisible();
 
-  await widget.getByRole("button", { name: "Failed", exact: true }).click();
+  await widget.getByRole("button", { name: "More review actions" }).click();
+  await widget.getByRole("button", { name: "Failed" }).click();
   await expect(steps.nth(0)).toBeHidden();
   await expect(steps.nth(1)).toBeVisible();
   await expect(steps.nth(2)).toBeHidden();
 
-  await widget.getByRole("button", { name: "All", exact: true }).click();
+  await widget.getByRole("button", { name: "More review actions" }).click();
+  await widget.getByRole("button", { name: "All steps" }).click();
   await expect(steps.nth(0)).toBeVisible();
   await expect(steps.nth(2)).toBeVisible();
 });

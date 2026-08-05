@@ -1,8 +1,8 @@
 import { expect, test } from "@playwright/test";
 
-// fixture.html carries the two-step "analyzers" checklist, whose first step routes
-// to /analyzers/types. The fixture server answers an unknown path with a plain 404
-// body, so following that route is a real navigation the opener can be caught at.
+// fixture.html carries the two-step "analyzers" checklist. The reviewer reaches
+// application routes independently so the checklist cannot bypass the behavior it
+// is meant to assess.
 const APP = "/tests/widget/fixture.html";
 
 const widgetOf = (page) => page.locator("#oe-review-host");
@@ -62,7 +62,7 @@ test.describe("?oe-review", () => {
     await page.goto(`${APP}?oe-review=off`);
     await expect(widgetOf(page)).toHaveCount(0);
 
-    // The checklist's own "Go to …" links drop the query string, so hiding has to
+    // The reviewer can continue navigating after opting out, so hiding has to
     // outlast the URL that asked for it or it lasts exactly one page.
     await page.goto(APP);
     await expect(widgetOf(page)).toHaveCount(0);
@@ -190,22 +190,14 @@ test.describe("popping the panel out", () => {
     await expect(widget.locator(".tab.away")).toHaveCount(1);
   });
 
-  test("severs the opener on the link it can only open blind", async ({ page }) => {
+  test("does not offer a route link that bypasses the review task", async ({ page }) => {
     const { popup } = await popOut(page);
-    const go = popup.locator("#oe-review-host").getByRole("link", { name: /Go to/ });
-    // Only reached when the opener is gone, so the tab it opens has no business
-    // holding a handle back to this window.
-    await expect(go).toHaveAttribute("target", "_blank");
-    await expect(go).toHaveAttribute("rel", /noopener/);
-  });
-
-  test("leaves the in-page route link an ordinary same-window link", async ({
-    page,
-  }) => {
-    const widget = await openPanel(page);
-    const go = widget.getByRole("link", { name: /Go to/ });
-    await expect(go).toHaveAttribute("href", "/analyzers/types");
-    await expect(go).not.toHaveAttribute("target", "_blank");
+    const widget = popup.locator("#oe-review-host");
+    await expect(widget.locator(".step a")).toHaveCount(0);
+    const report = JSON.parse(
+      await popup.evaluate(() => window.__OE_REVIEW_TEST__.buildReport().json),
+    );
+    expect(report.checklist[0].steps[0].route).toBe("/analyzers/types");
   });
 
   test("carries a mark back to the page it was popped out of", async ({ page }) => {
@@ -256,23 +248,6 @@ test.describe("popping the panel out", () => {
       .find((step) => step.mark === "pass");
     expect(marked.actualUrl).toContain("/analyzers/types");
     expect(marked.actualUrl).not.toContain("about:blank");
-  });
-
-  test("sends a route link to the window under review", async ({ page }) => {
-    const { popup } = await popOut(page);
-    const opened = [];
-    page.context().on("page", (extra) => opened.push(extra));
-    const panelUrl = popup.url();
-    await popup
-      .locator("#oe-review-host")
-      .getByRole("link", { name: /Go to/ })
-      .click();
-    // The application is in the opener, so that is what navigates — not the panel,
-    // and not a third window nobody asked for.
-    await expect(page).toHaveURL(/\/analyzers\/types$/);
-    expect(popup.isClosed()).toBe(false);
-    expect(popup.url()).toBe(panelUrl);
-    expect(opened).toHaveLength(0);
   });
 
   test("puts the panel back in the page when the window is handed back", async ({

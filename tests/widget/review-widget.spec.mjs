@@ -110,7 +110,12 @@ test("refresh preserves reordered answers and marks changed instructions stale",
   await widget.getByRole("button", { name: "Refresh checklist" }).click();
 
   await expect(widget.getByText("Find and inspect a shipped profile")).toBeVisible();
-  await expect(widget.getByText("Review again")).toBeVisible();
+  await expect(
+    widget
+      .locator(".step")
+      .filter({ hasText: "Find and inspect a shipped profile" })
+      .locator(".steptop"),
+  ).toHaveAttribute("aria-label", /^Step 2, needs another look:/);
   const stored = await savedState(page);
   expect(stored.value.steps["AN-QC-001"].mark).toBe("pass");
   expect(stored.value.steps["AN-QC-001"].stale).toBe(true);
@@ -237,7 +242,11 @@ test("keeps answers when the target fetch fails after a mark", async ({ page }) 
   await page.reload();
   widget = page.locator("#oe-review-host");
   const marked = widget.locator(".step").filter({ hasText: "Find a shipped profile" });
-  await expect(marked.locator(".chip")).toHaveText("Pass");
+  await expect(marked.locator(".chip")).toHaveCount(0);
+  await expect(marked.locator(".steptop")).toHaveAttribute(
+    "aria-label",
+    /^Step 1, passed:/,
+  );
 
   const stored = await savedState(page);
   expect(stored.key).toContain("oe-review:v2:analyzers:abc123:");

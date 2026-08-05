@@ -78,8 +78,7 @@ Add `?oe-review=` to any page the widget is on:
 The parameter is **consumed**: it is applied once and then removed from the address
 bar, so it cannot keep reopening a panel the reviewer has closed, and it does not
 end up in the page URLs the report records as evidence. `off` persists across
-navigation — otherwise the checklist's own "Go to …" links would undo it on the
-next page — so `?oe-review=on` is the way back, and the widget logs that reminder
+navigation, so `?oe-review=on` is the way back, and the widget logs that reminder
 when it stands down.
 
 ### Where the checklist comes from (priority order)
@@ -120,7 +119,7 @@ when it stands down.
           "required": true,
           "do": "The action the reviewer performs.",
           "expect": "What they should see (optional).",
-          "route": "/some/path (optional deep-link hint)"
+          "route": "/some/path (captured in the review evidence)"
         }
       ]
     }
@@ -131,10 +130,11 @@ when it stands down.
 ## What the reviewer gets
 
 Every step is listed so the scope of the review is visible, but only the step being
-worked spells out its expected result, its route link and its **pass / fail / n-a**
-buttons; the rest collapse to a line and a status chip. Answering a step opens the
-next unanswered one, and clicking any line goes back to it. Marking never scrolls
-the checklist away from where the reviewer is.
+worked spells out its expected result and its **pass / fail / n-a** buttons; the
+rest collapse to a line and a numbered state marker. A route is recorded in the
+report, not presented as a link, so the reviewer must assess the real navigation
+and workflow. Answering a step opens the next unanswered one, and clicking any line
+goes back to it. Marking never scrolls the checklist away from where the reviewer is.
 
 Reordering keeps the answer; changed instructions mark the answer stale until it is
 reviewed again. Answers never carry into a different deployment, and old
@@ -148,11 +148,12 @@ the right, centre and left; a side chosen by hand is remembered and never
 overridden. Below 640px the open panel becomes a bottom sheet.
 
 **Expand panel** widens it and opens every step at once, laying the expected result
-down the left and the answer on the right so more of the checklist fits. **All / To
-do / Failed** narrows the list once there is something to narrow, and each section
-heading carries its own count. How the panel is arranged — side, expanded, filter,
-and which story was open — is remembered per deployment, so it survives a reload
-and a story switch.
+down the left and the answer on the right so more of the checklist fits. The footer
+keeps one primary action, **Submit review**. The `...` menu contains the occasional
+controls: **All steps / To do / Failed**, copy/download, reset, and current-story
+sources. Each section heading carries its own count. How the panel is arranged —
+side, expanded, filter, and which story was open — is remembered per deployment, so
+it survives a reload and a story switch.
 
 ### Popping it out
 
@@ -163,9 +164,8 @@ application paints can reach it. ⌘/Ctrl-click opens a tab instead of a window.
 The popped-out panel is a second view of one review rather than a copy of it. Both
 windows share the reviewer's saved answers, so a mark made in either shows up in the
 other straight away; the page keeps its launcher, which turns dark and raises the
-review window rather than opening a second panel. Because the application is in the
-window the panel came from, that is where a step's **Go to …** link navigates, and
-that page — wherever the reviewer has since got to — is what a mark records as
+review window rather than opening a second panel. The reviewer navigates the
+application independently, and the page they have reached is what a mark records as
 evidence. **Return the checklist to the page** hands it back and closes the window.
 
 Pop-out needs the widget to have been loaded from a URL; a copy pasted inline has no
@@ -206,8 +206,9 @@ Story prose is presented as a labeled, full-size description above the steps. It
 is not squeezed into the link metadata or pinned with the section heading, so it
 remains readable and scrolls away naturally when work begins.
 
-**Copy report** puts the whole review on the clipboard, which is what the reviewer
-is asked to paste into Claude. **Download** writes the same thing as a single
+The `...` menu's **Copy report** action puts the whole review on the clipboard,
+which is what the reviewer is asked to paste into Claude. **Download report** writes
+the same thing as a single
 `oe-review-<instance>-<timestamp>.md`:
 
 - a readable checklist with `[PASS]/[FAIL]/[N/A]/[----]` boxes, a summary line, and

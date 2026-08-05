@@ -37,8 +37,8 @@
   var FILTERS = ["all", "todo", "failed"];
   // A popped-out panel is this same script running in a window of its own. It is
   // not a copy of the review but a second view of it, driving the window it came
-  // from: the page under review is over there, so that is where a route link
-  // navigates and which URL a mark is evidence about. SELF_SRC is how the popped-
+  // from: the page under review is over there, and that is which URL a mark is
+  // evidence about. SELF_SRC is how the popped-
   // out window loads this script, so a widget pasted inline rather than linked
   // offers no pop-out at all.
   var SELF_SRC = (self && self.src) || "";
@@ -411,9 +411,9 @@
       prefs.hidden = intent === "hidden";
       savePrefs();
     }
-    // Hiding has to outlast the URL that asked for it, or the first "Go to /route"
-    // in the checklist brings the panel back mid-screenshot. That makes the
-    // parameter the only way back, so say so where whoever typed it will look.
+    // Hiding has to outlast the URL that asked for it while the reviewer keeps
+    // navigating. That makes the parameter the only way back, so say so where
+    // whoever typed it will look.
     if (prefs.hidden) {
       console.info(
         "[oe-review] review panel hidden — add ?" +
@@ -571,16 +571,6 @@
       }
     }
     return OPENER_URL;
-  }
-
-  // Resolved against the window under review, not this one: a path means nothing
-  // on about:blank.
-  function absoluteRoute(route) {
-    try {
-      return new URL(route, reviewedUrl() || location.href).href;
-    } catch (e) {
-      return route;
-    }
   }
 
   function markPoppedOut(on) {
@@ -891,7 +881,7 @@
     // Honour the persisted panel state on first load; only preserve the in-session
     // value once the reviewer has actually opened or closed it, so a background
     // refresh cannot collapse a panel they are working in — and so the panel does
-    // not re-collapse on every "Go to /route" navigation.
+    // not re-collapse as the reviewer navigates.
     if (panelToggled) state.minimized = minimized;
     (next.sections || []).forEach(function (section) {
       (section.steps || []).forEach(function (step) {
@@ -1226,7 +1216,7 @@
         scrollStoryOverviewIntoView();
         revealStoryOverview = false;
       } else {
-        scrollCurrentIntoView();
+        scrollCurrentIntoView(undefined, true);
       }
     }
     // Scrolling an in-progress story may carry focus to its first answer control.
@@ -1432,9 +1422,6 @@
     parts.who = who;
     panel.appendChild(who);
 
-    parts.filters = buildFilters(parts);
-    panel.appendChild(parts.filters);
-
     parts.body = el("div", "body");
     parts.body.appendChild(parts.intro);
     parts.sections = [];
@@ -1452,11 +1439,6 @@
       line.appendChild(heading);
       line.appendChild(count);
       row.appendChild(line);
-      // Where the story came from. A reviewer who can reach the ticket, the change
-      // and the design can tell whether what is on screen is what was asked for,
-      // which is the difference between checking a box and reviewing something.
-      var links = storyLinks(section);
-      if (links) row.appendChild(links);
       block.appendChild(row);
       var description = storyDescription(section);
       if (description) block.appendChild(description);
@@ -1475,33 +1457,11 @@
     panel.appendChild(buildNotes(parts));
 
     var foot = el("div", "foot");
-    var reset = el("button", "ghost");
-    reset.textContent = "Reset";
-    reset.onclick = function () {
-      if (confirm("Clear all checklist answers and notes for this story?")) {
-        clearStoryState();
-        state = fresh();
-        state.minimized = false;
-        save();
-        ui = null;
-        render();
-      }
-    };
-    var copy = el("button", "primary");
-    copy.textContent = "Copy report";
-    copy.onclick = function () {
-      copyReport(copy);
-    };
-    var download = el("button", "ghost");
-    download.textContent = "Download";
-    download.onclick = downloadReport;
     var submit = el("button", "primary submit");
     submit.textContent = "Submit review";
     submit.onclick = submitReview;
-    foot.appendChild(reset);
-    foot.appendChild(download);
-    foot.appendChild(copy);
     foot.appendChild(submit);
+    foot.appendChild(buildMoreActions(parts));
     parts.submit = submit;
     panel.appendChild(foot);
 
@@ -1733,26 +1693,94 @@
     }
   }
 
-  function buildFilters(parts) {
-    var box = el("div", "filters");
-    box.setAttribute("role", "group");
-    box.setAttribute("aria-label", "Show steps");
+  function buildMoreActions(parts) {
+    var box = el("div", "more");
+    var toggle = iconBtn("...", "More review actions");
+    toggle.classList.add("moretoggle");
+    toggle.setAttribute("aria-haspopup", "true");
+    toggle.setAttribute("aria-expanded", "false");
+    var menu = el("div", "moremenu");
+    menu.id = "oe-review-more-actions";
+    menu.setAttribute("role", "group");
+    menu.setAttribute("aria-label", "More review actions");
+    toggle.setAttribute("aria-controls", menu.id);
+    menu.hidden = true;
+    function setOpen(open) {
+      menu.hidden = !open;
+      toggle.setAttribute("aria-expanded", String(open));
+      if (open) {
+        var first = menu.querySelector("button,a");
+        if (first) first.focus();
+      }
+    }
+    toggle.onclick = function () {
+      setOpen(menu.hidden);
+    };
+    menu.onkeydown = function (event) {
+      if (event.key === "Escape") {
+        setOpen(false);
+        toggle.focus();
+      }
+    };
+    var filterTitle = el("div", "morelabel");
+    filterTitle.textContent = "Show steps";
+    menu.appendChild(filterTitle);
+    var filters = el("div", "moregroup");
+    filters.setAttribute("role", "group");
+    filters.setAttribute("aria-label", "Show steps");
     parts.filterButtons = {};
     [
-      ["all", "All"],
+      ["all", "All steps"],
       ["todo", "To do"],
       ["failed", "Failed"],
     ].forEach(function (option) {
-      var button = el("button", "filter");
+      var button = el("button", "moreitem filter");
       button.textContent = option[1];
+      button.setAttribute("aria-pressed", "false");
       button.onclick = function () {
         prefs.filter = option[0];
         savePrefs();
         syncPanel();
+        setOpen(false);
       };
       parts.filterButtons[option[0]] = button;
-      box.appendChild(button);
+      filters.appendChild(button);
     });
+    menu.appendChild(filters);
+    menu.appendChild(el("div", "moredivider"));
+    var copy = el("button", "moreitem");
+    copy.textContent = "Copy report";
+    copy.onclick = function () {
+      copyReport(copy);
+      setOpen(false);
+    };
+    var download = el("button", "moreitem");
+    download.textContent = "Download report";
+    download.onclick = function () {
+      downloadReport();
+      setOpen(false);
+    };
+    var reset = el("button", "moreitem danger");
+    reset.textContent = "Reset review";
+    reset.onclick = function () {
+      if (confirm("Clear all checklist answers and notes for this story?")) {
+        clearStoryState();
+        state = fresh();
+        state.minimized = false;
+        save();
+        ui = null;
+        render();
+      }
+    };
+    menu.appendChild(copy);
+    menu.appendChild(download);
+    menu.appendChild(reset);
+    parts.storyContext = el("div", "storycontext");
+    menu.appendChild(parts.storyContext);
+    box.appendChild(menu);
+    box.appendChild(toggle);
+    parts.moreToggle = toggle;
+    parts.moreMenu = menu;
     return box;
   }
 
@@ -1822,24 +1850,53 @@
     ],
   ];
   var JIRA_BASE = "https://uwdigi.atlassian.net/browse/";
-  function storyLinks(section) {
+  function storySources(section) {
     var links = section.links;
-    if (!links) return null;
-    var meta = el("div", "storymeta");
+    if (!links) return [];
+    var sources = [];
     LINK_LABELS.forEach(function (pair) {
       var value = String(links[pair[0]] || "").trim();
       if (!value) return;
       var bareIsAKey = pair[2];
       if (!isUrl(value) && !bareIsAKey) return;
-      var a = el("a", "storylink");
-      a.href = isUrl(value) ? value : JIRA_BASE + encodeURIComponent(value);
-      a.textContent = pair[1](value);
-      a.target = "_blank";
-      a.rel = "noopener noreferrer";
-      a.title = value;
-      meta.appendChild(a);
+      sources.push({
+        href: isUrl(value) ? value : JIRA_BASE + encodeURIComponent(value),
+        label: pair[1](value),
+        title: value,
+      });
     });
-    return meta.childNodes.length ? meta : null;
+    return sources;
+  }
+
+  function sectionForStep(stepKey) {
+    return (uat.sections || []).filter(function (section) {
+      return (section.steps || []).some(function (step) {
+        return step.key === stepKey;
+      });
+    })[0];
+  }
+
+  function syncStoryContext() {
+    if (!ui || !ui.storyContext) return;
+    var context = ui.storyContext;
+    var section = sectionForStep(state.current);
+    var sources = section ? storySources(section) : [];
+    context.innerHTML = "";
+    context.hidden = !sources.length;
+    if (context.hidden) return;
+    context.appendChild(el("div", "moredivider"));
+    var title = el("div", "morelabel");
+    title.textContent = "Story sources";
+    context.appendChild(title);
+    sources.forEach(function (source) {
+      var link = el("a", "moreitem storysource");
+      link.href = source.href;
+      link.textContent = source.label;
+      link.target = "_blank";
+      link.rel = "noopener noreferrer";
+      link.title = source.title;
+      context.appendChild(link);
+    });
   }
 
   function storyDescription(section) {
@@ -1866,10 +1923,8 @@
     num.textContent = String(position);
     var text = el("span", "steplabel");
     text.textContent = step.do || step.text || "";
-    var chip = el("span", "chip");
     summary.appendChild(num);
     summary.appendChild(text);
-    summary.appendChild(chip);
     summary.onclick = function () {
       // Clicking any row is how a reviewer goes back to something, or skips
       // ahead. It never changes an answer.
@@ -1884,7 +1939,6 @@
     return {
       row: row,
       num: num,
-      chip: chip,
       summary: summary,
       detail: detail,
       step: step,
@@ -1894,39 +1948,6 @@
 
   function buildDetail(step) {
     var detail = document.createDocumentFragment();
-    // Where before what: a reviewer's first question about a step is which page
-    // it happens on, and the answer used to sit below the thing to check.
-    if (step.route) {
-      var go = el("a", "go");
-      go.textContent = "Go to " + readableRoute(step.route);
-      // A route is a path on the deployment, which about:blank cannot resolve, so
-      // a popped-out panel resolves it against the window it is reviewing. The
-      // href is what a middle-click or a dead opener falls back to; the handler is
-      // what normally happens.
-      go.href = STANDALONE ? absoluteRoute(step.route) : step.route;
-      go.title = step.route;
-      if (STANDALONE) {
-        go.target = "_blank";
-        // Only followed when the opener is gone, so whatever it opens is being
-        // opened blind. A checklist route is validated same-origin before it gets
-        // here, but severing the handle costs nothing and does not depend on that
-        // validation staying where it is.
-        go.rel = "noopener noreferrer";
-        go.onclick = function (event) {
-          var live = openerWindow();
-          if (!live) return;
-          event.preventDefault();
-          try {
-            live.location.href = step.route;
-            live.focus();
-          } catch (e) {
-            // Opener now cross-origin: let the link do what it says instead.
-            window.open(go.href, "_blank", "noopener,noreferrer");
-          }
-        };
-      }
-      detail.appendChild(go);
-    }
     if (step.expect) {
       // Labelled and set apart rather than run into the instruction as
       // "Expected: …": the reviewer performs one of these and checks the other,
@@ -2030,7 +2051,7 @@
     return null;
   }
 
-  function scrollCurrentIntoView(focusWasInside) {
+  function scrollCurrentIntoView(focusWasInside, clearPreamble) {
     if (!ui) return;
     var row = ui.rows[state.current];
     if (!row) return;
@@ -2044,14 +2065,20 @@
     // its instruction underneath the heading, where it cannot be read.
     var pinned = row.row.parentNode.querySelector(".secrow");
     var reserve = (pinned && !pinned.hidden ? pinned.offsetHeight : 0) + 8;
+    // On first open, show either the overview or the task, never the accidental
+    // half-overview caused by fitting the task around a sticky section heading.
+    var preambleBottom =
+      clearPreamble && ui.intro && !ui.intro.hidden
+        ? ui.intro.offsetTop + ui.intro.offsetHeight
+        : 0;
     if (top - reserve < body.scrollTop)
-      body.scrollTop = Math.max(0, top - reserve);
+      body.scrollTop = Math.max(preambleBottom, top - reserve);
     else if (bottom > body.scrollTop + body.clientHeight) {
       // Bring the end of the step into view, but never far enough to push its
       // instruction off the top: a step read from the middle is worse than one
       // whose note field needs a nudge.
       body.scrollTop = Math.max(
-        0,
+        preambleBottom,
         Math.min(bottom - body.clientHeight + 8, top - reserve),
       );
     }
@@ -2155,8 +2182,6 @@
     // are working a step. In the compact panel it stands down once it has done
     // its job; expanded, it is all on show.
     ui.who.hidden = Boolean(identity && identity.signedIn);
-    ui.filters.hidden = !prefs.expanded && counts.done === 0;
-
     var shown = {};
     allSteps().forEach(function (step) {
       shown[step.key] = matchesFilter(state.steps[step.key] || {});
@@ -2171,6 +2196,7 @@
       if (firstShown) current = firstShown.key;
     }
     state.current = current;
+    syncStoryContext();
 
     Object.keys(ui.rows).forEach(function (key) {
       var row = ui.rows[key];
@@ -2180,8 +2206,6 @@
       row.row.classList.toggle("answered", Boolean(saved.mark && !saved.stale));
       row.row.classList.toggle("failed", saved.mark === "fail" && !saved.stale);
       row.row.setAttribute("data-state", stateOf(saved));
-      row.chip.textContent = chipText(row.step, saved);
-      row.chip.hidden = !row.chip.textContent;
       // The number carries the state visually; this is the same fact for anyone
       // who cannot see the colour.
       row.summary.setAttribute(
@@ -2278,17 +2302,6 @@
     }
     return "todo";
   }
-  // Nothing is written for the state every unanswered step is in: "To do"
-  // repeated nine times down a list is noise the eye has to read past to find
-  // the two rows that actually say something.
-  function chipText(step, saved) {
-    var state = stateOf(saved);
-    if (state === "stale") return "Review again";
-    if (state === "pass") return "Pass";
-    if (state === "fail") return "Fail";
-    if (state === "na") return "N/A";
-    return isRequired(step) ? "" : "Optional";
-  }
   function stateWord(saved) {
     var state = stateOf(saved);
     if (state === "stale") return "needs another look";
@@ -2306,17 +2319,6 @@
     return (
       "Reviewing " + (branch || "unknown branch") + (sha ? " @ " + sha : "")
     );
-  }
-
-  // A raw path is not a label. Show the reviewer where they are going and keep
-  // the exact target in the link's title.
-  function readableRoute(path) {
-    var clean = String(path)
-      .split("?")[0]
-      .replace(/^\/+|\/+$/g, "");
-    if (!clean) return "the home page";
-    var last = clean.split("/").pop();
-    return last.replace(/[-_]+/g, " ").toLowerCase();
   }
 
   function progress() {
@@ -2765,7 +2767,7 @@
       ".panel{box-sizing:border-box;width:min(560px,calc(100vw - 32px));max-height:min(620px,calc(100vh - 120px));display:flex;flex-direction:column;background:#fff;border:1px solid var(--border);border-radius:8px;box-shadow:0 10px 40px rgba(0,0,0,.28);overflow:hidden;}",
       // Only the checklist scrolls. Without this the fixed rows shrink to absorb
       // a long checklist and clip their own text.
-      ".head,.statusbox,.whoami,.signin,.stories,.who,.filters,.fb,.foot{flex:none;}",
+      ".head,.statusbox,.whoami,.signin,.stories,.who,.fb,.foot{flex:none;}",
       ".panel.expanded{width:min(840px,92vw);max-height:min(760px,calc(100vh - 120px));}",
       ".stories{display:block;padding:var(--sp3) var(--sp4);border-bottom:1px solid var(--border);background:#fff;}",
       ".storyscope{font-size:var(--label);font-weight:600;color:var(--text2);margin-bottom:var(--sp2);}",
@@ -2779,17 +2781,11 @@
       ".storyoption:hover{background:var(--layer);}.storyoption.selected{background:var(--blue-bg);box-shadow:inset 3px 0 var(--blue);}.storycheck{display:flex;align-items:center;justify-content:center;width:20px;height:20px;border:1.5px solid var(--border-strong);border-radius:50%;color:#fff;font-size:var(--label);font-weight:600;}.storyoption.complete .storycheck{background:#24a148;border-color:#24a148;}.storyoptiontitle{min-width:0;font-weight:600;line-height:1.3;}.storyoptionprogress{font-size:var(--label);color:var(--text2);white-space:nowrap;font-variant-numeric:tabular-nums;}",
       ".storyscopetoggle{width:100%;min-height:40px;border:0;background:#fff;color:var(--blue-dark);font:inherit;font-size:var(--label);font-weight:600;text-align:left;padding:8px 10px;cursor:pointer;}.storyscopetoggle:hover{background:var(--blue-bg);}.storyscopetoggle[hidden]{display:none;}",
       ".who label{font-size:var(--label);color:var(--text2);white-space:nowrap;}",
-      ".filters{display:flex;gap:var(--sp2);padding:var(--sp3) var(--sp4) 0;}",
-      ".filter{flex:1;border:1px solid var(--border-strong);background:#fff;border-radius:4px;padding:4px 0;font:inherit;color:var(--text2);cursor:pointer;min-height:24px;}",
-      ".filter.on{background:var(--blue-bg);border-color:var(--blue);color:var(--blue-dark);font-weight:600;}",
       // Pinned to the top of the scroller: several steps into a section, the
       // heading that says which part of the review this is has scrolled away.
       ".secrow{position:sticky;top:0;z-index:1;background:#fff;display:block;margin:0 calc(var(--sp4) * -1) var(--sp2);padding:9px var(--sp4) var(--sp2);border-bottom:1px solid var(--border);}",
       ".secrow[hidden]{display:none;}",
       ".secline{display:flex;align-items:baseline;justify-content:space-between;gap:var(--sp3);}",
-      ".storymeta{display:flex;flex-wrap:wrap;align-items:baseline;gap:var(--sp2);padding-top:var(--sp2);}",
-      ".storylink{font-size:var(--label);font-weight:600;color:var(--blue-dark);text-decoration:none;background:var(--blue-bg);border:1px solid var(--blue-soft);border-radius:999px;padding:1px 8px;}",
-      ".storylink:hover{background:#d0e2ff;}",
       ".storydescription{margin:var(--sp3) 0 var(--sp4);padding:10px var(--sp4);background:var(--layer);border-left:3px solid var(--blue);}",
       ".storydescriptionlabel{font-size:var(--label);font-weight:600;color:var(--blue-dark);margin-bottom:var(--sp2);}",
       ".userstory{margin:0;font-size:var(--body);line-height:1.5;color:var(--text);font-style:normal;white-space:pre-line;}",
@@ -2812,15 +2808,12 @@
       // gets going. Clamped above it, the end of the preamble was somewhere the
       // reviewer had no way to reach at all.
       ".intro{margin:0 calc(var(--sp4) * -1) var(--sp3);padding:var(--sp3) var(--sp4);border-bottom:1px solid var(--border);color:var(--text2);}",
-      ".intro[hidden],.who[hidden],.filters[hidden]{display:none;}",
+      ".intro[hidden],.who[hidden]{display:none;}",
       // Expanded gains width, so spend it: the expected result reads down the
       // left while the answer sits on the right, which roughly halves how tall
       // each step is and puts more of the checklist on screen at once.
       ".panel.expanded .detail{display:grid;grid-template-columns:1fr 280px;gap:var(--sp2) var(--sp5);align-items:start;}",
-      ".panel.expanded .detail .expect,.panel.expanded .detail .go,.panel.expanded .detail .optional{grid-column:1;margin:0;}",
-      // A grid item fills its track by default, which stretched a route pill the
-      // width of the column and made it read as a banner rather than a link.
-      ".panel.expanded .detail .go{justify-self:start;}",
+      ".panel.expanded .detail .expect,.panel.expanded .detail .optional{grid-column:1;margin:0;}",
       ".panel.expanded .detail .marks{grid-column:2;grid-row:1;}",
       ".panel.expanded .detail .stepnote{grid-column:2;grid-row:2;margin-top:0;}",
       ".who{padding:var(--sp3) var(--sp4);border-bottom:1px solid var(--border);display:flex;flex-wrap:wrap;align-items:center;gap:var(--sp3);}",
@@ -2843,11 +2836,6 @@
       ".panel:not(.expanded) .step:not(.current) .steplabel{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;}",
       ".step.current .steplabel{font-weight:600;}",
       ".step.answered .steplabel{color:var(--text2);}",
-      ".chip{flex:none;font-size:var(--label);font-weight:600;border-radius:4px;padding:2px 6px;margin-top:2px;background:var(--layer);color:var(--text2);}",
-      ".chip[hidden]{display:none;}",
-      ".chip.pass{background:#defbe6;color:#0e6027;}",
-      ".chip.fail{background:#fff1f1;color:#a2191f;}",
-      ".chip.stale{background:#fcf4d6;color:#684e00;}",
       ".detail:empty{display:none;}",
       // Flush in the compact panel, where the indent costs a line of wrapping in a
       // narrow column; aligned under the instruction once there is width for the
@@ -2862,8 +2850,6 @@
       ".expectlabel{flex:none;font-size:var(--label);font-weight:600;text-transform:uppercase;letter-spacing:.02em;color:var(--blue-dark);}",
       ".expecttext{color:var(--text);}",
       ".optional{font-size:var(--label);color:var(--text3);margin-bottom:var(--sp2);}",
-      ".go{display:inline-flex;align-items:center;box-sizing:border-box;min-height:24px;font-weight:600;color:var(--blue-dark);text-decoration:none;background:var(--blue-bg);border:1px solid var(--blue-soft);border-radius:999px;padding:2px 10px;}",
-      ".go:hover{background:#d0e2ff;}",
       ".marks{display:flex;gap:var(--sp2);}",
       ".mark{flex:1;border:1px solid var(--border-strong);background:#fff;border-radius:4px;padding:4px 0;font:inherit;font-weight:600;cursor:pointer;color:var(--text2);min-height:24px;}",
       ".mark.pass.on{background:#defbe6;border-color:#24a148;color:#0e6027;}",
@@ -2880,9 +2866,20 @@
       ".note{display:grid;grid-template-columns:1fr auto auto;gap:6px;align-items:start;background:var(--layer);border:1px solid var(--border);border-radius:4px;padding:6px var(--sp3);}",
       ".note .icon{color:var(--text2);}",
       ".notemeta{font-size:var(--label);color:var(--text3);font-variant-numeric:tabular-nums;white-space:nowrap;}",
-      ".foot{display:flex;gap:var(--sp2);padding:10px var(--sp4);border-top:1px solid var(--border);background:#fff;}",
+      ".foot{display:flex;justify-content:flex-end;gap:var(--sp2);padding:10px var(--sp4);border-top:1px solid var(--border);background:#fff;}",
       ".primary{flex:1;background:var(--blue);color:#fff;border:none;border-radius:4px;padding:6px 0;font:inherit;font-weight:600;cursor:pointer;min-height:24px;}.primary:hover{background:#0353e9;}",
       ".ghost{background:#fff;color:var(--text2);border:1px solid var(--border-strong);border-radius:4px;padding:6px var(--sp4);font:inherit;cursor:pointer;min-height:24px;}",
+      ".more{position:relative;display:flex;}.moretoggle{color:var(--text2);border:1px solid var(--border-strong);background:#fff;min-width:36px;font-weight:700;letter-spacing:1px;}.moretoggle:hover{background:var(--layer);}",
+      ".moremenu{position:absolute;z-index:2;right:0;bottom:calc(100% + var(--sp2));width:220px;box-sizing:border-box;padding:var(--sp2);background:#fff;border:1px solid var(--border-strong);border-radius:4px;box-shadow:0 4px 16px rgba(0,0,0,.2);}",
+      ".moremenu[hidden],.storycontext[hidden]{display:none;}",
+      ".morelabel{padding:4px var(--sp3);font-size:var(--label);font-weight:600;color:var(--text2);}",
+      ".moregroup{display:flex;flex-direction:column;gap:2px;}",
+      ".moreitem{display:block;width:100%;box-sizing:border-box;border:none;border-radius:2px;padding:6px var(--sp3);background:#fff;color:var(--text);font:inherit;text-align:left;text-decoration:none;cursor:pointer;}.moreitem:hover,.moreitem:focus-visible{background:var(--blue-bg);color:var(--blue-dark);}",
+      ".moreitem.filter.on{background:var(--blue-bg);color:var(--blue-dark);font-weight:600;}",
+      ".moredivider{height:1px;margin:var(--sp2) 0;background:var(--border);}",
+      ".moreitem.danger{color:#a2191f;}.moreitem.danger:hover,.moreitem.danger:focus-visible{background:#fff1f1;color:#a2191f;}",
+      ".storydescription{padding:2px var(--sp3) var(--sp2);font-size:var(--label);color:var(--text2);}",
+      ".storysource{color:var(--blue-dark);}",
       // The bottom sheet is for an overlay on a narrow screen. A popped-out window
       // is narrow too but is not over anything, and this rule matches it selector
       // for selector, so without the exclusion source order rather than

@@ -10,12 +10,14 @@ async function openPanel(page) {
   return widget;
 }
 
-test("shows what a story came from, beside the story", async ({ page }) => {
+test("keeps story sources in the secondary action menu", async ({ page }) => {
   const widget = await openPanel(page);
-  const links = widget.locator(".secrow").first().locator(".storylink");
+  await expect(widget.locator(".secrow .storylink")).toHaveCount(0);
+  await widget.getByRole("button", { name: "More review actions" }).click();
+  const links = widget.locator(".storycontext .storysource");
 
-  // A reviewer who can see the ticket, the change and the design can tell whether
-  // what is on screen is what was asked for — which is the whole job.
+  // Sources are still available, but do not compete with the task a reviewer is
+  // actively performing.
   await expect(links.filter({ hasText: "OGC-1054" })).toHaveAttribute(
     "href",
     /OGC-1054/,
@@ -55,13 +57,29 @@ test("formats the user story as a prominent readable description", async ({
   expect(style.fontSize).toBeGreaterThanOrEqual(16);
   expect(style.lineHeight).toBeGreaterThanOrEqual(24);
   expect(style.fontStyle).toBe("normal");
+  await expect(widget.locator(".secrow .storydescription")).toHaveCount(0);
 });
 
-test("says nothing where a story has nothing to point at", async ({ page }) => {
+test("hides empty secondary story context", async ({ page }) => {
+  await page.route("**/tests/widget/uat.json", (route) =>
+    route.fulfill({
+      json: {
+        schemaVersion: 2,
+        checklistRevision: "no-story-sources",
+        title: "Source-free review",
+        instance: "analyzers",
+        sections: [
+          {
+            title: "A source-free story",
+            steps: [{ key: "AN-QC-777", required: true, do: "Inspect the page" }],
+          },
+        ],
+      },
+    }),
+  );
   const widget = await openPanel(page);
-  // The second story in the fixture carries no links at all.
-  const bare = widget.locator(".secrow").nth(1);
-  await expect(bare.locator(".storylink")).toHaveCount(0);
+  await widget.getByRole("button", { name: "More review actions" }).click();
+  await expect(widget.locator(".storycontext")).toBeHidden();
 });
 
 test("hides a story that belongs to a different deployment", async ({
@@ -112,7 +130,8 @@ test("does not send a malformed pr or mock to the issue tracker", async ({
   );
 
   const widget = await openPanel(page);
-  const links = widget.locator(".secrow").first().locator(".storylink");
+  await widget.getByRole("button", { name: "More review actions" }).click();
+  const links = widget.locator(".storycontext .storysource");
 
   // A bare Jira key is the common case and worth resolving. A bare pr or mock is
   // not a Jira key — pointing it at the tracker sends the reviewer somewhere
