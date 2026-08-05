@@ -9,8 +9,19 @@
   // steps; the deployment identity and the reviewer's layout preferences stay
   // keyed to the deployment, because those are not per-story facts.
   var activeStory = INSTANCE;
+  // The story browser starts with the page-specific subset whenever there is one.
+  // Showing everything is an explicit reviewer choice and resets after navigation,
+  // so a worklist does not inherit a 16-story menu opened on the login page.
+  var showAllStories = false;
+  var storyMenuOpen = false;
+  var focusStoryTrigger = false;
+  var explicitStoryPath = null;
+  var revealStoryOverview = false;
+  function storePrefixFor(story) {
+    return "oe-review:v2:" + story + ":";
+  }
   function storePrefix() {
-    return "oe-review:v2:" + activeStory + ":";
+    return storePrefixFor(activeStory);
   }
   var STORE_KEY = null;
   var BUILD_SRC =
@@ -362,7 +373,7 @@
       /* quota / private mode — report download still works from memory */
     }
   }
-  function clearInstanceState() {
+  function clearStoryState() {
     try {
       var keys = [];
       for (var i = 0; i < localStorage.length; i++) {
@@ -869,6 +880,13 @@
     var deployment = identityOf(target);
     if (deployment) rememberIdentity(deployment);
     state = loadContext(target, next);
+    revealStoryOverview =
+      !state.current &&
+      next.sections.some(function (section) {
+        return Boolean(
+          String((section.links && section.links.userStory) || "").trim(),
+        );
+      });
     adoptIdentity();
     // Honour the persisted panel state on first load; only preserve the in-session
     // value once the reviewer has actually opened or closed it, so a background
@@ -997,11 +1015,21 @@
   }
   function chooseInitialStory() {
     if (!catalog || Number(catalog.schemaVersion) < 2) return;
-    if (selectedStory()) return;
     var available = stories();
     if (!available.length) return;
-    var here = available.find(coversHere);
-    activeStory = storyId(here || available[0]);
+    var here = available.filter(coversHere);
+    var selected = selectedStory();
+    // A remembered choice remains useful when it still belongs to this page, or
+    // when this page has no authored story routes. Otherwise route context is the
+    // better default than stale preference state from somewhere else in the app.
+    if (
+      selected &&
+      (explicitStoryPath === location.pathname ||
+        !here.length ||
+        coversHere(selected))
+    )
+      return;
+    activeStory = storyId(here[0] || available[0]);
     prefs.story = activeStory;
     savePrefs();
   }
@@ -1015,6 +1043,9 @@
   }
   function selectStory(story) {
     if (story === activeStory) return;
+    storyMenuOpen = false;
+    focusStoryTrigger = true;
+    explicitStoryPath = location.pathname;
     activeStory = story;
     prefs.story = story;
     savePrefs();
@@ -1037,7 +1068,20 @@
       // already changed the path the story grouping is derived from.
       if (ui && location.pathname !== lastPath) {
         lastPath = location.pathname;
-        syncPanel();
+        showAllStories = false;
+        explicitStoryPath = null;
+        var here = stories().filter(coversHere);
+        var selected = selectedStory();
+        if (
+          catalog &&
+          Number(catalog.schemaVersion) >= 2 &&
+          here.length &&
+          (!selected || !coversHere(selected))
+        ) {
+          selectStory(storyId(here[0]));
+        } else {
+          syncPanel();
+        }
       }
       applyAnchor();
     });
@@ -1171,10 +1215,23 @@
       built = true;
     }
     syncPanel();
+    var restoreStoryFocus = focusStoryTrigger && ui.storyTrigger;
+    focusStoryTrigger = false;
     applyAnchor();
     // Only on a fresh panel: a background refresh must not yank the checklist away
     // from wherever the reviewer has scrolled it.
-    if (built) scrollCurrentIntoView();
+    if (built) {
+      if (revealStoryOverview) {
+        ui.body.scrollTop = 0;
+        revealStoryOverview = false;
+      } else {
+        scrollCurrentIntoView();
+      }
+    }
+    // Scrolling an in-progress story may carry focus to its first answer control.
+    // A reviewer who just chose a story instead belongs back on the control that
+    // performed that navigation, so this handoff intentionally happens last.
+    if (restoreStoryFocus) ui.storyTrigger.focus();
   }
 
   function exposeTestHooks() {
@@ -1253,6 +1310,13 @@
       // own dialogs, and a document-level handler here would close them.
       if (event.key === "Escape") {
         event.stopPropagation();
+        if (storyMenuOpen && parts.storyTrigger) {
+          event.preventDefault();
+          storyMenuOpen = false;
+          syncStories();
+          parts.storyTrigger.focus();
+          return;
+        }
         minimize();
       }
     });
@@ -1327,16 +1391,29 @@
     var label = el("label", "");
     label.textContent = "Your name";
     label.setAttribute("for", "oe-review-name");
+    var required = el("span", "required");
+    required.textContent = " (required)";
+    label.appendChild(required);
     parts.reviewer = document.createElement("input");
     parts.reviewer.type = "text";
     parts.reviewer.id = "oe-review-name";
+    parts.reviewer.required = true;
+    parts.reviewer.setAttribute("aria-required", "true");
+    parts.reviewer.setAttribute("aria-describedby", "oe-review-name-error");
     parts.reviewer.placeholder = "so we know whose feedback this is";
     parts.reviewer.oninput = function () {
       state.reviewer = parts.reviewer.value;
+      clearReviewerError();
       save();
     };
     who.appendChild(label);
     who.appendChild(parts.reviewer);
+    parts.nameError = el("div", "nameerror");
+    parts.nameError.id = "oe-review-name-error";
+    parts.nameError.setAttribute("role", "alert");
+    parts.nameError.textContent = "Enter your name before sharing this review.";
+    parts.nameError.hidden = true;
+    who.appendChild(parts.nameError);
     parts.who = who;
     panel.appendChild(who);
 
@@ -1363,9 +1440,11 @@
       // Where the story came from. A reviewer who can reach the ticket, the change
       // and the design can tell whether what is on screen is what was asked for,
       // which is the difference between checking a box and reviewing something.
-      var meta = storyMeta(section);
-      if (meta) row.appendChild(meta);
+      var links = storyLinks(section);
+      if (links) row.appendChild(links);
       block.appendChild(row);
+      var description = storyDescription(section);
+      if (description) block.appendChild(description);
       var keys = [];
       (section.steps || []).forEach(function (step) {
         var stepRow = buildRow(step, ++position);
@@ -1384,8 +1463,8 @@
     var reset = el("button", "ghost");
     reset.textContent = "Reset";
     reset.onclick = function () {
-      if (confirm("Clear all checklist answers and notes for this instance?")) {
-        clearInstanceState();
+      if (confirm("Clear all checklist answers and notes for this story?")) {
+        clearStoryState();
         state = fresh();
         state.minimized = false;
         save();
@@ -1422,60 +1501,221 @@
     render();
   }
 
-  // Native optgroups rather than a badge on each option: a reviewer on the
-  // worklist wants the stories about the worklist, and grouping says that once
-  // instead of ten times.
+  // A persistent disclosure rather than a native select. Native menus are clipped
+  // inconsistently inside an injected overlay, hide progress, and hand Escape to
+  // the panel (which minimizes it). This stays in the panel's layout and presents
+  // the relevant stories as the checklist they actually are.
   function buildStories(parts) {
     var box = el("div", "stories");
-    var label = el("label", "");
-    label.textContent = "Story";
-    label.setAttribute("for", "oe-review-story");
-    var select = document.createElement("select");
-    select.id = "oe-review-story";
-    select.onchange = function () {
-      selectStory(select.value);
+    parts.storyScope = el("div", "storyscope");
+    box.appendChild(parts.storyScope);
+
+    parts.storyTrigger = el("button", "storytrigger");
+    parts.storyTrigger.type = "button";
+    parts.storyTrigger.setAttribute("aria-label", "Choose story");
+    parts.storyTrigger.setAttribute("aria-haspopup", "listbox");
+    parts.storyTrigger.setAttribute("aria-controls", "oe-review-story-list");
+    parts.storyTriggerTitle = el("span", "storytriggertitle");
+    parts.storyTriggerProgress = el("span", "storytriggerprogress");
+    var chevron = el("span", "storychevron");
+    chevron.textContent = "⌄";
+    chevron.setAttribute("aria-hidden", "true");
+    parts.storyTrigger.appendChild(parts.storyTriggerTitle);
+    parts.storyTrigger.appendChild(parts.storyTriggerProgress);
+    parts.storyTrigger.appendChild(chevron);
+    parts.storyTrigger.onclick = function () {
+      storyMenuOpen = !storyMenuOpen;
+      syncStories();
     };
-    box.appendChild(label);
-    box.appendChild(select);
-    parts.storySelect = select;
+    box.appendChild(parts.storyTrigger);
+
+    parts.storyMenu = el("div", "storymenu");
+    parts.storyMenu.onkeydown = function (event) {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      event.stopPropagation();
+      storyMenuOpen = false;
+      syncStories();
+      parts.storyTrigger.focus();
+    };
+    var menuHead = el("div", "storymenuhead");
+    parts.storyMenuTitle = el("strong", "storymenutitle");
+    parts.storyMenuCount = el("span", "storymenucount");
+    menuHead.appendChild(parts.storyMenuTitle);
+    menuHead.appendChild(parts.storyMenuCount);
+    parts.storyMenu.appendChild(menuHead);
+    parts.storyNotice = el("div", "storynotice");
+    parts.storyMenu.appendChild(parts.storyNotice);
+    parts.storyList = el("div", "storylist");
+    parts.storyList.id = "oe-review-story-list";
+    parts.storyList.setAttribute("role", "listbox");
+    parts.storyMenu.appendChild(parts.storyList);
+    parts.storyScopeToggle = el("button", "storyscopetoggle");
+    parts.storyScopeToggle.type = "button";
+    parts.storyScopeToggle.onclick = function () {
+      showAllStories = !showAllStories;
+      syncStories();
+      var first = parts.storyList.querySelector('[role="option"]');
+      if (first) first.focus();
+    };
+    parts.storyMenu.appendChild(parts.storyScopeToggle);
+    box.appendChild(parts.storyMenu);
+
     parts.storyGrouping = null;
     return box;
   }
 
+  function storiesForPage() {
+    return stories().filter(coversHere);
+  }
+
+  function storedStoryProgress(story) {
+    var id = storyId(story);
+    if (id === activeStory) return progress();
+    var identityKey = encodeURIComponent(deploymentIdentity(build));
+    var prefix = storePrefixFor(id) + identityKey + ":";
+    var latest = null;
+    try {
+      for (var i = 0; i < localStorage.length; i++) {
+        var key = localStorage.key(i);
+        if (!key || !key.startsWith(prefix)) continue;
+        var candidate = loadStored(key);
+        if (
+          candidate &&
+          (!latest || (candidate.updatedAt || "") > (latest.updatedAt || ""))
+        ) {
+          latest = candidate;
+        }
+      }
+    } catch (e) {
+      latest = null;
+    }
+    var total = Number(story.steps) || 0;
+    var done = latest
+      ? Object.keys(latest.steps || {}).filter(function (key) {
+          var answer = latest.steps[key] || {};
+          return Boolean(answer.mark && !answer.stale);
+        }).length
+      : 0;
+    return { done: Math.min(done, total), total: total };
+  }
+
+  function focusAdjacentStory(option, direction) {
+    var options = Array.prototype.slice.call(
+      ui.storyList.querySelectorAll('[role="option"]'),
+    );
+    var at = options.indexOf(option);
+    if (!options.length || at === -1) return;
+    options[(at + direction + options.length) % options.length].focus();
+  }
+
+  function buildStoryOption(story) {
+    var counts = storedStoryProgress(story);
+    var option = el("button", "storyoption");
+    option.type = "button";
+    option.setAttribute("role", "option");
+    option.setAttribute("data-story-id", storyId(story));
+    option.setAttribute(
+      "aria-selected",
+      String(storyId(story) === activeStory),
+    );
+    option.setAttribute(
+      "aria-label",
+      story.title + ", " + counts.done + " of " + counts.total + " complete",
+    );
+    option.classList.toggle("selected", storyId(story) === activeStory);
+    option.classList.toggle(
+      "complete",
+      counts.total > 0 && counts.done === counts.total,
+    );
+    var status = el("span", "storycheck");
+    status.textContent =
+      counts.total > 0 && counts.done === counts.total ? "✓" : "";
+    status.setAttribute("aria-hidden", "true");
+    var title = el("span", "storyoptiontitle");
+    title.textContent = story.title;
+    var count = el("span", "storyoptionprogress");
+    count.textContent = counts.done + " of " + counts.total + " complete";
+    option.appendChild(status);
+    option.appendChild(title);
+    option.appendChild(count);
+    option.onclick = function () {
+      selectStory(storyId(story));
+    };
+    option.onkeydown = function (event) {
+      if (event.key === "ArrowDown") {
+        event.preventDefault();
+        focusAdjacentStory(option, 1);
+      } else if (event.key === "ArrowUp") {
+        event.preventDefault();
+        focusAdjacentStory(option, -1);
+      } else if (event.key === "Home") {
+        event.preventDefault();
+        var first = ui.storyList.querySelector('[role="option"]');
+        if (first) first.focus();
+      } else if (event.key === "End") {
+        event.preventDefault();
+        var options = ui.storyList.querySelectorAll('[role="option"]');
+        if (options.length) options[options.length - 1].focus();
+      }
+    };
+    return option;
+  }
+
   // Which stories are about this page changes as the reviewer moves through the
   // application, and a single-page app changes the path without ever reloading.
-  // Rebuilt only when the grouping actually differs, so the picker does not lose
-  // an open dropdown to a repaint.
+  // The disclosure stays mounted while its contents update, so neither refresh nor
+  // route changes make the control vanish from under the reviewer.
   function syncStories() {
-    if (!ui || !ui.storySelect) return;
-    var here = stories().filter(coversHere);
-    var elsewhere = stories().filter(function (story) {
-      return !coversHere(story);
-    });
-    var grouping = here
+    if (!ui || !ui.storyTrigger) return;
+    var available = stories();
+    var here = storiesForPage();
+    var pageScoped = here.length > 0 && !showAllStories;
+    var visible = pageScoped ? here : available;
+    var scopeLabel = pageScoped ? "Stories on this page" : "All server stories";
+    var grouping = visible
       .map(function (story) {
-        return storyId(story);
+        var counts = storedStoryProgress(story);
+        return storyId(story) + ":" + counts.done + "/" + counts.total;
       })
       .join(",");
-    if (ui.storyGrouping === grouping) return;
-    ui.storyGrouping = grouping;
-    ui.storySelect.innerHTML = "";
-    [
-      ["On this page", here],
-      ["Other stories", elsewhere],
-    ].forEach(function (group) {
-      if (!group[1].length) return;
-      var optgroup = document.createElement("optgroup");
-      optgroup.label = group[0];
-      group[1].forEach(function (story) {
-        var option = document.createElement("option");
-        option.value = storyId(story);
-        option.textContent =
-          story.title + (story.steps ? " (" + story.steps + ")" : "");
-        optgroup.appendChild(option);
+    var selected = selectedStory();
+    var selectedCounts = selected
+      ? storedStoryProgress(selected)
+      : { done: 0, total: 0 };
+    ui.storyScope.textContent = scopeLabel;
+    ui.storyTriggerTitle.textContent = selected
+      ? selected.title
+      : "Choose a story";
+    ui.storyTriggerProgress.textContent =
+      selectedCounts.done + "/" + selectedCounts.total;
+    ui.storyTrigger.setAttribute("aria-expanded", String(storyMenuOpen));
+    ui.storyMenu.hidden = !storyMenuOpen;
+    ui.storyMenuTitle.textContent = scopeLabel;
+    ui.storyMenuCount.textContent =
+      visible.length + " " + (visible.length === 1 ? "story" : "stories");
+    ui.storyList.setAttribute("aria-label", scopeLabel);
+    ui.storyNotice.textContent = here.length
+      ? ""
+      : "No stories target this page. Showing all server stories.";
+    ui.storyNotice.hidden = Boolean(here.length);
+    var canChangeScope = here.length > 0 && here.length < available.length;
+    ui.storyScopeToggle.hidden = !canChangeScope;
+    ui.storyScopeToggle.textContent = showAllStories
+      ? "Show " +
+        here.length +
+        " " +
+        (here.length === 1 ? "story" : "stories") +
+        " on this page"
+      : "Show all " + available.length + " server stories";
+
+    if (ui.storyGrouping !== grouping) {
+      ui.storyGrouping = grouping;
+      ui.storyList.innerHTML = "";
+      visible.forEach(function (story) {
+        ui.storyList.appendChild(buildStoryOption(story));
       });
-      ui.storySelect.appendChild(optgroup);
-    });
+    }
   }
 
   function buildFilters(parts) {
@@ -1567,7 +1807,7 @@
     ],
   ];
   var JIRA_BASE = "https://uwdigi.atlassian.net/browse/";
-  function storyMeta(section) {
+  function storyLinks(section) {
     var links = section.links;
     if (!links) return null;
     var meta = el("div", "storymeta");
@@ -1584,13 +1824,20 @@
       a.title = value;
       meta.appendChild(a);
     });
-    var story = String(links.userStory || "").trim();
-    if (story) {
-      var text = el("div", "userstory");
-      text.textContent = story;
-      meta.appendChild(text);
-    }
     return meta.childNodes.length ? meta : null;
+  }
+
+  function storyDescription(section) {
+    var story = String((section.links && section.links.userStory) || "").trim();
+    if (!story) return null;
+    var box = el("div", "storydescription");
+    var label = el("div", "storydescriptionlabel");
+    label.textContent = "Story";
+    var text = el("p", "userstory");
+    text.textContent = story;
+    box.appendChild(label);
+    box.appendChild(text);
+    return box;
   }
 
   function buildRow(step, position) {
@@ -1821,9 +2068,6 @@
       (sha ? " · " + sha : "");
     ui.progress.title = provenanceText();
     syncStories();
-    if (ui.storySelect && ui.storySelect.value !== activeStory) {
-      ui.storySelect.value = activeStory;
-    }
     ui.panel.classList.toggle("expanded", prefs.expanded);
     ui.expand.title = prefs.expanded ? "Collapse panel" : "Expand panel";
     ui.expand.setAttribute("aria-label", ui.expand.title);
@@ -1839,6 +2083,7 @@
     }
 
     var signedIn = Boolean(identity && identity.signedIn);
+    if (signedIn) clearReviewerError();
     ui.whoami.textContent = signedIn ? "Reviewing as " + identity.name : "";
     ui.whoami.hidden = !signedIn;
     // Said once the application has told us nobody is signed in — not while we
@@ -1894,9 +2139,7 @@
     // Everything below is chrome the reviewer needs occasionally, not while they
     // are working a step. In the compact panel it stands down once it has done
     // its job; expanded, it is all on show.
-    ui.who.hidden =
-      Boolean(identity && identity.signedIn) ||
-      (!prefs.expanded && Boolean(state.reviewer));
+    ui.who.hidden = Boolean(identity && identity.signedIn);
     ui.filters.hidden = !prefs.expanded && counts.done === 0;
 
     var shown = {};
@@ -2069,8 +2312,37 @@
     };
   }
 
+  function reviewerNamed() {
+    return Boolean(String(state.reviewer || "").trim());
+  }
+
+  function clearReviewerError() {
+    if (!ui || !ui.reviewer || !ui.nameError) return;
+    ui.reviewer.setAttribute("aria-invalid", "false");
+    ui.nameError.hidden = true;
+  }
+
+  // A signed-in application identity has already supplied the name. Everywhere
+  // else, require the reviewer to name the report before it leaves the browser;
+  // answering steps is still allowed so signing in or typing later loses nothing.
+  function requireReviewerName() {
+    adoptIdentity();
+    if (reviewerNamed()) {
+      clearReviewerError();
+      return true;
+    }
+    if (ui && ui.reviewer && ui.nameError) {
+      ui.who.hidden = false;
+      ui.reviewer.setAttribute("aria-invalid", "true");
+      ui.nameError.hidden = false;
+      ui.reviewer.focus();
+    }
+    return false;
+  }
+
   // ---- report ---------------------------------------------------------------
   function downloadReport() {
+    if (!requireReviewerName()) return;
     var report = buildReport();
     var stamp = nowISO().replace(/[:.]/g, "-");
     // One file, not two: a second programmatic download from the same click asks
@@ -2084,6 +2356,7 @@
   }
 
   function copyReport(button) {
+    if (!requireReviewerName()) return;
     // Built synchronously: Safari drops transient activation across an await, so
     // anything asynchronous before this call makes the copy fail.
     var text = buildReport().md;
@@ -2152,6 +2425,7 @@
   function submitReview() {
     var answers = answersToSubmit();
     if (!answers.length) return;
+    if (!requireReviewerName()) return;
     submitting = true;
     submitStatus = "";
     syncPanel();
@@ -2478,9 +2752,18 @@
       // a long checklist and clip their own text.
       ".head,.statusbox,.whoami,.signin,.stories,.who,.filters,.fb,.foot{flex:none;}",
       ".panel.expanded{width:min(840px,92vw);max-height:min(760px,calc(100vh - 120px));}",
-      ".stories{display:flex;align-items:center;gap:var(--sp3);padding:var(--sp3) var(--sp4);border-bottom:1px solid var(--border);}",
-      ".stories label,.who label{font-size:var(--label);color:var(--text2);white-space:nowrap;}",
-      ".stories select{flex:1;min-width:0;border:1px solid var(--border-strong);border-radius:4px;padding:4px 6px;font:inherit;color:inherit;background:#fff;min-height:24px;}",
+      ".stories{display:block;padding:var(--sp3) var(--sp4);border-bottom:1px solid var(--border);background:#fff;}",
+      ".storyscope{font-size:var(--label);font-weight:600;color:var(--text2);margin-bottom:var(--sp2);}",
+      ".storytrigger{display:grid;grid-template-columns:minmax(0,1fr) auto 18px;align-items:center;gap:var(--sp3);width:100%;min-height:44px;border:1px solid var(--border-strong);border-radius:4px;padding:7px 10px;background:#fff;color:var(--text);font:inherit;text-align:left;cursor:pointer;}",
+      ".storytrigger:hover{background:var(--layer);}.storytriggertitle{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600;}.storytriggerprogress{font-size:var(--label);color:var(--text2);font-variant-numeric:tabular-nums;}.storychevron{font-size:18px;line-height:1;color:var(--text2);transform-origin:center;}.storytrigger[aria-expanded=true] .storychevron{transform:rotate(180deg);}",
+      ".storymenu{margin-top:var(--sp3);border:1px solid var(--border);background:#fff;box-shadow:0 4px 12px rgba(0,0,0,.12);}",
+      ".storymenu[hidden]{display:none;}.storymenuhead{display:flex;justify-content:space-between;gap:var(--sp3);padding:9px 10px;border-bottom:1px solid var(--border);}.storymenutitle{font-size:var(--label);}.storymenucount{font-size:var(--label);color:var(--text3);font-variant-numeric:tabular-nums;}",
+      ".storynotice{padding:8px 10px;background:#fcf4d6;color:#684e00;font-size:var(--label);border-bottom:1px solid #f1c21b;}.storynotice[hidden]{display:none;}",
+      ".storylist{max-height:min(248px,34vh);overflow-y:auto;overscroll-behavior:contain;}",
+      ".storyoption{display:grid;grid-template-columns:24px minmax(0,1fr) auto;align-items:center;gap:var(--sp3);width:100%;min-height:48px;border:0;border-bottom:1px solid var(--border);padding:7px 10px;background:#fff;color:var(--text);font:inherit;text-align:left;cursor:pointer;}",
+      ".storyoption:hover{background:var(--layer);}.storyoption.selected{background:var(--blue-bg);box-shadow:inset 3px 0 var(--blue);}.storycheck{display:flex;align-items:center;justify-content:center;width:20px;height:20px;border:1.5px solid var(--border-strong);border-radius:50%;color:#fff;font-size:var(--label);font-weight:600;}.storyoption.complete .storycheck{background:#24a148;border-color:#24a148;}.storyoptiontitle{min-width:0;font-weight:600;line-height:1.3;}.storyoptionprogress{font-size:var(--label);color:var(--text2);white-space:nowrap;font-variant-numeric:tabular-nums;}",
+      ".storyscopetoggle{width:100%;min-height:40px;border:0;background:#fff;color:var(--blue-dark);font:inherit;font-size:var(--label);font-weight:600;text-align:left;padding:8px 10px;cursor:pointer;}.storyscopetoggle:hover{background:var(--blue-bg);}.storyscopetoggle[hidden]{display:none;}",
+      ".who label{font-size:var(--label);color:var(--text2);white-space:nowrap;}",
       ".filters{display:flex;gap:var(--sp2);padding:var(--sp3) var(--sp4) 0;}",
       ".filter{flex:1;border:1px solid var(--border-strong);background:#fff;border-radius:4px;padding:4px 0;font:inherit;color:var(--text2);cursor:pointer;min-height:24px;}",
       ".filter.on{background:var(--blue-bg);border-color:var(--blue);color:var(--blue-dark);font-weight:600;}",
@@ -2492,7 +2775,9 @@
       ".storymeta{display:flex;flex-wrap:wrap;align-items:baseline;gap:var(--sp2);padding-top:var(--sp2);}",
       ".storylink{font-size:var(--label);font-weight:600;color:var(--blue-dark);text-decoration:none;background:var(--blue-bg);border:1px solid var(--blue-soft);border-radius:999px;padding:1px 8px;}",
       ".storylink:hover{background:#d0e2ff;}",
-      ".userstory{flex-basis:100%;font-size:var(--label);color:var(--text2);font-style:italic;}",
+      ".storydescription{margin:var(--sp3) 0 var(--sp4);padding:10px var(--sp4);background:var(--layer);border-left:3px solid var(--blue);}",
+      ".storydescriptionlabel{font-size:var(--label);font-weight:600;color:var(--blue-dark);margin-bottom:var(--sp2);}",
+      ".userstory{margin:0;font-size:var(--body);line-height:1.5;color:var(--text);font-style:normal;white-space:pre-line;}",
       ".sec{font-size:var(--label);text-transform:uppercase;letter-spacing:.02em;color:var(--text2);font-weight:600;margin:0;}",
       ".seccount{font-size:var(--label);color:var(--text3);font-variant-numeric:tabular-nums;}",
       ".step[hidden]{display:none;}",
@@ -2523,7 +2808,8 @@
       ".panel.expanded .detail .go{justify-self:start;}",
       ".panel.expanded .detail .marks{grid-column:2;grid-row:1;}",
       ".panel.expanded .detail .stepnote{grid-column:2;grid-row:2;margin-top:0;}",
-      ".who{padding:var(--sp3) var(--sp4);border-bottom:1px solid var(--border);display:flex;align-items:center;gap:var(--sp3);}",
+      ".who{padding:var(--sp3) var(--sp4);border-bottom:1px solid var(--border);display:flex;flex-wrap:wrap;align-items:center;gap:var(--sp3);}",
+      ".who input{flex:1;min-width:180px;}.required{color:#a2191f;font-weight:600;}.nameerror{flex-basis:100%;font-size:var(--label);font-weight:600;color:#a2191f;}.nameerror[hidden]{display:none;}",
       "input[type=text],textarea{width:100%;box-sizing:border-box;border:1px solid var(--border-strong);border-radius:4px;padding:5px var(--sp3);font:inherit;color:inherit;}",
       "input:focus-visible,textarea:focus-visible,button:focus-visible,a:focus-visible{outline:2px solid var(--blue);outline-offset:1px;}",
       // Positioned so a row's offsetTop is measured against the scroller itself.

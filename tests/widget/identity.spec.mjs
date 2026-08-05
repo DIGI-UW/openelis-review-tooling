@@ -139,6 +139,33 @@ test("still works where there is no session endpoint at all", async ({
   await expect(widget.locator(".signin")).not.toBeVisible();
 });
 
+test("requires a typed reviewer name before a report can be handed off", async ({
+  page,
+}) => {
+  await session(page, null, 404);
+  const widget = await openPanel(page);
+  const name = widget.getByLabel(/Your name/);
+  await expect(name).toHaveAttribute("required", "");
+  await expect(name).toHaveAttribute("aria-required", "true");
+
+  const downloads = [];
+  page.on("download", (download) => downloads.push(download));
+  await widget.getByRole("button", { name: "Download" }).click();
+
+  await expect(widget.getByRole("alert")).toHaveText(
+    "Enter your name before sharing this review.",
+  );
+  await expect(name).toHaveAttribute("aria-invalid", "true");
+  await expect(name).toBeFocused();
+  expect(downloads).toHaveLength(0);
+
+  await name.fill("Piotr Manko");
+  await expect(widget.getByRole("alert")).toBeHidden();
+  const download = page.waitForEvent("download");
+  await widget.getByRole("button", { name: "Download" }).click();
+  await download;
+});
+
 test("carries the verified name into the report rather than a typed one", async ({
   page,
 }) => {

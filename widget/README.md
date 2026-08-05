@@ -42,6 +42,11 @@ is about submitting, not about reviewing, and their answers count either way.
 Answers are keyed by the build under review, never by who is signed in, so
 signing in half way through never orphans the work done before it.
 
+Where the application cannot supply a signed-in identity, **Your name** is
+required before the reviewer can copy, download, or submit the report. Steps can
+still be worked first; the widget focuses the missing field and keeps every answer
+in place when the reviewer tries to hand off an unnamed report.
+
 ## Handing a review in
 
 **Submit review** posts what was answered to `data-submit-src`. The service
@@ -171,11 +176,19 @@ blocks the window says so in the panel rather than doing nothing.
 
 A deployment review usually contains several independently reviewable stories.
 The schema-v2 catalog names each real story and its parent review instance. The
-widget limits the **Story** picker to the instance injected on that deployment,
+widget limits the story checklist to the instance injected on that deployment,
 then renders only the selected story from the instance's aggregate checklist.
-Stories are grouped into _On this page_ and _Other stories_ by matching their step
-routes against the current path. This keeps a milestone or project from appearing
-as one giant story while preserving one Grist source and one checklist endpoint.
+By default, the checklist offers only stories whose step routes match the current
+path. **Show all server stories** deliberately expands that set; when no story has
+a route for the page, all server stories are shown automatically and the widget
+says why. A route change resets the default, while an explicit story choice
+survives refresh on the same page.
+
+The story control is an in-panel disclosure and listbox rather than a native
+select. It shows each story's saved progress, supports arrow-key navigation, and
+keeps Escape local to the disclosure instead of minimizing the whole review.
+This keeps a milestone or project from appearing as one giant story while
+preserving one Grist source and one checklist endpoint.
 
 The older schema-v1 catalog remains supported: its entries identify separate
 checklist endpoints using either `…/uat-<instance>.json` or
@@ -188,6 +201,10 @@ against another's steps. A schema-v2 story switch reuses the parent checklist
 document but filters by stable story key; sharing a checklist revision must never
 leave the previous story's rows mounted. A story that disappears from the catalog
 between visits falls back to a current story from the injected review.
+
+Story prose is presented as a labeled, full-size description above the steps. It
+is not squeezed into the link metadata or pinned with the section heading, so it
+remains readable and scrolls away naturally when work begins.
 
 **Copy report** puts the whole review on the clipboard, which is what the reviewer
 is asked to paste into Claude. **Download** writes the same thing as a single

@@ -367,17 +367,15 @@ test("hands the review over as a single document the reviewer can paste", async 
     .getByRole("button", { name: "Fail" })
     .click();
 
-  const downloads = [];
-  page.on("download", (download) =>
-    downloads.push(download.suggestedFilename()),
-  );
+  await widget.getByLabel(/Your name/).fill("Piotr Manko");
+
+  const download = page.waitForEvent("download");
   await widget.getByRole("button", { name: /download/i }).click();
-  await page.waitForTimeout(750);
+  const downloaded = await download;
 
   // Two blob downloads from one click trips Chrome's automatic-downloads
   // permission, and a reviewer who dismisses it silently loses half the review.
-  expect(downloads).toHaveLength(1);
-  expect(downloads[0]).toMatch(/\.md$/);
+  expect(downloaded.suggestedFilename()).toMatch(/\.md$/);
 
   const report = await page.evaluate(() =>
     window.__OE_REVIEW_TEST__.buildReport(),

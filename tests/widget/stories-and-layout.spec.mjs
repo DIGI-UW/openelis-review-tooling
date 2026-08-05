@@ -14,6 +14,24 @@ async function openPanel(page) {
   return widget;
 }
 
+async function openStoryChecklist(widget) {
+  const trigger = widget.getByRole("button", { name: "Choose story" });
+  await trigger.click();
+  const list = widget.getByRole("listbox", { name: /stories/i });
+  await expect(list).toBeVisible();
+  return list;
+}
+
+async function chooseStory(widget, name, { showAll = false } = {}) {
+  const list = await openStoryChecklist(widget);
+  if (showAll) {
+    await widget
+      .getByRole("button", { name: /show all .* server stories/i })
+      .click();
+  }
+  await list.getByRole("option", { name }).click();
+}
+
 test("shows each Grist story separately instead of one aggregate review", async ({
   page,
 }) => {
@@ -83,9 +101,8 @@ test("shows each Grist story separately instead of one aggregate review", async 
   );
 
   const widget = await openPanel(page);
-  const picker = widget.getByLabel("Story");
-  await expect(picker.locator("option")).toHaveCount(2);
-  await expect(picker).toHaveValue("amr--AMR-S01");
+  const trigger = widget.getByRole("button", { name: "Choose story" });
+  await expect(trigger).toContainText("Find and route microbiology work");
   await expect(widget.locator(".step")).toHaveCount(2);
   await expect(widget.getByRole("heading", { level: 2 })).toHaveText(
     "Find and route microbiology work - review",
@@ -95,7 +112,21 @@ test("shows each Grist story separately instead of one aggregate review", async 
     .getByRole("button", { name: "Pass" })
     .click();
 
-  await picker.selectOption("amr--AMR-S02");
+  let list = await openStoryChecklist(widget);
+  await expect(list.getByRole("option")).toHaveCount(1);
+  await expect(list.getByRole("option").first()).toContainText(
+    "1 of 2 complete",
+  );
+  await expect(
+    list.getByRole("option", { name: /Work the bacteriology case/ }),
+  ).toHaveCount(0);
+  await widget
+    .getByRole("button", { name: "Show all 2 server stories" })
+    .click();
+  await expect(list.getByRole("option")).toHaveCount(2);
+  await list
+    .getByRole("option", { name: /Work the bacteriology case/ })
+    .click();
   await expect(widget.locator(".step")).toHaveCount(1);
   await expect(widget.locator(".step")).toHaveAttribute("data-state", "todo");
   await expect(widget.getByRole("heading", { level: 2 })).toHaveText(
@@ -104,70 +135,195 @@ test("shows each Grist story separately instead of one aggregate review", async 
   await expect(widget.getByRole("complementary")).toHaveAccessibleName(
     "Review checklist: Work the bacteriology case - review",
   );
+  await expect(trigger).toBeFocused();
 
-  await picker.selectOption("amr--AMR-S01");
+  list = await openStoryChecklist(widget);
+  await list
+    .getByRole("option", { name: /Find and route microbiology work/ })
+    .click();
   await expect(widget.locator(".step").first().locator(".chip")).toHaveText(
     "Pass",
   );
 });
 
-test("separates the stories that cover this page from the rest", async ({ page }) => {
+test("shows only stories for the current URL by default", async ({ page }) => {
   const widget = await openPanel(page);
-  const picker = widget.getByLabel("Story");
-  await expect(picker).toBeVisible();
+  const list = await openStoryChecklist(widget);
 
-  const groups = await picker.locator("optgroup").evaluateAll((nodes) =>
-    nodes.map((node) => ({
-      label: node.label,
-      options: [...node.querySelectorAll("option")].map((option) => option.value),
-    })),
+  await expect(widget.locator(".storyscope")).toHaveText(
+    "Stories on this page",
   );
-  expect(groups).toEqual([
-    { label: "On this page", options: ["orders"] },
-    { label: "Other stories", options: ["amr"] },
-  ]);
-  await expect(picker).toHaveValue("amr");
+  await expect(list.getByRole("option")).toHaveCount(1);
+  await expect(list.getByRole("option").first()).toContainText("Order entry");
+  await expect(list.getByText("Microbiology MVP")).toHaveCount(0);
+  await expect(
+    widget.getByRole("button", { name: "Show all 2 server stories" }),
+  ).toBeVisible();
 });
 
 test("re-groups the stories as the reviewer moves through the application", async ({
   page,
 }) => {
   const widget = await openPanel(page);
-  const picker = widget.getByLabel("Story");
-  const onThisPage = () =>
-    picker.locator('optgroup[label="On this page"] option').allTextContents();
-  expect(await onThisPage()).toEqual(["Order entry (2)"]);
+  let list = await openStoryChecklist(widget);
+  await expect(list.getByRole("option")).toHaveCount(1);
+  await expect(list.getByRole("option").first()).toContainText("Order entry");
+  await widget.getByRole("button", { name: "Choose story" }).click();
 
   // A single-page app routes without reloading, so nothing re-runs on its own.
   await page.getByRole("button", { name: "Go to worklist" }).click();
 
-  await expect
-    .poll(onThisPage)
-    .toEqual(["Microbiology MVP (10)"]);
+  list = await openStoryChecklist(widget);
+  await expect(list.getByRole("option")).toHaveCount(1);
+  await expect(list.getByRole("option").first()).toContainText(
+    "Microbiology MVP",
+  );
+});
+
+test("falls back to every server story when the current URL has no match", async ({
+  page,
+}) => {
+  await page.route("**/tests/widget/uat-index.json", (route) =>
+    route.fulfill({
+      json: {
+        schemaVersion: 2,
+        stories: [
+          {
+            id: "amr--AMR-S01",
+            review: "amr",
+            key: "AMR-S01",
+            title: "Route microbiology work",
+            steps: 2,
+            routes: ["/Dashboard"],
+          },
+          {
+            id: "amr--AMR-S02",
+            review: "amr",
+            key: "AMR-S02",
+            title: "Review AST results",
+            steps: 3,
+            routes: ["/Microbiology/worklist"],
+          },
+        ],
+      },
+    }),
+  );
+
+  const widget = await openPanel(page);
+  const list = await openStoryChecklist(widget);
+  await expect(widget.locator(".storyscope")).toHaveText("All server stories");
+  await expect(widget.locator(".storynotice")).toContainText(
+    "No stories target this page",
+  );
+  await expect(list.getByRole("option")).toHaveCount(2);
+});
+
+test("Escape closes the story checklist without minimizing the review", async ({
+  page,
+}) => {
+  const widget = await openPanel(page);
+  const trigger = widget.getByRole("button", { name: "Choose story" });
+  const list = await openStoryChecklist(widget);
+
+  // Opening leaves focus on the disclosure button, which is where a keyboard
+  // reviewer naturally presses Escape to dismiss it.
+  await trigger.press("Escape");
+
+  await expect(list).toBeHidden();
+  await expect(widget.locator(".panel")).toBeVisible();
+  await expect(trigger).toBeFocused();
+});
+
+test("supports arrow-key navigation through the story checklist", async ({
+  page,
+}) => {
+  const widget = await openPanel(page);
+  const list = await openStoryChecklist(widget);
+  await widget
+    .getByRole("button", { name: /show all .* server stories/i })
+    .click();
+  const options = list.getByRole("option");
+
+  await expect(options.first()).toBeFocused();
+  await options.first().press("ArrowDown");
+  await expect(options.nth(1)).toBeFocused();
+  await options.nth(1).press("ArrowUp");
+  await expect(options.first()).toBeFocused();
+});
+
+test("keeps the story checklist open while the current checklist refreshes", async ({
+  page,
+}) => {
+  const widget = await openPanel(page);
+  const list = await openStoryChecklist(widget);
+
+  await widget.getByRole("button", { name: "Refresh checklist" }).click();
+
+  await expect(list).toBeVisible();
+  await expect(widget.locator(".panel")).toBeVisible();
+});
+
+test("keeps story navigation usable in the mobile bottom sheet", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 740 });
+  const widget = await openPanel(page);
+  const list = await openStoryChecklist(widget);
+  const option = list.getByRole("option").first();
+
+  await expect(option).toBeVisible();
+  const layout = await widget.locator(".panel").evaluate((panel) => {
+    const trigger = panel
+      .querySelector(".storytrigger")
+      .getBoundingClientRect();
+    const menu = panel.querySelector(".storymenu").getBoundingClientRect();
+    const panelBox = panel.getBoundingClientRect();
+    return {
+      overflow: panel.scrollWidth - panel.clientWidth,
+      triggerInside:
+        trigger.left >= panelBox.left && trigger.right <= panelBox.right,
+      menuInside: menu.left >= panelBox.left && menu.right <= panelBox.right,
+    };
+  });
+  expect(layout.overflow).toBeLessThanOrEqual(1);
+  expect(layout.triggerInside).toBe(true);
+  expect(layout.menuInside).toBe(true);
 });
 
 test("switching story loads its checklist and keeps the answers apart", async ({
   page,
 }) => {
   const widget = await openPanel(page);
-  await widget.locator(".step.current .detail").getByRole("button", { name: "Pass" }).click();
-  await expect(widget.locator(".step").nth(0).locator(".chip")).toHaveText("Pass");
+  await widget
+    .locator(".step.current .detail")
+    .getByRole("button", { name: "Pass" })
+    .click();
+  await expect(widget.locator(".step").nth(0).locator(".chip")).toHaveText(
+    "Pass",
+  );
 
-  await widget.getByLabel("Story").selectOption("orders");
-  await expect(widget.getByRole("heading", { level: 2 })).toHaveText("Order entry review");
+  await chooseStory(widget, /Order entry/);
+  await expect(widget.getByRole("heading", { level: 2 })).toHaveText(
+    "Order entry review",
+  );
   await expect(widget.locator(".step")).toHaveCount(2);
-  await expect(widget.locator(".step").nth(0)).toHaveAttribute("data-state", "todo");
+  await expect(widget.locator(".step").nth(0)).toHaveAttribute(
+    "data-state",
+    "todo",
+  );
 
-  await widget.getByLabel("Story").selectOption("amr");
+  await chooseStory(widget, /Microbiology MVP/, { showAll: true });
   await expect(widget.locator(".step")).toHaveCount(10);
-  await expect(widget.locator(".step").nth(0).locator(".chip")).toHaveText("Pass");
+  await expect(widget.locator(".step").nth(0).locator(".chip")).toHaveText(
+    "Pass",
+  );
 });
 
 test("says a story is unreachable rather than quietly reviewing a different one", async ({
   page,
 }) => {
   const widget = await openPanel(page);
-  await widget.getByLabel("Story").selectOption("orders");
+  await chooseStory(widget, /Order entry/);
   await expect(widget.locator(".step")).toHaveCount(2);
 
   await page.route("**/tests/widget/uat-orders.json", (route) =>
@@ -178,7 +334,9 @@ test("says a story is unreachable rather than quietly reviewing a different one"
   // Switching what is under review without saying so is the story-axis version
   // of losing the reviewer's answers to a transient outage.
   await expect(widget.getByRole("alert")).toContainText("503");
-  await expect(widget.getByLabel("Story")).toHaveValue("orders");
+  await expect(
+    widget.getByRole("button", { name: "Choose story" }),
+  ).toContainText("Order entry");
 });
 
 test("reports a checklist it refuses instead of swallowing the reason", async ({
@@ -197,14 +355,16 @@ test("reports a checklist it refuses instead of swallowing the reason", async ({
             title: "Add an order",
             // Resolves off-origin: the URL parser reads the backslash as an
             // authority separator.
-            steps: [{ key: "ORD-1", do: "Open add order", route: "/\\evil.example" }],
+            steps: [
+              { key: "ORD-1", do: "Open add order", route: "/\\evil.example" },
+            ],
           },
         ],
       },
     }),
   );
 
-  await widget.getByLabel("Story").selectOption("orders");
+  await chooseStory(widget, /Order entry/);
   await expect(widget.getByRole("alert")).toContainText("same-origin");
 });
 
@@ -212,7 +372,7 @@ test("falls back to the injected story when one is retired from the catalog", as
   page,
 }) => {
   const widget = await openPanel(page);
-  await widget.getByLabel("Story").selectOption("orders");
+  await chooseStory(widget, /Order entry/);
   await expect(widget.locator(".step")).toHaveCount(2);
 
   await page.route("**/tests/widget/uat-orders.json", (route) =>
@@ -227,15 +387,21 @@ test("falls back to the injected story when one is retired from the catalog", as
   await expect(reopened.locator(".step")).toHaveCount(10);
 });
 
-test("remembers the story the reviewer was last working on", async ({ page }) => {
+test("remembers the story the reviewer was last working on", async ({
+  page,
+}) => {
   const widget = await openPanel(page);
-  await widget.getByLabel("Story").selectOption("orders");
+  await chooseStory(widget, /Order entry/);
   await expect(widget.locator(".step")).toHaveCount(2);
 
   await page.reload();
   const reopened = page.locator("#oe-review-host");
-  await expect(reopened.getByRole("heading", { level: 2 })).toHaveText("Order entry review");
-  await expect(reopened.getByLabel("Story")).toHaveValue("orders");
+  await expect(reopened.getByRole("heading", { level: 2 })).toHaveText(
+    "Order entry review",
+  );
+  await expect(
+    reopened.getByRole("button", { name: "Choose story" }),
+  ).toContainText("Order entry");
 });
 
 test("expands to show every step in full, and comes back", async ({ page }) => {
@@ -260,7 +426,9 @@ test("expands to show every step in full, and comes back", async ({ page }) => {
   expect(compactStep.height).toBeLessThan(collapsedStep.height);
 });
 
-test("never grows its own header off the top of the screen", async ({ page }) => {
+test("never grows its own header off the top of the screen", async ({
+  page,
+}) => {
   const widget = await openPanel(page);
   await widget.getByRole("button", { name: "Expand panel" }).click();
 
@@ -272,7 +440,9 @@ test("never grows its own header off the top of the screen", async ({ page }) =>
   // controls up under the application's fixed header, where they cannot be
   // clicked at all.
   expect(panel.y).toBeGreaterThanOrEqual(appHeader.y + appHeader.height);
-  await expect(widget.getByRole("button", { name: "Collapse panel" })).toBeInViewport();
+  await expect(
+    widget.getByRole("button", { name: "Collapse panel" }),
+  ).toBeInViewport();
 });
 
 test("shows how far each section has got", async ({ page }) => {
@@ -280,17 +450,28 @@ test("shows how far each section has got", async ({ page }) => {
   const first = widget.locator(".secrow").first();
   await expect(first.locator(".seccount")).toHaveText("0/3");
 
-  await widget.locator(".step.current .detail").getByRole("button", { name: "Pass" }).click();
+  await widget
+    .locator(".step.current .detail")
+    .getByRole("button", { name: "Pass" })
+    .click();
   await expect(first.locator(".seccount")).toHaveText("1/3");
 });
 
-test("filters down to what still needs doing, and to what failed", async ({ page }) => {
+test("filters down to what still needs doing, and to what failed", async ({
+  page,
+}) => {
   const widget = await openPanel(page);
   const steps = widget.locator(".step");
   await steps.nth(0).locator(".steptop").click();
-  await widget.locator(".step.current .detail").getByRole("button", { name: "Pass" }).click();
+  await widget
+    .locator(".step.current .detail")
+    .getByRole("button", { name: "Pass" })
+    .click();
   await steps.nth(1).locator(".steptop").click();
-  await widget.locator(".step.current .detail").getByRole("button", { name: "Fail" }).click();
+  await widget
+    .locator(".step.current .detail")
+    .getByRole("button", { name: "Fail" })
+    .click();
 
   await widget.getByRole("button", { name: "To do", exact: true }).click();
   await expect(steps.nth(0)).toBeHidden();
