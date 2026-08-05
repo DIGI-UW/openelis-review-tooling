@@ -102,6 +102,13 @@
   function currentSrc() {
     var selected = selectedStory();
     var review = selected && selected.review;
+    // A schema-v2 preference can be restored before the catalog arrives. Its id
+    // is <review>--<story>, while the document remains the parent review's
+    // aggregate checklist. Resolve that parent directly so reload never probes a
+    // made-up per-story endpoint first.
+    if (!review && activeStory.indexOf("--") > 0) {
+      review = activeStory.split("--")[0];
+    }
     return storyUrl(review || activeStory) || SRC;
   }
   function inlineChecklist() {
@@ -728,6 +735,14 @@
       // from the other one would make a popped-out panel able to unmount the page.
       prefs.hidden = hidden;
       var story = prefs.story || INSTANCE;
+      // A stale tab can still be running an older widget. Never let an unknown
+      // value from it replace a catalog-backed selection or start a request loop.
+      if (!knownStory(story)) {
+        prefs.story = activeStory;
+        if (ui) syncPanel();
+        applyAnchor();
+        return;
+      }
       if (story !== activeStory) {
         selectStory(story);
         return;
@@ -998,10 +1013,16 @@
   function storyId(story) {
     return story.id || story.instance;
   }
-  function selectedStory() {
+  function storyById(id) {
     return stories().find(function (story) {
-      return storyId(story) === activeStory;
+      return storyId(story) === id;
     });
+  }
+  function knownStory(id) {
+    return !catalog ? id === INSTANCE : Boolean(storyById(id));
+  }
+  function selectedStory() {
+    return storyById(activeStory);
   }
   function chooseInitialStory() {
     if (!catalog || Number(catalog.schemaVersion) < 2) return;
@@ -1032,6 +1053,7 @@
     });
   }
   function selectStory(story) {
+    if (!knownStory(story)) return;
     if (story === activeStory) return;
     storyMenuOpen = false;
     focusStoryTrigger = true;

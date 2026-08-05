@@ -35,6 +35,10 @@ async function chooseStory(widget, name, { showAll = false } = {}) {
 test("shows each Grist story separately instead of one aggregate review", async ({
   page,
 }) => {
+  const checklistRequests = [];
+  page.on("request", (request) => {
+    if (request.url().includes("/uat-")) checklistRequests.push(request.url());
+  });
   await page.route("**/tests/widget/uat-index.json", (route) =>
     route.fulfill({
       json: {
@@ -121,6 +125,19 @@ test("shows each Grist story separately instead of one aggregate review", async 
   await expect(list.getByRole("option").first()).toContainText(
     "0 of 2 complete",
   );
+  await page.evaluate(() => {
+    const key = "oe-review:v2:amr:prefs";
+    const prefs = JSON.parse(localStorage.getItem(key) || "{}");
+    prefs.story = "undefined";
+    const value = JSON.stringify(prefs);
+    localStorage.setItem(key, value);
+    window.dispatchEvent(new StorageEvent("storage", { key, newValue: value }));
+  });
+  await expect(list).toBeVisible();
+  await expect(trigger).toContainText("Find and route microbiology work");
+  expect(
+    checklistRequests.filter((url) => url.includes("uat-undefined")),
+  ).toEqual([]);
   await expect(
     list.getByRole("option", { name: /Work the bacteriology case/ }),
   ).toHaveCount(0);
@@ -159,6 +176,12 @@ test("shows each Grist story separately instead of one aggregate review", async 
       );
     }),
   ).toBe(true);
+  await widget.getByRole("button", { name: "Refresh checklist" }).click();
+  await expect(trigger).toContainText("Find and route microbiology work");
+  await expect(widget.locator(".step")).toHaveCount(2);
+  expect(
+    checklistRequests.filter((url) => url.includes("uat-undefined")),
+  ).toEqual([]);
   await widget
     .locator(".step.current .detail")
     .getByRole("button", { name: "Pass" })

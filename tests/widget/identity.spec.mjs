@@ -150,7 +150,9 @@ test("requires a typed reviewer name before a report can be handed off", async (
 
   const downloads = [];
   page.on("download", (download) => downloads.push(download));
-  await widget.getByRole("button", { name: "Download" }).click();
+  const more = widget.getByRole("button", { name: "More review actions" });
+  await more.click();
+  await widget.getByRole("button", { name: "Download report" }).click();
 
   await expect(widget.getByRole("alert")).toHaveText(
     "Enter your name before sharing this review.",
@@ -161,8 +163,9 @@ test("requires a typed reviewer name before a report can be handed off", async (
 
   await name.fill("Piotr Manko");
   await expect(widget.getByRole("alert")).toBeHidden();
+  await more.click();
   const download = page.waitForEvent("download");
-  await widget.getByRole("button", { name: "Download" }).click();
+  await widget.getByRole("button", { name: "Download report" }).click();
   await download;
 });
 
