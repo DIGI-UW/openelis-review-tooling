@@ -77,65 +77,75 @@ function storyRevision(section) {
 // a switcher and to say which stories have anything to say about the page the
 // reviewer is currently looking at, so `routes` carries paths only — a step's
 // query string selects a filter, it does not identify a different page.
-export function buildUatIndex(metaRecords, stepRecords) {
-  const titles = new Map();
-  for (const record of metaRecords || []) {
+export function buildUatIndex(metaRecords, stepRecords, storyRecords = []) {
+  const reviews = new Map();
+  for (const [order, record] of (metaRecords || []).entries()) {
     const fields = record.fields || {};
     const instance = String(fields.instance || "").trim();
-    if (instance) titles.set(instance, fields);
+    if (instance) reviews.set(String(record.id), { fields, instance, order });
   }
 
-  const stories = new Map();
-  const warnings = [];
+  const stepsByStory = new Map();
   for (const record of stepRecords || []) {
     const fields = record.fields || {};
-    const instance = String(fields.instance || "").trim();
-    if (!instance) continue;
-    let story = stories.get(instance);
-    if (!story) {
-      story = { instance, steps: 0, required: 0, routes: new Set() };
-      stories.set(instance, story);
-    }
-    story.steps += 1;
-    if (parseRequired(fields.required)) story.required += 1;
-    if (fields.route) {
-      // Reported and skipped rather than thrown. The catalog spans every story on
-      // the deployment, so one bad row in somebody's draft would otherwise take
-      // the whole thing down — and the deploy that is gated on this endpoint with
-      // it. The checklist document still refuses the route outright, which is
-      // where the reviewer would actually be sent.
-      try {
-        const route = validateRoute(String(fields.route).trim(), fields.step_key || instance);
-        story.routes.add(new URL(route, ROUTE_BASE).pathname);
-      } catch (error) {
-        warnings.push(`${instance}: ${error.message}`);
-      }
-    }
+    const storyId = String(fields.story || "").trim();
+    if (!storyId) continue;
+    const steps = stepsByStory.get(storyId) || [];
+    steps.push(fields);
+    stepsByStory.set(storyId, steps);
   }
 
-  return {
-    schemaVersion: 1,
-    warnings,
-    // A story with a meta row but no steps is not reviewable; listing it would
-    // offer the reviewer an empty checklist.
-    stories: [...stories.values()]
-      // Unpublished stories are left out silently. Naming them here would put the
-      // slugs and titles of unreleased work into the very document this flag
-      // exists to keep them out of; grist/mcp/README.md says how to publish one.
-      .filter((story) => parsePublished((titles.get(story.instance) || {}).published))
-      .sort((a, b) => a.instance.localeCompare(b.instance))
-      .map((story) => {
-        const meta = titles.get(story.instance) || {};
-        return {
-          instance: story.instance,
-          title: meta.title || `${story.instance} review`,
-          jira: meta.jira || "",
-          steps: story.steps,
-          required: story.required,
-          routes: [...story.routes].sort(),
-        };
-      }),
-  };
+  const warnings = [];
+  const stories = [];
+  for (const record of storyRecords || []) {
+    const fields = record.fields || {};
+    const review = reviews.get(String(fields.instance || ""));
+    const key = String(fields.story_key || "").trim();
+    const storySteps = stepsByStory.get(String(record.id)) || [];
+    if (!review || !key || !storySteps.length) continue;
+    // Unpublished reviews are left out silently. Naming one of their stories here
+    // would put unreleased work into the public catalog this flag protects.
+    if (!parsePublished(review.fields.published)) continue;
+
+    const routes = new Set();
+    let required = 0;
+    for (const step of storySteps) {
+      if (parseRequired(step.required)) required += 1;
+      if (!step.route) continue;
+      // The catalog must survive a malformed draft row so other stories remain
+      // reviewable. The checklist document still rejects that route outright.
+      try {
+        const route = validateRoute(String(step.route).trim(), step.step_key || key);
+        routes.add(new URL(route, ROUTE_BASE).pathname);
+      } catch (error) {
+        warnings.push(`${key}: ${error.message}`);
+      }
+    }
+
+    stories.push({
+      id: `${review.instance}--${key}`,
+      review: review.instance,
+      key,
+      title: String(fields.title || "").trim() || `${key} review`,
+      jira: String(fields.jira || "").trim(),
+      order: Number(fields.story_order) || 0,
+      steps: storySteps.length,
+      required,
+      routes: [...routes].sort(),
+      hosts: hostsOf(fields),
+      _reviewOrder: review.order,
+    });
+  }
+
+  stories.sort(
+    (a, b) =>
+      a._reviewOrder - b._reviewOrder ||
+      a.order - b.order ||
+      a.key.localeCompare(b.key),
+  );
+  for (const story of stories) delete story._reviewOrder;
+
+  return { schemaVersion: 2, warnings, stories };
 }
 
 // A story's links, as an author filled them in. One of each and no more: the set

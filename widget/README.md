@@ -169,17 +169,25 @@ blocks the window says so in the panel rather than doing nothing.
 
 ## Several stories on one deployment
 
-A deployment usually hosts more than one story. If the checklist URL follows either
-`…/uat-<story>.json` or `…/uat/<story>.json`, the widget looks for a catalog beside
-it at `uat-index.json` and offers a **Story** picker, grouped into _On this page_
-and _Other stories_ by matching each story's step routes against the current path.
-Point `data-index` somewhere else to override that, and any other `data-src` shape
-simply gets no picker. The catalog is optional in the strongest sense: if it is
-missing, malformed or unreachable, the checklist still loads.
+A deployment review usually contains several independently reviewable stories.
+The schema-v2 catalog names each real story and its parent review instance. The
+widget limits the **Story** picker to the instance injected on that deployment,
+then renders only the selected story from the instance's aggregate checklist.
+Stories are grouped into _On this page_ and _Other stories_ by matching their step
+routes against the current path. This keeps a milestone or project from appearing
+as one giant story while preserving one Grist source and one checklist endpoint.
+
+The older schema-v1 catalog remains supported: its entries identify separate
+checklist endpoints using either `…/uat-<instance>.json` or
+`…/uat/<instance>.json`. Point `data-index` somewhere else to override discovery.
+The catalog is optional in the strongest sense: if it is missing, malformed or
+unreachable, the injected checklist still loads.
 
 Each story keeps its own answers, so switching never shows one story's marks
-against another's steps. A story that disappears from the catalog between visits
-falls back to the one the deployment injects rather than stranding the reviewer.
+against another's steps. A schema-v2 story switch reuses the parent checklist
+document but filters by stable story key; sharing a checklist revision must never
+leave the previous story's rows mounted. A story that disappears from the catalog
+between visits falls back to a current story from the injected review.
 
 **Copy report** puts the whole review on the clipboard, which is what the reviewer
 is asked to paste into Claude. **Download** writes the same thing as a single

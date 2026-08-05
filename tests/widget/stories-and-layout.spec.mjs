@@ -14,6 +14,103 @@ async function openPanel(page) {
   return widget;
 }
 
+test("shows each Grist story separately instead of one aggregate review", async ({
+  page,
+}) => {
+  await page.route("**/tests/widget/uat-index.json", (route) =>
+    route.fulfill({
+      json: {
+        schemaVersion: 2,
+        stories: [
+          {
+            id: "amr--AMR-S01",
+            review: "amr",
+            key: "AMR-S01",
+            title: "Find and route microbiology work",
+            order: 0,
+            steps: 2,
+            required: 2,
+            routes: ["/tests/widget/app-fixture.html"],
+          },
+          {
+            id: "amr--AMR-S02",
+            review: "amr",
+            key: "AMR-S02",
+            title: "Work the bacteriology case",
+            order: 1,
+            steps: 1,
+            required: 1,
+            routes: ["/Microbiology/worklist"],
+          },
+          {
+            id: "analyzers--AN-S01",
+            review: "analyzers",
+            key: "AN-S01",
+            title: "Configure an analyzer",
+            order: 0,
+            steps: 1,
+            required: 1,
+            routes: ["/analyzers"],
+          },
+        ],
+      },
+    }),
+  );
+  await page.route("**/tests/widget/uat-amr.json", (route) =>
+    route.fulfill({
+      json: {
+        schemaVersion: 2,
+        checklistRevision: "amr-story-catalog",
+        title: "Microbiology release review",
+        instance: "amr",
+        sections: [
+          {
+            key: "AMR-S01",
+            title: "Find and route microbiology work",
+            steps: [
+              { key: "AMR-1", do: "Open the worklist" },
+              { key: "AMR-2", do: "Route the order" },
+            ],
+          },
+          {
+            key: "AMR-S02",
+            title: "Work the bacteriology case",
+            steps: [{ key: "AMR-3", do: "Open the case" }],
+          },
+        ],
+      },
+    }),
+  );
+
+  const widget = await openPanel(page);
+  const picker = widget.getByLabel("Story");
+  await expect(picker.locator("option")).toHaveCount(2);
+  await expect(picker).toHaveValue("amr--AMR-S01");
+  await expect(widget.locator(".step")).toHaveCount(2);
+  await expect(widget.getByRole("heading", { level: 2 })).toHaveText(
+    "Find and route microbiology work - review",
+  );
+  await widget
+    .locator(".step.current .detail")
+    .getByRole("button", { name: "Pass" })
+    .click();
+
+  await picker.selectOption("amr--AMR-S02");
+  await expect(widget.locator(".step")).toHaveCount(1);
+  await expect(widget.locator(".step")).toHaveAttribute("data-state", "todo");
+  await expect(widget.getByRole("heading", { level: 2 })).toHaveText(
+    "Work the bacteriology case - review",
+  );
+  await expect(widget.getByRole("complementary")).toHaveAccessibleName(
+    "Review checklist: Work the bacteriology case - review",
+  );
+
+  await picker.selectOption("amr--AMR-S01");
+  await expect(widget.locator(".step").first().locator(".chip")).toHaveText(
+    "Pass",
+  );
+});
+
 test("separates the stories that cover this page from the rest", async ({ page }) => {
   const widget = await openPanel(page);
   const picker = widget.getByLabel("Story");
@@ -284,4 +381,3 @@ test("does not park the current step under the pinned section heading", async ({
 
   expect(overlap).toBeLessThanOrEqual(0);
 });
-

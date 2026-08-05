@@ -48,9 +48,12 @@ Types & Mapping, OGC-1054).
 - Table **`UAT_Steps`** — one row per step:
   `instance, step_key, required, story` (ref → `UAT_Stories`), `step_order (int),
   do, expect, route`.
-- Reviewers see steps grouped under their story and ordered by `story_order`
-  then `step_order`. `route` is the app path a reviewer opens for that step
-  (e.g. `/Microbiology/worklist`).
+- Reviewers select one `UAT_Stories` row at a time; only that story's steps and
+  progress are rendered. The picker is ordered by `story_order`, and steps by
+  `step_order`. A deployed review showing one option with the aggregate step
+  count is a failed validation even when the JSON still contains story sections.
+  `route` is the app path a reviewer opens for that step (for example,
+  `/Microbiology/worklist`).
 - Both story and step tables carry a computed `problems` column: empty means the
   row is publishable.
 - `step_key` is immutable and unique within an instance. Reordering a row must

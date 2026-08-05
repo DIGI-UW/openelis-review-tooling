@@ -89,7 +89,9 @@
   var INDEX_SRC =
     (self && self.getAttribute("data-index")) || storyUrl("index");
   function currentSrc() {
-    return storyUrl(activeStory) || SRC;
+    var selected = selectedStory();
+    var review = selected && selected.review;
+    return storyUrl(review || activeStory) || SRC;
   }
   function inlineChecklist() {
     try {
@@ -856,6 +858,13 @@
   function applyChecklist(next, target) {
     next = validateChecklist(next);
     next.sections = (next.sections || []).filter(storyAppliesHere);
+    var selected = selectedStory();
+    if (selected && selected.key) {
+      next.sections = next.sections.filter(function (section) {
+        return section.key === selected.key;
+      });
+      next.title = selected.title + " - review";
+    }
     var minimized = state.minimized;
     var deployment = identityOf(target);
     if (deployment) rememberIdentity(deployment);
@@ -890,7 +899,11 @@
     loading = true;
     loadError = "";
     buildWarning = "";
-    render();
+    // Keep the current story mounted while a different one loads. Rebuilding it
+    // here would stamp the new story id onto the old rows; because both stories
+    // share the aggregate checklist revision, the completed fetch would then look
+    // current and those stale rows would remain on screen.
+    if (!ui || ui.story === activeStory) render();
     return Promise.all([
       fetch(currentSrc(), { cache: "no-store" }).then(function (response) {
         if (!response.ok) {
@@ -923,6 +936,7 @@
         // last known target and surface buildWarning instead.
         if (values[1]) build = values[1];
         if (values[2]) catalog = values[2];
+        chooseInitialStory();
         applyChecklist(values[0], build);
       })
       .catch(function (error) {
@@ -965,7 +979,31 @@
   }
 
   function stories() {
-    return (catalog && catalog.stories) || [];
+    var available = (catalog && catalog.stories) || [];
+    if (catalog && Number(catalog.schemaVersion) >= 2) {
+      available = available.filter(function (story) {
+        return story.review === INSTANCE && storyAppliesHere(story);
+      });
+    }
+    return available;
+  }
+  function storyId(story) {
+    return story.id || story.instance;
+  }
+  function selectedStory() {
+    return stories().find(function (story) {
+      return storyId(story) === activeStory;
+    });
+  }
+  function chooseInitialStory() {
+    if (!catalog || Number(catalog.schemaVersion) < 2) return;
+    if (selectedStory()) return;
+    var available = stories();
+    if (!available.length) return;
+    var here = available.find(coversHere);
+    activeStory = storyId(here || available[0]);
+    prefs.story = activeStory;
+    savePrefs();
   }
   // A story is about this page when one of its steps points here. Query strings
   // pick a filter rather than a page, so the catalog publishes paths only.
@@ -980,8 +1018,6 @@
     activeStory = story;
     prefs.story = story;
     savePrefs();
-    // A different checklist entirely: the built panel cannot be updated into it.
-    ui = null;
     refreshChecklist();
   }
 
@@ -1124,7 +1160,11 @@
       return;
     }
     var built = false;
-    if (!ui || ui.revision !== uat.checklistRevision) {
+    if (
+      !ui ||
+      ui.revision !== uat.checklistRevision ||
+      ui.story !== activeStory
+    ) {
       wrap.innerHTML = "";
       ui = buildPanel();
       wrap.appendChild(ui.panel);
@@ -1196,7 +1236,12 @@
 
   // ---- expanded panel -------------------------------------------------------
   function buildPanel() {
-    var parts = { revision: uat.checklistRevision, rows: {}, detailKey: null };
+    var parts = {
+      revision: uat.checklistRevision,
+      story: activeStory,
+      rows: {},
+      detailKey: null,
+    };
     var panel = el("div", "panel");
     panel.setAttribute("role", "complementary");
     panel.setAttribute(
@@ -1409,7 +1454,7 @@
     });
     var grouping = here
       .map(function (story) {
-        return story.instance;
+        return storyId(story);
       })
       .join(",");
     if (ui.storyGrouping === grouping) return;
@@ -1424,7 +1469,7 @@
       optgroup.label = group[0];
       group[1].forEach(function (story) {
         var option = document.createElement("option");
-        option.value = story.instance;
+        option.value = storyId(story);
         option.textContent =
           story.title + (story.steps ? " (" + story.steps + ")" : "");
         optgroup.appendChild(option);
