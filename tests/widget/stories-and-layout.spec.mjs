@@ -85,6 +85,10 @@ test("shows each Grist story separately instead of one aggregate review", async 
           {
             key: "AMR-S01",
             title: "Find and route microbiology work",
+            links: {
+              userStory:
+                "As a laboratory user, I can route microbiology work safely.",
+            },
             steps: [
               { key: "AMR-1", do: "Open the worklist" },
               { key: "AMR-2", do: "Route the order" },
@@ -93,6 +97,9 @@ test("shows each Grist story separately instead of one aggregate review", async 
           {
             key: "AMR-S02",
             title: "Work the bacteriology case",
+            links: {
+              userStory: "As a bench user, I can complete a bacteriology case.",
+            },
             steps: [{ key: "AMR-3", do: "Open the case" }],
           },
         ],
@@ -144,6 +151,20 @@ test("shows each Grist story separately instead of one aggregate review", async 
   await expect(widget.locator(".step").first().locator(".chip")).toHaveText(
     "Pass",
   );
+  const overview = widget.locator(".storydescription");
+  await expect(overview).toBeVisible();
+  expect(
+    await overview.evaluate((node) => {
+      const body = node.closest(".body");
+      const description = node.getBoundingClientRect();
+      const viewport = body.getBoundingClientRect();
+      return (
+        body.scrollTop === 0 &&
+        description.top >= viewport.top &&
+        description.bottom <= viewport.bottom
+      );
+    }),
+  ).toBe(true);
 });
 
 test("shows only stories for the current URL by default", async ({ page }) => {

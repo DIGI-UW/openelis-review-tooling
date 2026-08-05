@@ -880,13 +880,13 @@
     var deployment = identityOf(target);
     if (deployment) rememberIdentity(deployment);
     state = loadContext(target, next);
+    var hasStoryOverview = next.sections.some(function (section) {
+      return Boolean(
+        String((section.links && section.links.userStory) || "").trim(),
+      );
+    });
     revealStoryOverview =
-      !state.current &&
-      next.sections.some(function (section) {
-        return Boolean(
-          String((section.links && section.links.userStory) || "").trim(),
-        );
-      });
+      hasStoryOverview && (revealStoryOverview || !state.current);
     adoptIdentity();
     // Honour the persisted panel state on first load; only preserve the in-session
     // value once the reviewer has actually opened or closed it, so a background
@@ -1045,6 +1045,7 @@
     if (story === activeStory) return;
     storyMenuOpen = false;
     focusStoryTrigger = true;
+    revealStoryOverview = true;
     explicitStoryPath = location.pathname;
     activeStory = story;
     prefs.story = story;
