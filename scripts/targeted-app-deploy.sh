@@ -10,7 +10,7 @@ flock -n 9 || {
 }
 
 : "${INSTANCE:?}" "${APP_DIR:?}" "${EDGE_DIR:?}" "${APP_REPO:?}"
-: "${APP_BRANCH:?}" "${APP_REF:?}" "${APP_SCOPE:?}" "${APP_DOMAIN:?}"
+: "${APP_REF:?}" "${APP_SCOPE:?}" "${APP_DOMAIN:?}"
 : "${APP_SMOKE_PATH:?}" "${REMOTE_USER:?}" "${DEPLOYMENT_ID:?}" "${DEPLOYMENT_DIR:?}"
 
 APP_CONTAINER="${INSTANCE}-openelisglobal-webapp"
@@ -141,6 +141,23 @@ app_sha="$(repo_git "$APP_DIR" rev-parse HEAD)"
   echo "fetched SHA $app_sha does not match requested SHA $APP_REF" >&2
   exit 1
 }
+# The configured instance branch only determines the initial checkout. A
+# targeted deployment may intentionally select a newer stacked-PR branch, so
+# publish a branch only when its remote head is the exact deployed SHA.
+matching_branches="$(repo_git "$APP_DIR" ls-remote --heads origin | awk -v sha="$app_sha" '
+  $1 == sha {
+    sub(/^refs\/heads\//, "", $2)
+    print $2
+  }
+')"
+matching_branch_count="$(printf '%s\n' "$matching_branches" | awk 'NF { count++ } END { print count + 0 }')"
+published_branch=""
+case "$matching_branch_count" in
+  1) published_branch="$matching_branches" ;;
+  *)
+    echo "[app-deploy] exact SHA $app_sha is not a unique remote branch head; publishing SHA-only provenance"
+    ;;
+esac
 repo_git "$APP_DIR" submodule update --init --depth 1 dataexport plugins
 
 if repo_git "$APP_DIR" diff --name-only "$previous_app_sha" "$app_sha" -- \
@@ -203,7 +220,7 @@ harness_sha="$(repo_git "$EDGE_DIR" rev-parse HEAD)"
 deployed_at="$(date -u +%FT%TZ)"
 target_tmp="$(mktemp "$EDGE_DIR/runtime/.target-$INSTANCE.XXXXXX")"
 cat > "$target_tmp" <<JSON
-{"instance":"$INSTANCE","deploymentId":"$DEPLOYMENT_ID","state":"ready","appRepo":"$APP_REPO","appBranch":"$APP_BRANCH","appSha":"$app_sha","harnessSha":"$harness_sha","deployedAt":"$deployed_at","scope":"$APP_SCOPE","schemaAffecting":$schema_affecting,"verification":{"health":"passed","smoke":"passed"}}
+{"instance":"$INSTANCE","deploymentId":"$DEPLOYMENT_ID","state":"ready","appRepo":"$APP_REPO","appBranch":"$published_branch","appSha":"$app_sha","harnessSha":"$harness_sha","deployedAt":"$deployed_at","scope":"$APP_SCOPE","schemaAffecting":$schema_affecting,"verification":{"health":"passed","smoke":"passed"}}
 JSON
 chmod 0644 "$target_tmp"
 mv "$target_tmp" "$TARGET_FILE"

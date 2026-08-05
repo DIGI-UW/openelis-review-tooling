@@ -73,6 +73,16 @@ test("targeted app deployment accepts only an exact SHA and explicit scope", () 
   assert.match(deployScript, /data seed amr --fixture microbiology-mvp/);
 });
 
+test("targeted app deployment publishes only truthful branch provenance", () => {
+  assert.doesNotMatch(appDeployScript, /APP_BRANCH/);
+  assert.match(appDeployScript, /ls-remote --heads origin/);
+  assert.match(
+    appDeployScript,
+    /exact SHA \$app_sha is not a unique remote branch head; publishing SHA-only provenance/,
+  );
+  assert.match(appDeployScript, /"appBranch":"\$published_branch"/);
+});
+
 test("targeted app deployment preserves unrelated review infrastructure", () => {
   assert.match(
     appDeployScript,

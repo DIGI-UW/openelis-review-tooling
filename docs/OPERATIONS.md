@@ -128,6 +128,12 @@ untouched:
 ./deploy.sh data seed <instance> --fixture <name>
 ```
 
+For a targeted app deployment, `target.json` records the branch only when one
+remote branch head exactly matches the deployed SHA. If that association is
+absent or ambiguous, `appBranch` is intentionally blank and `appSha` remains
+the authoritative provenance. This prevents a configured base branch from
+being falsely shown for a higher stacked-PR deployment.
+
 `review deploy` ships the widget and rebuilds the checklist service. It does not
 touch the router, so a change to `router/nginx.conf.template` is still inert
 after it: the template becomes `nginx.conf` in the container's entrypoint, and
