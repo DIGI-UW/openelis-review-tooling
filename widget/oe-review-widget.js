@@ -959,6 +959,8 @@
   function applyChecklist(next, target) {
     next = validateChecklist(next);
     next.sections = (next.sections || []).filter(storyAppliesHere);
+    var switchingStory =
+      storyNavigation.selectedId !== storyNavigation.committedId;
     var selected = selectedStory();
     if (selected && selected.key) {
       var matchingSections = next.sections.filter(function (section) {
@@ -993,7 +995,7 @@
     // value once the reviewer has actually opened or closed it, so a background
     // refresh cannot collapse a panel they are working in — and so the panel does
     // not re-collapse as the reviewer navigates.
-    if (panelToggled) state.minimized = minimized;
+    if (panelToggled || (switchingStory && ui)) state.minimized = minimized;
     (next.sections || []).forEach(function (section) {
       (section.steps || []).forEach(function (step) {
         var key = step.key;

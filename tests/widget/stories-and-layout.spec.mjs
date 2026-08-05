@@ -515,6 +515,25 @@ test("remembers the story the reviewer was last working on", async ({
   ).toContainText("M1 - Work the seeded bacteriology case");
 });
 
+test("keeps a restored panel open when switching to an untouched story", async ({
+  page,
+}) => {
+  await openPanel(page);
+  await page.reload();
+
+  const restored = page.locator("#oe-review-host");
+  await expect(restored.locator(".panel")).toBeVisible();
+  await chooseStory(restored, /AST, critical communication, and reporting/, {
+    showAll: true,
+  });
+
+  await expect(restored.locator(".panel")).toBeVisible();
+  await expect(restored.getByRole("heading", { level: 2 })).toHaveText(
+    "M1 - AST, critical communication, and reporting - review",
+  );
+  await expect(restored.locator(".step")).toHaveCount(3);
+});
+
 test("expands to show every step in full, and comes back", async ({ page }) => {
   const widget = await openPanel(page);
   const compact = await widget.locator(".panel").boundingBox();
