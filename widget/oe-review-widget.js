@@ -1223,7 +1223,7 @@
     // from wherever the reviewer has scrolled it.
     if (built) {
       if (revealStoryOverview) {
-        ui.body.scrollTop = 0;
+        scrollStoryOverviewIntoView();
         revealStoryOverview = false;
       } else {
         scrollCurrentIntoView();
@@ -1233,6 +1233,20 @@
     // A reviewer who just chose a story instead belongs back on the control that
     // performed that navigation, so this handoff intentionally happens last.
     if (restoreStoryFocus) ui.storyTrigger.focus();
+  }
+
+  function scrollStoryOverviewIntoView() {
+    var overview = ui && ui.body.querySelector(".storydescription");
+    if (!overview) {
+      if (ui) ui.body.scrollTop = 0;
+      return;
+    }
+    var heading = overview.parentNode.querySelector(".secrow");
+    var reserve = (heading && !heading.hidden ? heading.offsetHeight : 0) + 8;
+    // Keep the story heading pinned while moving a long review-level introduction
+    // out of the way. Otherwise the description can exist in the DOM yet be
+    // completely clipped below the checklist viewport.
+    ui.body.scrollTop = Math.max(0, overview.offsetTop - reserve);
   }
 
   function exposeTestHooks() {

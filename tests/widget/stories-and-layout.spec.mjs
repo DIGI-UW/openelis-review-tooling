@@ -80,6 +80,8 @@ test("shows each Grist story separately instead of one aggregate review", async 
         schemaVersion: 2,
         checklistRevision: "amr-story-catalog",
         title: "Microbiology release review",
+        intro:
+          "Review the full microbiology release across routing, clinical completeness, reference administration, surveillance export, and shared administration. Complete each task against the deployed build, preserve the evidence behind every answer, and record anything confusing or broken before handing the review over.",
         instance: "amr",
         sections: [
           {
@@ -114,15 +116,10 @@ test("shows each Grist story separately instead of one aggregate review", async 
   await expect(widget.getByRole("heading", { level: 2 })).toHaveText(
     "Find and route microbiology work - review",
   );
-  await widget
-    .locator(".step.current .detail")
-    .getByRole("button", { name: "Pass" })
-    .click();
-
   let list = await openStoryChecklist(widget);
   await expect(list.getByRole("option")).toHaveCount(1);
   await expect(list.getByRole("option").first()).toContainText(
-    "1 of 2 complete",
+    "0 of 2 complete",
   );
   await expect(
     list.getByRole("option", { name: /Work the bacteriology case/ }),
@@ -148,9 +145,6 @@ test("shows each Grist story separately instead of one aggregate review", async 
   await list
     .getByRole("option", { name: /Find and route microbiology work/ })
     .click();
-  await expect(widget.locator(".step").first().locator(".chip")).toHaveText(
-    "Pass",
-  );
   const overview = widget.locator(".storydescription");
   await expect(overview).toBeVisible();
   expect(
@@ -159,12 +153,19 @@ test("shows each Grist story separately instead of one aggregate review", async 
       const description = node.getBoundingClientRect();
       const viewport = body.getBoundingClientRect();
       return (
-        body.scrollTop === 0 &&
+        body.scrollTop > 0 &&
         description.top >= viewport.top &&
         description.bottom <= viewport.bottom
       );
     }),
   ).toBe(true);
+  await widget
+    .locator(".step.current .detail")
+    .getByRole("button", { name: "Pass" })
+    .click();
+  await expect(widget.locator(".step").first().locator(".chip")).toHaveText(
+    "Pass",
+  );
 });
 
 test("shows only stories for the current URL by default", async ({ page }) => {
