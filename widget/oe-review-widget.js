@@ -1522,6 +1522,7 @@
     parts.storyTrigger.appendChild(chevron);
     parts.storyTrigger.onclick = function () {
       storyMenuOpen = !storyMenuOpen;
+      if (storyMenuOpen) closeMoreActions(parts);
       syncStories();
     };
     box.appendChild(parts.storyTrigger);
@@ -1715,6 +1716,12 @@
     }
   }
 
+  function closeMoreActions(parts) {
+    if (!parts.moreMenu || !parts.moreToggle) return;
+    parts.moreMenu.hidden = true;
+    parts.moreToggle.setAttribute("aria-expanded", "false");
+  }
+
   function buildMoreActions(parts) {
     var box = el("div", "more");
     var toggle = iconBtn("...", "More review actions");
@@ -1736,7 +1743,12 @@
       }
     }
     toggle.onclick = function () {
-      setOpen(menu.hidden);
+      var open = menu.hidden;
+      if (open && storyMenuOpen) {
+        storyMenuOpen = false;
+        syncStories();
+      }
+      setOpen(open);
     };
     menu.onkeydown = function (event) {
       if (event.key === "Escape") {

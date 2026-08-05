@@ -409,10 +409,14 @@ test("keeps secondary review actions out of the primary footer", async ({ page }
   await expect(footer.getByRole("button")).toHaveCount(2);
   await expect(footer.getByRole("button", { name: "Submit review" })).toBeVisible();
   const more = footer.getByRole("button", { name: "More review actions" });
+  const stories = widget.getByRole("button", { name: "Choose story" });
   await expect(more).toHaveAttribute("aria-expanded", "false");
   await expect(widget.getByRole("button", { name: "Download report" })).toHaveCount(0);
 
+  await stories.click();
+  await expect(stories).toHaveAttribute("aria-expanded", "true");
   await more.click();
+  await expect(stories).toHaveAttribute("aria-expanded", "false");
   await expect(more).toHaveAttribute("aria-expanded", "true");
   await expect(widget.getByRole("button", { name: "Copy report" })).toBeVisible();
   await expect(widget.getByRole("button", { name: "Download report" })).toBeVisible();
@@ -423,6 +427,11 @@ test("keeps secondary review actions out of the primary footer", async ({ page }
   );
 
   await widget.getByRole("button", { name: "To do" }).click();
+  await expect(more).toHaveAttribute("aria-expanded", "false");
+
+  await more.click();
+  await stories.click();
+  await expect(stories).toHaveAttribute("aria-expanded", "true");
   await expect(more).toHaveAttribute("aria-expanded", "false");
 });
 
