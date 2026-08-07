@@ -25,7 +25,7 @@
 #   ./deploy.sh configure           # install Docker/git, install renew cron (idempotent)
 #   ./deploy.sh deploy [--yes]      # build + bring up router + both stacks on self-signed (detached + polled)
 #   ./deploy.sh certs               # issue LE certs for both domains (run AFTER DNS resolves to the host)
-#   ./deploy.sh seed                # seed reviewable demo data: analyzers (9-device fleet) + a microbiology case
+#   ./deploy.sh seed                # seed reviewable demo data: analyzers plus microbiology worklist/classification cases
 #   ./deploy.sh app deploy amr --ref <sha> --scope frontend|backend|app
 #   ./deploy.sh app deploy analyzers --ref <sha> --scope frontend|backend|app
 #   ./deploy.sh app status <instance> [--deployment <id>]
@@ -341,15 +341,15 @@ cmd_certs() {
 # fresh, uniquely-suffixed records rather than erroring on conflict):
 #   analyzers — the harness's own seed-analyzers.sh (9-device Madagascar fleet:
 #               ASTM + HL7/MLLP + FILE, mock networks wired to the bridge)
-#   amr       — scripts/seed-microbiology.sh (a bacteriology + sibling TB case,
-#               provisioned through OpenELIS services) so the configured
-#               /Microbiology/worklist and case routes have something to review.
+#   amr       — scripts/seed-microbiology.sh (deployment-scoped worklist and
+#               classification cases, provisioned through OpenELIS services) so
+#               the configured order, worklist, and case routes are reviewable.
 cmd_seed() {
   require_aws
   log "seeding analyzers.openelis-global.org (9-device fleet via the harness's own seed script)"
   ssm_run "cd $ANALYZERS_DIR/projects/analyzer-harness && BASE_URL=https://$ANALYZERS_DOMAIN MOCK_URL=$MOCK_URL DB_CONTAINER=analyzers-openelisglobal-database ./seed-analyzers.sh" \
     || warn "analyzer seed failed — see output above"
-  log "seeding amr.openelis-global.org (microbiology demo case)"
+  log "seeding amr.openelis-global.org (microbiology worklist and classification cases)"
   ssm_run "cat > /tmp/seed-microbiology.sh <<'SEEDEOF'
 $(cat "$HERE/scripts/seed-microbiology.sh")
 SEEDEOF
