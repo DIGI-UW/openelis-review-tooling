@@ -62,6 +62,18 @@ test("ready target metadata is published only after successful health verificati
   assert.match(router, /location = \/__review\/target\.json/);
   assert.match(router, /target-amr\.json/);
   assert.match(router, /target-analyzers\.json/);
+  assert.match(router, /target-phrases\.json/);
+  assert.match(router, /data-instance="phrases"/);
+});
+
+test("the dedicated phrases review verifies sessions against its own app", async () => {
+  const compose = await read("grist/docker-compose.grist.yml");
+  const router = await read("router/nginx.conf.template");
+
+  assert.match(compose, /phrases=https:\/\/phrases-oe:8443/);
+  assert.match(compose, /phrases-oe/);
+  assert.match(router, /server_name \$\{PHRASES_DOMAIN\}/);
+  assert.match(router, /data-instance="phrases"/);
 });
 
 test("the deployed review surface remains inspectable by accessibility and UAT tools", async () => {
@@ -96,8 +108,9 @@ test("Microbiology review data is provisioned through OpenELIS services", async 
   const seed = await read("scripts/seed-microbiology.sh");
 
   assert.match(seed, /\/rest\/microbiology\/uat\/scenarios/);
-  assert.match(seed, /"scenario": "WORKLIST"/);
-  assert.match(seed, /review-amr-microbiology-mvp/);
+  assert.match(seed, /for scenario in WORKLIST R1/);
+  assert.match(seed, /__review\/target\.json/);
+  assert.match(seed, /review-amr-\$\{deployment_key\}/);
   assert.doesNotMatch(seed, /\bpsql\b/);
   assert.doesNotMatch(seed, /docker exec/);
   assert.doesNotMatch(seed, /\bINSERT\b/i);

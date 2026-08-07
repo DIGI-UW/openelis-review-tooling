@@ -72,6 +72,29 @@ document — this is exactly what a reviewer's browser loads:
 Note the shape differs from the table: rows are grouped into `sections`, and
 `step_key` is emitted as `key`.
 
+`GET /uat/index.json` publishes those story rows separately for the widget picker:
+
+```json
+{
+  "schemaVersion": 2,
+  "stories": [
+    {
+      "id": "amr--AMR-S01",
+      "review": "amr",
+      "key": "AMR-S01",
+      "title": "Find and route microbiology work",
+      "steps": 2,
+      "required": 2,
+      "routes": ["/Microbiology/worklist"]
+    }
+  ]
+}
+```
+
+The checklist endpoint stays aggregate; the widget selects one catalog story and
+renders the section with the matching stable key. `review` is the `UAT_Meta`
+instance, while `key` is the `UAT_Stories.story_key`. They are not interchangeable.
+
 ## `checklistRevision`
 
 A SHA-256 over the whole document content, computed on read. It is **content

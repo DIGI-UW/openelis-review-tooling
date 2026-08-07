@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 # =============================================================================
-# Issue Let's Encrypt certs for BOTH subdomains against the umbrella router.
+# Issue Let's Encrypt certs for every review domain against the umbrella router.
 #
 # Two independent single-domain certs (not one multi-SAN) — decoupled per the
 # deploy decision. Reuses the exact `certbot certonly --webroot` invocation from
@@ -18,7 +18,7 @@ set -euo pipefail
 #      [ROUTER_CONTAINER_NAME=oe-edge-router]
 # =============================================================================
 
-: "${AMR_DOMAIN:?}"; : "${ANALYZERS_DOMAIN:?}"; : "${LETSENCRYPT_EMAIL:?}"
+: "${AMR_DOMAIN:?}"; : "${ANALYZERS_DOMAIN:?}"; : "${PHRASES_DOMAIN:?}"; : "${LETSENCRYPT_EMAIL:?}"
 : "${LETSENCRYPT_DIR:?}"; : "${CERTBOT_WEBROOT:?}"
 ROUTER="${ROUTER_CONTAINER_NAME:-oe-edge-router}"
 STAGING_FLAG=""; [ "${LETSENCRYPT_STAGING:-false}" = "true" ] && STAGING_FLAG="--staging"
@@ -46,8 +46,9 @@ issue_one() {
 
 issue_one "$AMR_DOMAIN"
 issue_one "$ANALYZERS_DOMAIN"
+issue_one "$PHRASES_DOMAIN"
 [ -n "${GRIST_DOMAIN:-}" ] && issue_one "$GRIST_DOMAIN"
 
 echo ">> reloading router so it serves the issued certs (entrypoint re-resolves LE paths)"
 docker restart "$ROUTER" >/dev/null
-echo "✓ done — both domains should now serve valid Let's Encrypt certificates"
+echo "✓ done — all configured domains should now serve valid Let's Encrypt certificates"

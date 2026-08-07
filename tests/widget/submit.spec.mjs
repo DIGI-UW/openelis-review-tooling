@@ -224,16 +224,20 @@ test("an impatient second click does not file the review twice", async ({
   expect(sent).toHaveLength(1);
 });
 
-test("the fourth button in the row still fits the narrowest panel", async ({
+test("the primary footer fits the narrowest panel", async ({
   page,
 }) => {
   // The popped-out window is 460px and the compact overlay is not much wider.
-  // A footer that overflows does not wrap — it clips, and the button that goes
-  // missing is the one at the end, which is this one.
+  // Submission remains the direct action; the compact overflow control keeps
+  // occasional actions available without a row that can clip or wrap.
   await page.setViewportSize({ width: 460, height: 700 });
   const widget = await answerOneStep(await openPanel(page));
 
   const foot = widget.locator(".foot");
+  await expect(foot.getByRole("button")).toHaveCount(2);
+  await expect(
+    foot.getByRole("button", { name: "More review actions" }),
+  ).toBeVisible();
   const overflow = await foot.evaluate((el) => el.scrollWidth - el.clientWidth);
   expect(overflow).toBeLessThanOrEqual(1);
 

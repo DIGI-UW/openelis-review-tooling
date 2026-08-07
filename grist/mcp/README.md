@@ -5,13 +5,14 @@
 - `GET /uat/<instance>.json` reads the Grist `UAT_Meta` and `UAT_Steps` rows.
 - It validates stable step keys, ordering, required flags, and same-origin routes.
 - It emits schema-v2 widget JSON with a deterministic `checklistRevision`.
-- `GET /uat/index.json` is the catalog of stories on the deployment: every
-  instance that has steps, with its title, Jira key, step and required counts,
-  and the paths its steps point at. The widget uses it for the story switcher and
-  to work out which stories are about the page the reviewer is on. It rides the
-  same path shape as a checklist so no deployment needs a new proxy rule — which
-  means **an instance slugged `index` is unreachable**, because the catalog wins
-  that route. A route the service will not accept is left out of the story's
+- `GET /uat/index.json` is the story-level catalog. Every published
+  `UAT_Stories` row with steps carries its stable key, parent review instance,
+  title, Jira key, step and required counts, host scope, and the paths its steps
+  point at. The widget limits the picker to the injected review instance and
+  loads one real story at a time from that instance's aggregate checklist. The
+  catalog rides the same path shape as a checklist so no deployment needs a new
+  proxy rule, which means **an instance slugged `index` is unreachable** because
+  the catalog wins that route. A route the service will not accept is left out of the story's
   `routes` and reported in `warnings` rather than failing the catalog: it spans
   every story, and one malformed row in somebody's draft must not take down the
   endpoint `deploy.sh review deploy --scope service` is gated on. The checklist
@@ -24,11 +25,11 @@
 Checklists are served to anonymous callers — the widget has to load for a reviewer
 who is not signed in — so a slug is not a secret.
 
-The catalog is what makes slugs discoverable without one, so it lists only stories
-whose `UAT_Meta.published` is ticked. A new row is unlisted until someone says
-otherwise, and unlisted stories are omitted silently: naming them would put the
-slug and title of unreleased work into the very document the flag exists to keep
-them out of. Publish one with:
+The catalog is what makes review content discoverable without a slug, so it lists
+only stories whose parent `UAT_Meta.published` is ticked. A new review is unlisted
+until someone says otherwise, and all of its stories are omitted silently: naming
+them would put unreleased work into the document the flag exists to protect.
+Publish one with:
 
 ```
 ./grist/bootstrap.sh publish <instance>         # and --unlist to take it back

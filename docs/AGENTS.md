@@ -7,7 +7,7 @@ below is the live contract, not aspiration.
 ## What this is
 
 A self-hosted authoring + feedback loop that lets stakeholders review in-progress
-OpenELIS features against a structured checklist, and lets humans *or* agents
+OpenELIS features against a structured checklist, and lets humans _or_ agents
 author those checklists from one source of truth.
 
 - **Source of truth:** a Grist document ("UAT Checklists"). Humans edit it in the
@@ -18,8 +18,9 @@ author those checklists from one source of truth.
 - **Return path:** the reviewer downloads a Markdown+JSON report and pastes it
   into Claude, which triages it into Jira/GitHub items.
 
-Two instances today: `amr` (Microbiology MVP, OGC-782) and `analyzers` (Analyzer
-Types & Mapping, OGC-1054).
+Three instances today: `amr` (Microbiology MVP, OGC-782), `analyzers` (Analyzer
+Types & Mapping, OGC-1054), and `phrases` (Macro Library, OGC-788). Each has its
+own application session-verification backend and review identity.
 
 ## Authoring — native Grist MCP
 
@@ -40,17 +41,25 @@ Types & Mapping, OGC-1054).
 
 - Document **"UAT Checklists"**, id `hvZ4rzsyGJuqggkZBko8gc`.
 - Table **`UAT_Meta`** — one row per review: `instance, title, intro, jira,
-  published`.
+published`.
 - Table **`UAT_Stories`** — one row per story: `instance` (ref → `UAT_Meta`),
   `story_key, title, story_order`, plus where it came from — `jira, pr, mock`
   (one link each), `user_story` (prose) and `hosts` (deployments it applies to,
   blank for all).
 - Table **`UAT_Steps`** — one row per step:
   `instance, step_key, required, story` (ref → `UAT_Stories`), `step_order (int),
-  do, expect, route`.
-- Reviewers see steps grouped under their story and ordered by `story_order`
-  then `step_order`. `route` is the app path a reviewer opens for that step
-  (e.g. `/Microbiology/worklist`).
+do, expect, route`.
+- Reviewers select one `UAT_Stories` row at a time; only that story's steps and
+  progress are rendered. The picker is ordered by `story_order`, and steps by
+  `step_order`. A deployed review showing one option with the aggregate step
+  count is a failed validation even when the JSON still contains story sections.
+  `route` is the app path a reviewer opens for that step (for example,
+  `/Microbiology/worklist`).
+- The deployed story checklist is scoped to the injected review/server first and
+  to stories matching the current URL by default. If the URL has no matching
+  story, it explicitly falls back to all stories on that server. Reviewers can
+  expand to all server stories themselves; an explicit choice must survive a
+  refresh, while real navigation resets the route-relevant default.
 - Both story and step tables carry a computed `problems` column: empty means the
   row is publishable.
 - `step_key` is immutable and unique within an instance. Reordering a row must

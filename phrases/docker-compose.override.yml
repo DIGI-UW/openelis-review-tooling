@@ -1,0 +1,53 @@
+# =============================================================================
+# phrases.openelis-global.org - isolated OGC-788 Macro Library review stack.
+#
+# Layered last on the application repository's build.docker-compose.yml. The
+# umbrella router owns host ports; this stack joins it through explicit aliases.
+# =============================================================================
+
+services:
+  certs:
+    container_name: phrases-oe-certs
+    image: certgen.phrases
+    restart: "no"
+
+  db.openelis.org:
+    container_name: phrases-openelisglobal-database
+    image: openelisglobal-database.phrases
+    ports: !reset []
+
+  oe.openelis.org:
+    container_name: phrases-openelisglobal-webapp
+    image: openelisglobal-webapp.phrases
+    ports: !reset []
+    networks:
+      default:
+        ipv4_address: 172.26.1.121
+      edge:
+        aliases: [phrases-oe]
+
+  fhir.openelis.org:
+    container_name: phrases-external-fhir-api
+    image: external-fhir-api.phrases
+    ports: !reset []
+
+  frontend.openelis.org:
+    container_name: phrases-openelisglobal-front-end
+    image: frontend.phrases
+    networks:
+      default:
+      edge:
+        aliases: [phrases-frontend]
+
+  proxy:
+    container_name: phrases-openelisglobal-proxy
+    ports: !reset []
+
+networks:
+  edge:
+    external: true
+    name: oe-edge
+  default:
+    ipam:
+      config:
+        - subnet: 172.26.1.0/24

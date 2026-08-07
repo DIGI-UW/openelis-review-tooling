@@ -7,14 +7,21 @@
   "intro": "Check the order entry slice.",
   "sections": [
     {
-      "title": "Add an order",
+      "title": "Order entry",
+      "key": "ORD-S01",
+      "version": "1.0",
+      "revision": "555555555555",
+      "links": {
+        "jira": "OGC-900",
+        "userStory": "As a laboratory user, I can create an order and receive its lab number."
+      },
       "steps": [
         {
           "key": "ORD-1",
           "required": true,
           "do": "Open add order",
           "expect": "The form opens with an empty patient",
-          "route": "/tests/widget/app-fixture.html"
+          "route": "/orders"
         },
         {
           "key": "ORD-2",

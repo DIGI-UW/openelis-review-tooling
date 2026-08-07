@@ -138,9 +138,11 @@ to measure, and a Fail tells you nothing about where it broke.
 
 Keep a step to one observation. If the `expect` needs "and", it is two steps.
 
-Group steps into stories that match how a reviewer moves through the app. A short
-checklist is legitimately one story — the thing to avoid is fragmenting six steps
-into six stories of one, not having a single well-named story.
+Group steps into stories that match independently reviewable user outcomes and how
+a reviewer moves through the app. A short checklist may legitimately be one story,
+but a release with several milestones or user outcomes must not be collapsed into
+one story merely because it shares a deployment. Avoid both extremes: one story
+for the whole project and one story for every individual step.
 
 A story can also carry where it came from: `jira`, `pr` and `mock` take one link
 each and appear beside its heading, and `user_story` is prose rather than a URL.
