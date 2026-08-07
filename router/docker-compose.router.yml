@@ -1,6 +1,6 @@
 # =============================================================================
 # Umbrella reverse proxy — owns host :80/:443, terminates TLS for both
-# subdomains, dispatches by Host header to the two backend stacks over the
+# subdomains, dispatches by Host header to the backend stacks over the
 # shared external "oe-edge" network. Own compose project: `-p oe-edge`.
 #
 #   docker network create oe-edge         # once (deploy.sh does this)
@@ -23,6 +23,7 @@ services:
     environment:
       - AMR_DOMAIN=${AMR_DOMAIN}
       - ANALYZERS_DOMAIN=${ANALYZERS_DOMAIN}
+      - PHRASES_DOMAIN=${PHRASES_DOMAIN}
       - GRIST_DOMAIN=${GRIST_DOMAIN:-grist.openelis-global.org}
     volumes:
       - ./nginx.conf.template:/etc/nginx/nginx.conf.template:ro

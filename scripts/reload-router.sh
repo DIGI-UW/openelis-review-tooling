@@ -20,7 +20,7 @@ set -euo pipefail
 # certificate — nginx starts and then serves nothing on 443, which is an outage,
 # not a failed reload. Required here so that cannot happen quietly.
 : "${REMOTE_USER:?}" "${PROBE_DOMAIN:?}" "${PROBE_INSTANCE:?}"
-: "${AMR_DOMAIN:?}" "${ANALYZERS_DOMAIN:?}" "${GRIST_DOMAIN:?}"
+: "${AMR_DOMAIN:?}" "${ANALYZERS_DOMAIN:?}" "${PHRASES_DOMAIN:?}" "${GRIST_DOMAIN:?}"
 CONTAINER="${CONTAINER:-oe-edge-router}"
 SERVICE="${SERVICE:-router}"
 PROBE_ATTEMPTS="${PROBE_ATTEMPTS:-30}"
@@ -66,6 +66,7 @@ cd "$workdir"
 sudo -u "$REMOTE_USER" env \
   AMR_DOMAIN="$AMR_DOMAIN" \
   ANALYZERS_DOMAIN="$ANALYZERS_DOMAIN" \
+  PHRASES_DOMAIN="$PHRASES_DOMAIN" \
   GRIST_DOMAIN="$GRIST_DOMAIN" \
   docker compose -p "$project" "${compose_args[@]}" \
   up -d --no-deps --force-recreate --build "$SERVICE"

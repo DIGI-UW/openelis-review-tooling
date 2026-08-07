@@ -18,8 +18,9 @@ author those checklists from one source of truth.
 - **Return path:** the reviewer downloads a Markdown+JSON report and pastes it
   into Claude, which triages it into Jira/GitHub items.
 
-Two instances today: `amr` (Microbiology MVP, OGC-782) and `analyzers` (Analyzer
-Types & Mapping, OGC-1054).
+Three instances today: `amr` (Microbiology MVP, OGC-782), `analyzers` (Analyzer
+Types & Mapping, OGC-1054), and `phrases` (Macro Library, OGC-788). Each has its
+own application session-verification backend and review identity.
 
 ## Authoring — native Grist MCP
 

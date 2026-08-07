@@ -14,6 +14,7 @@ set -eu
 
 : "${AMR_DOMAIN:?AMR_DOMAIN is required}"
 : "${ANALYZERS_DOMAIN:?ANALYZERS_DOMAIN is required}"
+: "${PHRASES_DOMAIN:?PHRASES_DOMAIN is required}"
 : "${GRIST_DOMAIN:?GRIST_DOMAIN is required}"
 
 LE_LIVE=/etc/letsencrypt/live
@@ -44,17 +45,20 @@ resolve_cert "$AMR_DOMAIN"
 export AMR_CERT="$RESOLVED_CERT" AMR_KEY="$RESOLVED_KEY"
 resolve_cert "$ANALYZERS_DOMAIN"
 export ANALYZERS_CERT="$RESOLVED_CERT" ANALYZERS_KEY="$RESOLVED_KEY"
+resolve_cert "$PHRASES_DOMAIN"
+export PHRASES_CERT="$RESOLVED_CERT" PHRASES_KEY="$RESOLVED_KEY"
 resolve_cert "$GRIST_DOMAIN"
 export GRIST_CERT="$RESOLVED_CERT" GRIST_KEY="$RESOLVED_KEY"
 
 echo "[router] AMR_DOMAIN=$AMR_DOMAIN cert=$AMR_CERT"
 echo "[router] ANALYZERS_DOMAIN=$ANALYZERS_DOMAIN cert=$ANALYZERS_CERT"
+echo "[router] PHRASES_DOMAIN=$PHRASES_DOMAIN cert=$PHRASES_CERT"
 echo "[router] GRIST_DOMAIN=$GRIST_DOMAIN cert=$GRIST_CERT"
 
 # Render the template. Restrict the substituted vars so nginx runtime $variables
 # (e.g. $host, $scheme, the $amr_oe upstream vars) survive envsubst untouched.
 # shellcheck disable=SC2016
-envsubst '${AMR_DOMAIN} ${ANALYZERS_DOMAIN} ${GRIST_DOMAIN} ${AMR_CERT} ${AMR_KEY} ${ANALYZERS_CERT} ${ANALYZERS_KEY} ${GRIST_CERT} ${GRIST_KEY}' \
+envsubst '${AMR_DOMAIN} ${ANALYZERS_DOMAIN} ${PHRASES_DOMAIN} ${GRIST_DOMAIN} ${AMR_CERT} ${AMR_KEY} ${ANALYZERS_CERT} ${ANALYZERS_KEY} ${PHRASES_CERT} ${PHRASES_KEY} ${GRIST_CERT} ${GRIST_KEY}' \
   < /etc/nginx/nginx.conf.template > /etc/nginx/nginx.conf
 
 mkdir -p /var/cache/nginx/uat

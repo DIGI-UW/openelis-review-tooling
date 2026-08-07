@@ -1,16 +1,17 @@
 # =============================================================================
-# Umbrella reverse proxy — Host-based dispatch to two isolated OpenELIS stacks
+# Umbrella reverse proxy — Host-based dispatch to isolated OpenELIS stacks
 # =============================================================================
 # Rendered by docker-entrypoint.sh via envsubst. Variables:
 #   ${AMR_DOMAIN}        — microbiology MVP stack (OGC-782)
 #   ${ANALYZERS_DOMAIN}  — analyzer types & mapping stack (OGC-1054, incl. harness)
+#   ${PHRASES_DOMAIN}    — Macro Library stack (OGC-788)
 #   ${AMR_CERT} ${AMR_KEY} ${ANALYZERS_CERT} ${ANALYZERS_KEY}
 #       — per-domain cert paths, resolved by the entrypoint to the Let's Encrypt
 #         lineage when present, else a per-domain self-signed fallback.
 #
-# The two backend stacks bind NO host ports; they are reached only over the
+# The backend stacks bind NO host ports; they are reached only over the
 # shared external "oe-edge" Docker network by the aliases their override files
-# attach: amr-frontend / amr-oe and analyzers-frontend / analyzers-oe.
+# attach: amr-*, analyzers-*, and phrases-*.
 #
 # DO NOT edit the rendered nginx.conf — edit this template.
 # =============================================================================
@@ -44,7 +45,7 @@ http {
     # -------------------------------------------------------------------------
     server {
         listen 80;
-        server_name ${AMR_DOMAIN} ${ANALYZERS_DOMAIN} ${GRIST_DOMAIN};
+        server_name ${AMR_DOMAIN} ${ANALYZERS_DOMAIN} ${PHRASES_DOMAIN} ${GRIST_DOMAIN};
 
         location /.well-known/acme-challenge/ {
             root /var/www/certbot;
@@ -57,6 +58,88 @@ http {
         listen 80 default_server;
         server_name _;
         return 301 https://$host$request_uri;
+    }
+
+    # -------------------------------------------------------------------------
+    # phrases.openelis-global.org -> isolated Macro Library stack (OGC-788)
+    # -------------------------------------------------------------------------
+    server {
+        listen 443 ssl;
+        server_name ${PHRASES_DOMAIN};
+
+        ssl_certificate     ${PHRASES_CERT};
+        ssl_certificate_key ${PHRASES_KEY};
+        ssl_protocols TLSv1.2 TLSv1.3;
+        ssl_prefer_server_ciphers off;
+
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Host $server_name;
+        absolute_redirect off;
+
+        location /__review/ {
+            alias /etc/nginx/review/;
+            types { application/javascript js; application/json json; }
+            default_type application/octet-stream;
+            add_header Cache-Control "no-store";
+        }
+
+        location ~ ^/__review/uat-(?<uat_instance>[a-z0-9_-]+)\.json$ {
+            set $uat_up "uat-read";
+            proxy_pass http://$uat_up:8585/uat/$uat_instance.json;
+            proxy_ignore_headers Cache-Control Expires;
+            proxy_cache uat_cache;
+            proxy_cache_valid 200 30s;
+            proxy_cache_use_stale error timeout updating http_502 http_503 http_504;
+            add_header Cache-Control "no-store" always;
+            add_header X-UAT-Cache $upstream_cache_status always;
+            add_header X-UAT-Source "grist-live" always;
+        }
+
+        location ~ ^(?:/api/OpenELIS-Global)?/__review/uat-(?<uat_submit_instance>[a-z0-9_-]+)/submissions$ {
+            set $uat_up "uat-read";
+            proxy_pass http://$uat_up:8585/uat/$uat_submit_instance/submissions;
+            proxy_set_header Host $host;
+            add_header Cache-Control "no-store" always;
+        }
+
+        location = /__review/target.json {
+            alias /etc/nginx/runtime/target-phrases.json;
+            default_type application/json;
+            add_header Cache-Control "no-store";
+        }
+        location = /__review/build.json {
+            alias /etc/nginx/runtime/target-phrases.json;
+            default_type application/json;
+            add_header Cache-Control "no-store";
+        }
+
+        location / {
+            set $phrases_frontend "phrases-frontend";
+            proxy_pass http://$phrases_frontend;
+            proxy_redirect off;
+            proxy_set_header Host localhost;
+            proxy_set_header Accept-Encoding "";
+            sub_filter_once on;
+            sub_filter '</head>' '<script src="/__review/oe-review-widget.js" data-instance="phrases" data-label="Macro Library (OGC-788)"></script></head>';
+        }
+        location /api/ {
+            set $phrases_oe "phrases-oe";
+            proxy_pass https://$phrases_oe:8443$request_uri;
+            proxy_redirect off;
+            proxy_ssl_verify off;
+            proxy_ssl_server_name on;
+            proxy_set_header Host $host;
+        }
+        location /rest/ {
+            set $phrases_oe "phrases-oe";
+            proxy_pass https://$phrases_oe:8443$request_uri;
+            proxy_redirect off;
+            proxy_ssl_verify off;
+            proxy_ssl_server_name on;
+            proxy_set_header Host $host;
+        }
     }
 
     # -------------------------------------------------------------------------

@@ -45,7 +45,7 @@ BACKEND_IMAGE="openelisglobal-webapp.$INSTANCE"
 FRONTEND_IMAGE="frontend.$INSTANCE"
 
 case "$INSTANCE" in
-  amr | analyzers) ;;
+  amr | analyzers | phrases) ;;
   *)
     echo "unsupported targeted rollback instance: $INSTANCE" >&2
     exit 1

@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 #
-# deploy.sh — reproducible lifecycle for the dual-subdomain OpenELIS demo:
+# deploy.sh — reproducible lifecycle for the OpenELIS review environments:
 #   amr.openelis-global.org        — Microbiology MVP (OGC-782)
 #   analyzers.openelis-global.org  — Analyzer Types & Mapping + harness (OGC-1054)
-# One host, two isolated stacks behind one umbrella reverse proxy, per-domain LE.
+#   phrases.openelis-global.org    — Macro Library (OGC-788)
+# One host, isolated stacks behind one umbrella reverse proxy, per-domain LE.
 #
 # Everything here is idempotent and scripted — no hand-run steps. Config is in
 # .env (copy from .env.example). Reuses: the harness's own bootstrap.sh, the
@@ -28,6 +29,7 @@
 #   ./deploy.sh seed                # seed reviewable demo data: analyzers plus microbiology worklist/classification cases
 #   ./deploy.sh app deploy amr --ref <sha> --scope frontend|backend|app
 #   ./deploy.sh app deploy analyzers --ref <sha> --scope frontend|backend|app
+#   ./deploy.sh app deploy phrases --ref <sha> --scope app
 #   ./deploy.sh app status <instance> [--deployment <id>]
 #   ./deploy.sh app verify <instance>
 #   ./deploy.sh app rollback <instance>
@@ -48,12 +50,12 @@ else
 fi
 
 : "${REGION:?}" "${INSTANCE_ID:?}" "${EIP:?}" "${SG_ID:?}" "${OS_USER:?}" "${SSH_KEY:?}"
-: "${AMR_DOMAIN:?}" "${ANALYZERS_DOMAIN:?}" "${GRIST_DOMAIN:?}"
-: "${AMR_BRANCH:?}" "${ANALYZERS_BRANCH:?}"
-: "${EDGE_DIR:?}" "${AMR_DIR:?}" "${ANALYZERS_DIR:?}" "${LETSENCRYPT_EMAIL:?}"
+: "${AMR_DOMAIN:?}" "${ANALYZERS_DOMAIN:?}" "${PHRASES_DOMAIN:?}" "${GRIST_DOMAIN:?}"
+: "${AMR_BRANCH:?}" "${ANALYZERS_BRANCH:?}" "${PHRASES_BRANCH:?}"
+: "${EDGE_DIR:?}" "${AMR_DIR:?}" "${ANALYZERS_DIR:?}" "${PHRASES_DIR:?}" "${LETSENCRYPT_EMAIL:?}"
 SSH_KEY_EXPANDED="${SSH_KEY/#\~/$HOME}"
 # Two repos: this harness (cloned into EDGE_DIR) and the OpenELIS app it builds
-# (cloned into AMR_DIR / ANALYZERS_DIR). They are separate checkouts on the host.
+# (cloned into the instance-specific directories). They are separate checkouts.
 HARNESS_REPO="${HARNESS_REPO:-https://github.com/DIGI-UW/openelis-review-tooling.git}"
 HARNESS_BRANCH="${HARNESS_BRANCH:-main}"
 APP_REPO="${APP_REPO:-https://github.com/DIGI-UW/OpenELIS-Global-2.git}"
@@ -201,7 +203,7 @@ ENV_FILE="$EDGE_DIR/.env" REVIEW_DIR="$EDGE_DIR/widget/examples" \\
 
 echo "[deploy] router up (self-signed until certs issued)"
 cd "$EDGE_DIR/$ROUTER_SUBDIR"
-AMR_DOMAIN="$AMR_DOMAIN" ANALYZERS_DOMAIN="$ANALYZERS_DOMAIN" \\
+AMR_DOMAIN="$AMR_DOMAIN" ANALYZERS_DOMAIN="$ANALYZERS_DOMAIN" PHRASES_DOMAIN="$PHRASES_DOMAIN" \\
   docker compose -p oe-edge -f docker-compose.router.yml up -d --build
 
 echo "[deploy] amr stack build+up"
@@ -327,12 +329,12 @@ chmod +x '$REMOTE_RUNNER'" >/dev/null || die "failed to write runner"
 
 cmd_certs() {
   require_aws
-  for d in "$AMR_DOMAIN" "$ANALYZERS_DOMAIN" "$GRIST_DOMAIN"; do
+  for d in "$AMR_DOMAIN" "$ANALYZERS_DOMAIN" "$PHRASES_DOMAIN" "$GRIST_DOMAIN"; do
     got="$(dig +short "$d" | tail -1)"
     [ "$got" = "$EIP" ] || warn "DNS: $d -> ${got:-<none>} (expected $EIP) — ACME will fail until this resolves"
   done
   log "issuing certs for all demo domains on the host"
-  ssm_run "AMR_DOMAIN=$AMR_DOMAIN ANALYZERS_DOMAIN=$ANALYZERS_DOMAIN GRIST_DOMAIN=$GRIST_DOMAIN LETSENCRYPT_EMAIL=$LETSENCRYPT_EMAIL LETSENCRYPT_STAGING=${LETSENCRYPT_STAGING:-false} LETSENCRYPT_DIR=$LE_DIR CERTBOT_WEBROOT=$WEBROOT_DIR bash $EDGE_DIR/scripts/generate-certs.sh" \
+  ssm_run "AMR_DOMAIN=$AMR_DOMAIN ANALYZERS_DOMAIN=$ANALYZERS_DOMAIN PHRASES_DOMAIN=$PHRASES_DOMAIN GRIST_DOMAIN=$GRIST_DOMAIN LETSENCRYPT_EMAIL=$LETSENCRYPT_EMAIL LETSENCRYPT_STAGING=${LETSENCRYPT_STAGING:-false} LETSENCRYPT_DIR=$LE_DIR CERTBOT_WEBROOT=$WEBROOT_DIR bash $EDGE_DIR/scripts/generate-certs.sh" \
     || die "cert issuance failed"
   cmd_status
 }
@@ -362,8 +364,8 @@ BASE_URL=https://$AMR_DOMAIN /tmp/seed-microbiology.sh" \
 
 validate_instance() {
   case "$1" in
-    amr | analyzers) ;;
-    *) die "targeted app lifecycle supports instances 'amr' and 'analyzers'" ;;
+    amr | analyzers | phrases) ;;
+    *) die "targeted app lifecycle supports instances 'amr', 'analyzers', and 'phrases'" ;;
   esac
 }
 
@@ -379,6 +381,11 @@ select_instance_config() {
       SELECTED_APP_DIR="$ANALYZERS_DIR"
       SELECTED_APP_DOMAIN="$ANALYZERS_DOMAIN"
       SELECTED_APP_SMOKE_PATH="/analyzers"
+      ;;
+    phrases)
+      SELECTED_APP_DIR="$PHRASES_DIR"
+      SELECTED_APP_DOMAIN="$PHRASES_DOMAIN"
+      SELECTED_APP_SMOKE_PATH="/admin/MacroLibrary"
       ;;
   esac
 }
@@ -570,7 +577,7 @@ repo_git fetch --depth 1 origin '$ref'
 repo_git checkout --detach FETCH_HEAD
 [ \"\$(repo_git rev-parse HEAD)\" = '$ref' ]
 grep -q 'attachShadow({ mode: \"open\" })' \"\$edge_dir/widget/oe-review-widget.js\"
-for instance in amr analyzers; do
+for instance in amr analyzers phrases; do
   target=\"\$edge_dir/runtime/target-\$instance.json\"
   [ -f \"\$target\" ] || continue
   tmp=\$(mktemp \"\$edge_dir/runtime/.target-\$instance.XXXXXX\")
@@ -605,7 +612,7 @@ fi"
 cmd_review_reload_router() {
   shift || true
   require_aws
-  local instance="amr" domain="$AMR_DOMAIN"
+  local instance="amr" domain=""
   while [ $# -gt 0 ]; do
     case "$1" in
       --instance) instance="${2:-}"; shift 2 ;;
@@ -613,6 +620,14 @@ cmd_review_reload_router() {
       *) die "unknown reload-router option '$1'" ;;
     esac
   done
+  validate_instance "$instance"
+  if [ -z "$domain" ]; then
+    case "$instance" in
+      amr) domain="$AMR_DOMAIN" ;;
+      analyzers) domain="$ANALYZERS_DOMAIN" ;;
+      phrases) domain="$PHRASES_DOMAIN" ;;
+    esac
+  fi
   log "reloading the router (probing $domain/__review/uat-$instance/submissions)"
   ssm_run "set -euo pipefail
 # Shipped as a real script rather than inlined here, so it is covered by
@@ -622,7 +637,7 @@ $(cat "$HERE/scripts/reload-router.sh")
 RTREOF
 chmod +x /tmp/oe-reload-router.sh
 REMOTE_USER='$OS_USER' PROBE_DOMAIN='$domain' PROBE_INSTANCE='$instance' \
-AMR_DOMAIN='$AMR_DOMAIN' ANALYZERS_DOMAIN='$ANALYZERS_DOMAIN' GRIST_DOMAIN='$GRIST_DOMAIN' \
+AMR_DOMAIN='$AMR_DOMAIN' ANALYZERS_DOMAIN='$ANALYZERS_DOMAIN' PHRASES_DOMAIN='$PHRASES_DOMAIN' GRIST_DOMAIN='$GRIST_DOMAIN' \
 /tmp/oe-reload-router.sh"
 }
 
@@ -668,18 +683,18 @@ cmd_data_seed() {
     esac
   done
   validate_instance "$instance"
-  # The only fixture is the AMR microbiology MVP, and the body below targets the
-  # amr database and domain unconditionally. Without this guard, asking for
-  # 'analyzers' would quietly seed amr instead.
-  [ "$instance" = amr ] || die "data seed supports only instance 'amr' (fixture microbiology-mvp)"
-  [ "$fixture" = microbiology-mvp ] || die "AMR fixture must be 'microbiology-mvp'"
+  case "$instance:$fixture" in
+    amr:microbiology-mvp | phrases:macro-library) ;;
+    *) die "supported data fixtures are amr:microbiology-mvp and phrases:macro-library" ;;
+  esac
+  select_instance_config "$instance"
   require_aws
-  log "seeding AMR microbiology MVP fixture only"
+  log "seeding $instance fixture $fixture"
   ssm_run "cat > /tmp/seed-microbiology.sh <<'SEEDEOF'
 $(cat "$HERE/scripts/seed-microbiology.sh")
 SEEDEOF
 chmod +x /tmp/seed-microbiology.sh
-BASE_URL=https://$AMR_DOMAIN /tmp/seed-microbiology.sh"
+BASE_URL=https://$SELECTED_APP_DOMAIN /tmp/seed-microbiology.sh"
 }
 
 cmd_data() {
@@ -695,11 +710,11 @@ cmd_status() {
   require_aws
   log "instance"; aws ec2 describe-instances --region "$REGION" --instance-ids "$INSTANCE_ID" \
     --query "Reservations[0].Instances[0].[State.Name,PublicIpAddress,InstanceType]" --output text | sed 's/^/   /'
-  for d in "$AMR_DOMAIN" "$ANALYZERS_DOMAIN" "$GRIST_DOMAIN"; do
+  for d in "$AMR_DOMAIN" "$ANALYZERS_DOMAIN" "$PHRASES_DOMAIN" "$GRIST_DOMAIN"; do
     printf '   https://%s/ -> HTTP %s\n' "$d" "$(curl -sk -o /dev/null -w '%{http_code}' --max-time 15 "https://$d/" 2>/dev/null || echo 000)"
   done
   echo "   containers:"
-  ssm_run "docker ps --format '{{.Names}}: {{.Status}}' | grep -E 'amr-|analyzers-|oe-edge' || true" | sed 's/^/     /' \
+  ssm_run "docker ps --format '{{.Names}}: {{.Status}}' | grep -E 'amr-|analyzers-|phrases-|oe-edge' || true" | sed 's/^/     /' \
     || warn "remote status failed"
   cmd_drift
 }

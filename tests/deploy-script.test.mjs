@@ -12,6 +12,10 @@ const appRollbackScript = readFileSync(
   `${repoRoot}/scripts/targeted-app-rollback.sh`,
   "utf8",
 );
+const phrasesOverride = readFileSync(
+  `${repoRoot}/phrases/docker-compose.override.yml`,
+  "utf8",
+);
 
 test("remote repository operations run as the checkout owner", () => {
   assert.match(
@@ -69,8 +73,35 @@ test("targeted app deployment accepts only an exact SHA and explicit scope", () 
   assert.match(deployScript, /\^\[0-9a-f\]\{40\}\$/);
   assert.match(deployScript, /--scope must be frontend, backend, or app/);
   assert.match(deployScript, /app deploy amr --ref <sha>/);
+  assert.match(deployScript, /app deploy phrases --ref <sha>/);
   assert.match(deployScript, /review deploy --ref <sha> --scope widget/);
   assert.match(deployScript, /data seed amr --fixture microbiology-mvp/);
+});
+
+test("phrases is an isolated first-class OpenELIS review instance", () => {
+  assert.match(deployScript, /amr \| analyzers \| phrases/);
+  assert.match(deployScript, /SELECTED_APP_DIR="\$PHRASES_DIR"/);
+  assert.match(deployScript, /SELECTED_APP_DOMAIN="\$PHRASES_DOMAIN"/);
+  assert.match(deployScript, /SELECTED_APP_SMOKE_PATH="\/admin\/MacroLibrary"/);
+  assert.match(phrasesOverride, /container_name: phrases-openelisglobal-webapp/);
+  assert.match(phrasesOverride, /aliases: \[phrases-oe\]/);
+  assert.match(phrasesOverride, /aliases: \[phrases-frontend\]/);
+  assert.match(phrasesOverride, /subnet: 172\.26\.1\.0\/24/);
+});
+
+test("targeted deployment bootstraps a missing declared instance", () => {
+  assert.match(appDeployScript, /\[ -n "\$running_configs" \] \|\| bootstrap=true/);
+  assert.match(appDeployScript, /git clone --no-checkout/);
+  assert.match(appDeployScript, /build\.docker-compose\.yml/);
+  assert.match(appDeployScript, /docker-compose\.override\.yml/);
+  assert.match(
+    appDeployScript,
+    /compose up -d --build certs db\.openelis\.org oe\.openelis\.org fhir\.openelis\.org frontend\.openelis\.org/,
+  );
+  assert.match(
+    appDeployScript,
+    /bootstrap failed; removing partial containers.*compose down/s,
+  );
 });
 
 test("targeted app deployment publishes only truthful branch provenance", () => {
@@ -94,14 +125,16 @@ test("targeted app deployment preserves unrelated review infrastructure", () => 
   );
   assert.doesNotMatch(appDeployScript, /grist\/bootstrap/);
   assert.doesNotMatch(appDeployScript, /docker compose -p analyzers/);
-  assert.doesNotMatch(appDeployScript, /\bdb\.openelis\.org\b/);
-  assert.doesNotMatch(appDeployScript, /\bfhir\.openelis\.org\b/);
-});
-
-test("only the AMR review deployment enables service-backed UAT provisioning", () => {
   assert.match(
     appDeployScript,
-    /if \[ "\$INSTANCE" = amr \]; then\s+export OE_UAT_SCENARIOS_ENABLED=true/s,
+    /if \[ "\$bootstrap" = false \]; then\s+candidate_started=true\s+write_status verifying\s+compose up -d --no-deps --force-recreate/s,
+  );
+});
+
+test("clinical review deployments enable service-backed UAT provisioning", () => {
+  assert.match(
+    appDeployScript,
+    /if \[ "\$INSTANCE" = amr \] \|\| \[ "\$INSTANCE" = phrases \]; then\s+export OE_UAT_SCENARIOS_ENABLED=true/s,
   );
   assert.match(
     deployScript,
@@ -117,7 +150,7 @@ test("targeted analyzer deployment reuses its active Compose chain", () => {
   assert.match(deployScript, /app deploy analyzers --ref <sha>/);
   assert.match(
     deployScript,
-    /case "\$1" in\s+amr \| analyzers\)/,
+    /case "\$1" in\s+amr \| analyzers \| phrases\)/,
   );
   assert.doesNotMatch(
     appDeployScript,

@@ -60,7 +60,7 @@ function harness({
       `fi`,
       // The domains are what the entrypoint renders into server_name and the
       // certificate paths, so whether they arrived is the whole question.
-      `printf 'env AMR_DOMAIN=%s ANALYZERS_DOMAIN=%s GRIST_DOMAIN=%s\\n' "\${AMR_DOMAIN-unset}" "\${ANALYZERS_DOMAIN-unset}" "\${GRIST_DOMAIN-unset}" >> ${JSON.stringify(join(root, "docker.log"))}`,
+      `printf 'env AMR_DOMAIN=%s ANALYZERS_DOMAIN=%s PHRASES_DOMAIN=%s GRIST_DOMAIN=%s\\n' "\${AMR_DOMAIN-unset}" "\${ANALYZERS_DOMAIN-unset}" "\${PHRASES_DOMAIN-unset}" "\${GRIST_DOMAIN-unset}" >> ${JSON.stringify(join(root, "docker.log"))}`,
       `printf '%s\\n' "$*" >> ${JSON.stringify(join(root, "docker.log"))}`,
     ].join("\n"),
   );
@@ -108,6 +108,7 @@ function harness({
           REMOTE_USER: "ubuntu",
           AMR_DOMAIN: "amr.example.org",
           ANALYZERS_DOMAIN: "analyzers.example.org",
+          PHRASES_DOMAIN: "phrases.example.org",
           GRIST_DOMAIN: "grist.example.org",
           PROBE_DOMAIN: "amr.example.org",
           PROBE_INSTANCE: "amr",
@@ -222,7 +223,12 @@ test("refuses to recreate the router without the domains it renders", () => {
   // an outage rather than a failed reload, so it has to be impossible to do by
   // omission.
   const rig = harness();
-  for (const missing of ["AMR_DOMAIN", "ANALYZERS_DOMAIN", "GRIST_DOMAIN"]) {
+  for (const missing of [
+    "AMR_DOMAIN",
+    "ANALYZERS_DOMAIN",
+    "PHRASES_DOMAIN",
+    "GRIST_DOMAIN",
+  ]) {
     assert.throws(
       () => rig.run({ [missing]: "" }),
       new RegExp(missing),
@@ -240,5 +246,6 @@ test("hands the domains to the compose that renders them", () => {
   rig.run();
   assert.match(rig.dockerLog(), /AMR_DOMAIN=amr\.example\.org/);
   assert.match(rig.dockerLog(), /ANALYZERS_DOMAIN=analyzers\.example\.org/);
+  assert.match(rig.dockerLog(), /PHRASES_DOMAIN=phrases\.example\.org/);
   assert.match(rig.dockerLog(), /GRIST_DOMAIN=grist\.example\.org/);
 });
