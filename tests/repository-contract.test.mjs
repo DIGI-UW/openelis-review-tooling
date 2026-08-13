@@ -16,6 +16,17 @@ test("agent and operator docs preserve the native MCP boundary", async () => {
   assert.match(readService, /no authoring endpoint/);
 });
 
+test("REST checklist authoring requires explicit stable keys", async () => {
+  const contract = await read("docs/AGENTS.md");
+  const skill = await read("skills/uat-authoring/SKILL.md");
+  const schema = await read("skills/uat-authoring/references/schema.md");
+
+  assert.match(contract, /REST creates must send[\s\S]*`story_key` and `step_key`/);
+  assert.match(skill, /REST creates must provide stable keys explicitly/);
+  assert.match(skill, /REST create MUST include an unused stable `story_key`/);
+  assert.match(schema, /REST creates must send it explicitly/);
+});
+
 test("remote deploy commands never carry Grist or Dex secret values", async () => {
   const deploy = await read("deploy.sh");
   const localEnv = await read(".env.example");

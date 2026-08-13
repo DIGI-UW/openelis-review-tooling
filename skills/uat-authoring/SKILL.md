@@ -113,6 +113,13 @@ to a `UAT_Meta` row, not the slug. Typing a name that matches nothing used to
 produce a second, empty checklist instead of an error; now it is a reference and
 cannot.
 
+**REST creates must provide stable keys explicitly.** Grist's UI can apply the
+default formulas for `story_key` and `step_key`, but a REST `POST` is not
+guaranteed to do so. Before adding records over REST, read the current keys,
+choose unused values in the instance's existing scheme, and send both keys in
+the create payload. Never infer success from an empty computed `problems` value
+alone; verify the public checklist endpoint after the write.
+
 ## Write steps a reviewer can actually judge
 
 A step is a `do` the reviewer performs and an `expect` they measure against. The
@@ -178,9 +185,10 @@ grist_add_records(doc_id, "UAT_Steps", [{
 ```
 
 A new story needs `instance` (the `UAT_Meta` **row id**), `title` and
-`story_order`; `story_key` fills itself in. A brand-new checklist needs the
-`UAT_Meta` row first — `instance`, `title`, `intro`, `jira` — because everything
-else points at it.
+`story_order`. Native MCP or the Grist UI may apply the `story_key` default; a
+REST create MUST include an unused stable `story_key` explicitly. A brand-new
+checklist needs the `UAT_Meta` row first — `instance`, `title`, `intro`, `jira` —
+because everything else points at it.
 
 ## Always verify — the edit is not done until this passes
 

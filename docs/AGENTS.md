@@ -65,6 +65,10 @@ do, expect, route`.
 - `step_key` is immutable and unique within an instance. Reordering a row must
   not change it. Changing `do`, `expect`, `route`, or `required` invalidates a
   prior reviewer mark until the reviewer confirms that step again.
+- Grist's UI may apply default story and step keys, but REST creates must send
+  explicit unused `story_key` and `step_key` values. Read the current rows first
+  and verify the public checklist after writing; a computed `problems` cell may
+  lag the create that should have populated a key.
 
 ### Tools you'll use (of 38 `grist_*` tools)
 
