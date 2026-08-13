@@ -70,8 +70,29 @@ print(response.get("csrf", ""))
   exit 1
 }
 
-for scenario in WORKLIST R1; do
-  scenario_key="${SCENARIO_KEY}-$(printf '%s' "$scenario" | tr '[:upper:]' '[:lower:]')"
+default_fixture_specs=(
+  "AMR-S17:WORKLIST"
+  "AMR-S18:R1"
+  "AMR-S02:R1"
+  "AMR-S19:R1"
+)
+if [ -n "${FIXTURE_SPECS:-}" ]; then
+  read -r -a fixture_specs <<< "$FIXTURE_SPECS"
+else
+  fixture_specs=("${default_fixture_specs[@]}")
+fi
+
+for fixture_spec in "${fixture_specs[@]}"; do
+  fixture_key="${fixture_spec%%:*}"
+  scenario="${fixture_spec#*:}"
+  case "$scenario" in
+    CASE|MVP|WORKLIST|M3|M4|R1) ;;
+    *)
+      echo "Unsupported fixture scenario in $fixture_spec" >&2
+      exit 1
+      ;;
+  esac
+  scenario_key="${SCENARIO_KEY}-$(printf '%s' "$fixture_key" | tr '[:upper:]' '[:lower:]')"
   payload="$(
     SCENARIO="$scenario" SCENARIO_KEY="$scenario_key" python3 -c '
 import json
@@ -94,12 +115,13 @@ print(json.dumps({
   )"
 
   printf '%s' "$scenario_json" |
-    BASE_URL="$BASE_URL" python3 -c '
+    BASE_URL="$BASE_URL" FIXTURE_KEY="$fixture_key" python3 -c '
 import json
 import os
 import sys
 
 scenario = json.load(sys.stdin)
+fixture_key = os.environ["FIXTURE_KEY"]
 scenario_name = scenario["scenario"]
 base_url = os.environ["BASE_URL"].rstrip("/")
 case_id = scenario["caseId"]
@@ -108,6 +130,7 @@ scenario_key = scenario["scenarioKey"]
 accession = scenario["accessionNumber"]
 
 print("=== SEEDED THROUGH OPENELIS SERVICES ===")
+print(f"fixture:       {fixture_key}")
 print(f"scenario:      {scenario_name}")
 print(f"scenario key:  {scenario_key}")
 print(f"accession:     {accession}")

@@ -107,6 +107,9 @@ Before publishing, dry-run the exact prose on the deployed target without test
 helpers or fixture APIs. The story must name the starting surface, full nav path,
 stable human-visible fixture data, record-reuse/reset rules, and the part of a
 complex screen that is in scope. Each step must disambiguate repeated controls.
+A state-changing story gets a story-specific fixture; independently selectable
+stories must never silently share one mutable case. Consume-once fixtures name
+their required starting state and reseed boundary.
 A valid JSON endpoint proves only that the checklist can load; the live overlay
 and reviewer-executable walkthrough prove that it can be used.
 

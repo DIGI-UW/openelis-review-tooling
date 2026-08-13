@@ -76,7 +76,24 @@ log()  { printf '%s>> %s%s\n' "$C_I" "$*" "$C_0"; }
 warn() { printf '%s!! %s%s\n' "$C_W" "$*" "$C_0" >&2; }
 die()  { printf '%s!! %s%s\n' "$C_E" "$*" "$C_0" >&2; exit 1; }
 
-require_aws() { aws sts get-caller-identity --region "$REGION" >/dev/null 2>&1 || die "no AWS session — run 'aws login' first"; }
+require_aws() {
+  local output
+  if output="$(aws sts get-caller-identity --region "$REGION" 2>&1)"; then
+    return 0
+  fi
+
+  case "$output" in
+    *InvalidGrantException*|*CreateOAuth2Token*|*ExpiredToken*|*InvalidClientTokenId*|*UnrecognizedClientException*)
+      die "AWS credentials could not be refreshed — run 'aws login' once, then retry"
+      ;;
+    *"Could not connect to the endpoint URL"*|*"Connection was closed"*|*"Name or service not known"*|*"SSL validation failed"*)
+      die "AWS endpoint is unreachable; the login may still be valid — check network/sandbox access, then retry"
+      ;;
+    *)
+      die "AWS session check failed: $output"
+      ;;
+  esac
+}
 my_ip() { curl -fsS --max-time 10 https://checkip.amazonaws.com | tr -d '[:space:]'; }
 
 # ---- SSM transport: base64-encode the script body (sidesteps all quoting),

@@ -17,6 +17,18 @@ const phrasesOverride = readFileSync(
   "utf8",
 );
 
+test("AWS preflight distinguishes refresh failures from endpoint failures", () => {
+  assert.match(deployScript, /AWS credentials could not be refreshed/);
+  assert.match(
+    deployScript,
+    /AWS endpoint is unreachable; the login may still be valid/,
+  );
+  assert.doesNotMatch(
+    deployScript,
+    /get-caller-identity[^\n]+>\/dev\/null 2>&1 \|\| die "no AWS session/,
+  );
+});
+
 test("remote repository operations run as the checkout owner", () => {
   assert.match(
     deployScript,

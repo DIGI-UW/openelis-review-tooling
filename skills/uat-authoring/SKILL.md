@@ -158,6 +158,12 @@ The story description must orient the reviewer with:
 - whether steps share one record or require a fresh record; and
 - which region of a complex screen is in scope.
 
+Any story that changes a record's stage or consumes a one-time action must have
+its own story-specific fixture. Do not share one mutable case across independently
+selectable stories. Name the reset boundary explicitly: for a consume-once demo
+fixture, state the exact starting stage and tell the reviewer to request a reseed
+instead of adapting the expected result when that stage is no longer present.
+
 Each `do` must name the screen region and exact control labels needed to reach
 the observation. Disambiguate repeated labels such as several `Search` buttons.
 Setup actions may precede the observation without violating the one-observation

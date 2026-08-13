@@ -7,7 +7,7 @@ import test from "node:test";
 
 const repoRoot = new URL("..", import.meta.url).pathname;
 
-test("Microbiology seed provisions deployment-scoped worklist and classification scenarios", async () => {
+test("Microbiology seed provisions one deployment-scoped fixture per R1 story", async () => {
   const binDir = await mkdtemp(path.join(tmpdir(), "oe-review-seed-"));
   const callsFile = path.join(binDir, "curl-calls");
   const curlStub = path.join(binDir, "curl");
@@ -29,14 +29,25 @@ case "$*" in
     ;;
   *rest/microbiology/uat/scenarios*)
     [[ "$*" == *"X-CSRF-Token: test-csrf"* ]]
-    if [[ "$*" == *'"scenario": "WORKLIST"'* ]]; then
-      [[ "$*" == *'"scenarioKey": "review-amr-1234567890ab-worklist"'* ]]
-      printf '{"scenario":"WORKLIST","scenarioKey":"review-amr-1234567890ab-worklist","accessionNumber":"UATMICRO123","caseId":"case-1","siblingCaseId":"case-2"}'
-    else
-      [[ "$*" == *'"scenario": "R1"'* ]]
-      [[ "$*" == *'"scenarioKey": "review-amr-1234567890ab-r1"'* ]]
-      printf '{"scenario":"R1","scenarioKey":"review-amr-1234567890ab-r1","accessionNumber":"UATMICRO456","caseId":"case-3","siblingCaseId":"case-4"}'
-    fi
+    case "$*" in
+      *'"scenarioKey": "review-amr-1234567890ab-amr-s17"'*)
+        [[ "$*" == *'"scenario": "WORKLIST"'* ]]
+        printf '{"scenario":"WORKLIST","scenarioKey":"review-amr-1234567890ab-amr-s17","accessionNumber":"UATMICRO117","caseId":"case-17a","siblingCaseId":"case-17b"}'
+        ;;
+      *'"scenarioKey": "review-amr-1234567890ab-amr-s18"'*)
+        [[ "$*" == *'"scenario": "R1"'* ]]
+        printf '{"scenario":"R1","scenarioKey":"review-amr-1234567890ab-amr-s18","accessionNumber":"UATMICRO118","caseId":"case-18a","siblingCaseId":"case-18b"}'
+        ;;
+      *'"scenarioKey": "review-amr-1234567890ab-amr-s02"'*)
+        [[ "$*" == *'"scenario": "R1"'* ]]
+        printf '{"scenario":"R1","scenarioKey":"review-amr-1234567890ab-amr-s02","accessionNumber":"UATMICRO102","caseId":"case-02a","siblingCaseId":"case-02b"}'
+        ;;
+      *'"scenarioKey": "review-amr-1234567890ab-amr-s19"'*)
+        [[ "$*" == *'"scenario": "R1"'* ]]
+        printf '{"scenario":"R1","scenarioKey":"review-amr-1234567890ab-amr-s19","accessionNumber":"UATMICRO119","caseId":"case-19a","siblingCaseId":"case-19b"}'
+        ;;
+      *) exit 3 ;;
+    esac
     ;;
   *)
     exit 2
@@ -64,17 +75,20 @@ esac
   assert.match(result.stdout, /SEEDED THROUGH OPENELIS SERVICES/);
   assert.match(
     result.stdout,
-    /https:\/\/amr\.example\.test\/Microbiology\/cases\/case-1/,
+    /https:\/\/amr\.example\.test\/Microbiology\/cases\/case-17a/,
   );
   assert.match(
     result.stdout,
-    /https:\/\/amr\.example\.test\/Microbiology\/cases\/case-3/,
+    /https:\/\/amr\.example\.test\/Microbiology\/cases\/case-02a/,
   );
   assert.match(result.stdout, /scenario:\s+WORKLIST/);
   assert.match(result.stdout, /scenario:\s+R1/);
 
   const calls = await readFile(callsFile, "utf8");
-  assert.equal(calls.trim().split("\n").length, 5);
+  assert.match(result.stdout, /fixture:\s+AMR-S02/);
+  assert.match(result.stdout, /fixture:\s+AMR-S19/);
+
+  assert.equal(calls.trim().split("\n").length, 7);
   assert.match(calls, /__review\/target\.json/);
   assert.match(calls, /ValidateLogin\?apiCall=true/);
   assert.match(calls, /api\/OpenELIS-Global\/session/);
