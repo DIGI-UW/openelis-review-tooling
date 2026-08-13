@@ -145,6 +145,31 @@ to measure, and a Fail tells you nothing about where it broke.
 
 Keep a step to one observation. If the `expect` needs "and", it is two steps.
 
+### Reviewer-executable contract
+
+Schema-valid prose is not enough. Before publishing a story, follow its exact
+instructions on the deployed target as a reviewer who has no knowledge of test
+helpers, fixture APIs, or implementation details.
+
+The story description must orient the reviewer with:
+
+- the signed-in starting surface and complete navigation path;
+- stable, human-discoverable fixture names or identifiers;
+- whether steps share one record or require a fresh record; and
+- which region of a complex screen is in scope.
+
+Each `do` must name the screen region and exact control labels needed to reach
+the observation. Disambiguate repeated labels such as several `Search` buttons.
+Setup actions may precede the observation without violating the one-observation
+rule; omitting necessary setup is worse than a longer instruction.
+
+An automated helper is evidence for behavior, not evidence that a human can run
+the checklist. If the helper receives an identifier from an API, the checklist
+must instead use a stable identifier visible to the reviewer. If no such fixture
+exists, stop and report a fixture-readiness gap rather than publishing an
+unstartable step. A `route` link is a convenience and never substitutes for the
+navigation path in the prose.
+
 Group steps into stories that match independently reviewable user outcomes and how
 a reviewer moves through the app. A short checklist may legitimately be one story,
 but a release with several milestones or user outcomes must not be collapsed into
@@ -211,6 +236,14 @@ still looks fine is not evidence.
 
 Report the result to the user plainly: the instance, how many steps, and the
 check status.
+
+Endpoint validity is only the publishability check. Also open the deployed
+Review overlay, select the edited story, and dry-run every instruction exactly
+as written. Confirm that the story is discoverable, its description provides
+the starting context, every named control exists, fixture lookup succeeds, and
+the expected result is scoped to what the reviewer can actually see. Do not use
+direct URLs, fixture APIs, or automation-only helpers unless the prose explicitly
+tells the reviewer to use that same surface.
 
 ## Triaging a returned report
 

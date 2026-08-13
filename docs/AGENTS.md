@@ -103,6 +103,13 @@ Write UAT steps as **verifiable checks** — a `do` a reviewer performs and an
 `expect` they judge against. A missing feature is a legitimate step: the reviewer
 marks it Fail, which is useful signal.
 
+Before publishing, dry-run the exact prose on the deployed target without test
+helpers or fixture APIs. The story must name the starting surface, full nav path,
+stable human-visible fixture data, record-reuse/reset rules, and the part of a
+complex screen that is in scope. Each step must disambiguate repeated controls.
+A valid JSON endpoint proves only that the checklist can load; the live overlay
+and reviewer-executable walkthrough prove that it can be used.
+
 ## Delivery — how a checklist reaches reviewers
 
 The reviewer overlay on each demo site fetches
