@@ -39,12 +39,12 @@ case "$*" in
         printf '{"scenario":"R1","scenarioKey":"review-amr-1234567890ab-amr-s18","accessionNumber":"UATMICRO118","caseId":"case-18a","siblingCaseId":"case-18b"}'
         ;;
       *'"scenarioKey": "review-amr-1234567890ab-amr-s02"'*)
-        [[ "$*" == *'"scenario": "R1"'* ]]
-        printf '{"scenario":"R1","scenarioKey":"review-amr-1234567890ab-amr-s02","accessionNumber":"UATMICRO102","caseId":"case-02a","siblingCaseId":"case-02b"}'
+        [[ "$*" == *'"scenario": "CASE"'* ]]
+        printf '{"scenario":"CASE","scenarioKey":"review-amr-1234567890ab-amr-s02","accessionNumber":"UATMICRO102","caseId":"case-02a"}'
         ;;
       *'"scenarioKey": "review-amr-1234567890ab-amr-s19"'*)
-        [[ "$*" == *'"scenario": "R1"'* ]]
-        printf '{"scenario":"R1","scenarioKey":"review-amr-1234567890ab-amr-s19","accessionNumber":"UATMICRO119","caseId":"case-19a","siblingCaseId":"case-19b"}'
+        [[ "$*" == *'"scenario": "CASE"'* ]]
+        printf '{"scenario":"CASE","scenarioKey":"review-amr-1234567890ab-amr-s19","accessionNumber":"UATMICRO119","caseId":"case-19a"}'
         ;;
       *) exit 3 ;;
     esac
@@ -83,6 +83,7 @@ esac
   );
   assert.match(result.stdout, /scenario:\s+WORKLIST/);
   assert.match(result.stdout, /scenario:\s+R1/);
+  assert.match(result.stdout, /scenario:\s+CASE/);
 
   const calls = await readFile(callsFile, "utf8");
   assert.match(result.stdout, /fixture:\s+AMR-S02/);

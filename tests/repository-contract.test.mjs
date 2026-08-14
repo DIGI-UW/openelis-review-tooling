@@ -121,8 +121,8 @@ test("Microbiology review data is provisioned through OpenELIS services", async 
   assert.match(seed, /\/rest\/microbiology\/uat\/scenarios/);
   assert.match(seed, /"AMR-S17:WORKLIST"/);
   assert.match(seed, /"AMR-S18:R1"/);
-  assert.match(seed, /"AMR-S02:R1"/);
-  assert.match(seed, /"AMR-S19:R1"/);
+  assert.match(seed, /"AMR-S02:CASE"/);
+  assert.match(seed, /"AMR-S19:CASE"/);
   assert.match(seed, /__review\/target\.json/);
   assert.match(seed, /review-amr-\$\{deployment_key\}/);
   assert.doesNotMatch(seed, /\bpsql\b/);

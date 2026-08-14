@@ -73,8 +73,8 @@ print(response.get("csrf", ""))
 default_fixture_specs=(
   "AMR-S17:WORKLIST"
   "AMR-S18:R1"
-  "AMR-S02:R1"
-  "AMR-S19:R1"
+  "AMR-S02:CASE"
+  "AMR-S19:CASE"
 )
 if [ -n "${FIXTURE_SPECS:-}" ]; then
   read -r -a fixture_specs <<< "$FIXTURE_SPECS"
