@@ -568,10 +568,31 @@
     refreshChecklist();
   }
 
-  if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", boot);
-  } else {
+  // The overlay is independent of the host application. In particular, a slow
+  // module or stylesheet must not keep Review unavailable by delaying the
+  // document's DOMContentLoaded event. The injected script normally runs after
+  // <body>, but observe body creation as well so head injection remains valid.
+  var booted = false;
+  function bootWhenBodyExists() {
+    if (booted || !document.body) return false;
+    booted = true;
     boot();
+    return true;
+  }
+
+  if (!bootWhenBodyExists()) {
+    var bodyObserver = new MutationObserver(function () {
+      if (bootWhenBodyExists()) bodyObserver.disconnect();
+    });
+    bodyObserver.observe(document.documentElement, { childList: true });
+    document.addEventListener(
+      "DOMContentLoaded",
+      function () {
+        bodyObserver.disconnect();
+        bootWhenBodyExists();
+      },
+      { once: true },
+    );
   }
 
   // The signed-in name replaces whatever was typed: it is the one a submission can

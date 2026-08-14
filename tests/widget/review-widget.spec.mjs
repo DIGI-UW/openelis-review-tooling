@@ -14,6 +14,49 @@ async function savedState(page) {
   });
 }
 
+test("mounts while the host application is still loading", async ({ page }) => {
+  let releaseHostModule;
+  const hostModuleReady = new Promise((resolve) => {
+    releaseHostModule = resolve;
+  });
+
+  await page.route("**/tests/widget/pending-host-app.js", async (route) => {
+    await hostModuleReady;
+    await route.fulfill({
+      contentType: "application/javascript",
+      body: "export {};",
+    });
+  });
+  await page.route("**/loading-host", (route) =>
+    route.fulfill({
+      contentType: "text/html",
+      body: `<!doctype html>
+        <html lang="en">
+          <body>
+            <main>Host application shell</main>
+            <script type="module" src="/tests/widget/pending-host-app.js"></script>
+            <script
+              src="/widget/oe-review-widget.js"
+              data-instance="analyzers"
+              data-label="Analyzer QC"
+              data-src="/tests/widget/uat.json"
+              data-build-src="/tests/widget/target.json"
+            ></script>
+          </body>
+        </html>`,
+    }),
+  );
+
+  try {
+    await page.goto("/loading-host", { waitUntil: "commit" });
+    await expect(
+      page.locator("#oe-review-host").getByRole("button", { name: "Review" }),
+    ).toBeVisible();
+  } finally {
+    releaseHostModule();
+  }
+});
+
 test("keeps the minimized launcher clear of page actions", async ({ page }) => {
   await page.goto("/");
   const launcher = page
