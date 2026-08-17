@@ -102,7 +102,15 @@ test("review evidence is served with browser-renderable media types", async () =
     /location \/__review\/ \{[\s\S]*?default_type application\/octet-stream;[\s\S]*?\}/g,
   );
 
-  assert.equal(reviewLocations?.length, 2);
+  // Every review vhost, not a count of the ones that existed when this was
+  // written: pinning the number let a later instance be added with no evidence
+  // media types at all while this still passed.
+  assert.ok(reviewLocations?.length, "no /__review/ locations found");
+  assert.equal(
+    reviewLocations.length,
+    (router.match(/alias \/etc\/nginx\/review\/;/g) || []).length,
+    "a /__review/ location is not shaped the way this test matches",
+  );
   for (const location of reviewLocations) {
     assert.match(location, /image\/png png/);
     assert.match(location, /video\/mp4 mp4/);
