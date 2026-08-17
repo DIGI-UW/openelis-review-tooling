@@ -7,7 +7,7 @@ import test from "node:test";
 
 const repoRoot = new URL("..", import.meta.url).pathname;
 
-test("Microbiology seed provisions one deployment-scoped fixture per R1 story", async () => {
+test("Microbiology seed provisions one deployment-scoped fixture per UAT story", async () => {
   const binDir = await mkdtemp(path.join(tmpdir(), "oe-review-seed-"));
   const callsFile = path.join(binDir, "curl-calls");
   const curlStub = path.join(binDir, "curl");
@@ -41,6 +41,10 @@ case "$*" in
       *'"scenarioKey": "review-amr-1234567890ab-amr-s02"'*)
         [[ "$*" == *'"scenario": "CASE"'* ]]
         printf '{"scenario":"CASE","scenarioKey":"review-amr-1234567890ab-amr-s02","accessionNumber":"UATMICRO102","caseId":"case-02a"}'
+        ;;
+      *'"scenarioKey": "review-amr-1234567890ab-amr-s29"'*)
+        [[ "$*" == *'"scenario": "CASE"'* ]]
+        printf '{"scenario":"CASE","scenarioKey":"review-amr-1234567890ab-amr-s29","accessionNumber":"UATMICRO129","caseId":"case-29a"}'
         ;;
       *'"scenarioKey": "review-amr-1234567890ab-amr-s19"'*)
         [[ "$*" == *'"scenario": "CASE"'* ]]
@@ -87,9 +91,10 @@ esac
 
   const calls = await readFile(callsFile, "utf8");
   assert.match(result.stdout, /fixture:\s+AMR-S02/);
+  assert.match(result.stdout, /fixture:\s+AMR-S29/);
   assert.match(result.stdout, /fixture:\s+AMR-S19/);
 
-  assert.equal(calls.trim().split("\n").length, 7);
+  assert.equal(calls.trim().split("\n").length, 8);
   assert.match(calls, /__review\/target\.json/);
   assert.match(calls, /ValidateLogin\?apiCall=true/);
   assert.match(calls, /api\/OpenELIS-Global\/session/);
