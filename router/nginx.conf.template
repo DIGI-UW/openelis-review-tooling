@@ -80,7 +80,13 @@ http {
 
         location /__review/ {
             alias /etc/nginx/review/;
-            types { application/javascript js; application/json json; }
+            types {
+                application/javascript js;
+                application/json json;
+                application/zip zip;
+                image/png png;
+                video/mp4 mp4;
+            }
             default_type application/octet-stream;
             add_header Cache-Control "no-store";
         }
@@ -164,7 +170,13 @@ http {
         # more specific than "location /", so it wins over the SPA proxy below.
         location /__review/ {
             alias /etc/nginx/review/;
-            types { application/javascript js; application/json json; }
+            types {
+                application/javascript js;
+                application/json json;
+                application/zip zip;
+                image/png png;
+                video/mp4 mp4;
+            }
             default_type application/octet-stream;
             add_header Cache-Control "no-store";
         }
@@ -265,7 +277,13 @@ http {
 
         location /__review/ {
             alias /etc/nginx/review/;
-            types { application/javascript js; application/json json; }
+            types {
+                application/javascript js;
+                application/json json;
+                application/zip zip;
+                image/png png;
+                video/mp4 mp4;
+            }
             default_type application/octet-stream;
             add_header Cache-Control "no-store";
         }

@@ -96,6 +96,28 @@ test("the deployed review surface remains inspectable by accessibility and UAT t
   assert.doesNotMatch(widget, /__OE_REVIEW_TEST_OPEN_SHADOW__/);
 });
 
+test("review evidence is served with browser-renderable media types", async () => {
+  const router = await read("router/nginx.conf.template");
+  const reviewLocations = router.match(
+    /location \/__review\/ \{[\s\S]*?default_type application\/octet-stream;[\s\S]*?\}/g,
+  );
+
+  // Every review vhost, not a count of the ones that existed when this was
+  // written: pinning the number let a later instance be added with no evidence
+  // media types at all while this still passed.
+  assert.ok(reviewLocations?.length, "no /__review/ locations found");
+  assert.equal(
+    reviewLocations.length,
+    (router.match(/alias \/etc\/nginx\/review\/;/g) || []).length,
+    "a /__review/ location is not shaped the way this test matches",
+  );
+  for (const location of reviewLocations) {
+    assert.match(location, /image\/png png/);
+    assert.match(location, /video\/mp4 mp4/);
+    assert.match(location, /application\/zip zip/);
+  }
+});
+
 test("Grist replacement requires an explicit destructive flag", async () => {
   const bootstrap = await read("grist/bootstrap.sh");
   const sync = await read("grist/grist-sync.mjs");
