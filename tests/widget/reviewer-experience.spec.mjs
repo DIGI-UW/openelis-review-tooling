@@ -27,7 +27,7 @@ test("keeps the reviewer's place in the checklist when a step is marked", async 
   page,
 }) => {
   const widget = await openPanel(page);
-  const step = widget.locator(".step").nth(6);
+  const step = widget.locator(".step").nth(2);
   await step.locator(".steptop").click();
   await expect(step).toHaveClass(/current/);
   const before = await step.boundingBox();
@@ -38,7 +38,7 @@ test("keeps the reviewer's place in the checklist when a step is marked", async 
   expect(after).not.toBeNull();
   // The panel may reflow as the step collapses, but the step the reviewer just
   // answered has to stay where they can see it. Being returned to step one after
-  // every mark is what makes a ten-step review unworkable.
+  // every mark is what makes a multi-step review unworkable.
   expect(Math.abs(after.y - before.y)).toBeLessThan(120);
   await expect(step).toBeInViewport();
 });
@@ -48,7 +48,7 @@ test("shows one step at a time instead of a keyhole onto all of them", async ({
 }) => {
   const widget = await openPanel(page);
   const steps = widget.locator(".step");
-  await expect(steps).toHaveCount(10);
+  await expect(steps).toHaveCount(3);
 
   // Every step is listed, so the reviewer can see the scope of the review…
   await expect(steps.first()).toBeVisible();
@@ -74,6 +74,23 @@ test("shows one step at a time instead of a keyhole onto all of them", async ({
   expect(current.y).toBeGreaterThanOrEqual(view.y - 1);
   expect(label.y).toBeGreaterThanOrEqual(view.y - 1);
   expect(marks.y + marks.height).toBeLessThanOrEqual(view.y + view.height + 1);
+});
+
+test("does not leave a clipped review overview above the first task", async ({
+  page,
+}) => {
+  const widget = await openPanel(page);
+  const [overview, body] = await Promise.all([
+    widget.locator(".intro").boundingBox(),
+    widget.locator(".body").boundingBox(),
+  ]);
+
+  expect(overview).not.toBeNull();
+  expect(body).not.toBeNull();
+  // The panel positions the first actionable task under its pinned heading. The
+  // optional overview is either wholly visible before it or wholly out of view;
+  // a truncated sentence is neither useful context nor quiet UI.
+  expect(overview.y + overview.height).toBeLessThanOrEqual(body.y + 1);
 });
 
 test("answering a step moves the reviewer on to the next one", async ({
@@ -205,7 +222,7 @@ test("numbers every step and says where each one stands", async ({ page }) => {
   // A reviewer reporting a problem needs to be able to name the step, and a
   // reviewer scanning the list needs to see its state without reading it.
   await expect(steps.nth(0).locator(".num")).toHaveText("1");
-  await expect(steps.nth(9).locator(".num")).toHaveText("10");
+  await expect(steps.nth(2).locator(".num")).toHaveText("3");
   await expect(steps.nth(0)).toHaveAttribute("data-state", "todo");
 
   await widget
@@ -239,10 +256,9 @@ test("tells the action and the expected result apart", async ({ page }) => {
   );
   await expect(expected.locator(".expecttext")).not.toContainText("Expected:");
 
-  // Where to do it comes before what to check.
-  const routeBox = await detail.locator(".go").boundingBox();
-  const expectBox = await expected.boundingBox();
-  expect(routeBox.y).toBeLessThan(expectBox.y);
+  // A task should not include a deep link that lets the reviewer skip the
+  // navigation it is supposed to assess.
+  await expect(detail.getByRole("link")).toHaveCount(0);
 });
 
 test("keeps the section a step belongs to visible while scrolling", async ({
@@ -325,7 +341,7 @@ test("shows progress on the collapsed launcher", async ({ page }) => {
 
   const launcher = widget.getByRole("button", { name: /review/i });
   await expect(launcher).toBeVisible();
-  await expect(launcher).toContainText("1/10");
+  await expect(launcher).toContainText("1/3");
 });
 
 test("is reachable and operable without a mouse", async ({ page }) => {
@@ -335,7 +351,7 @@ test("is reachable and operable without a mouse", async ({ page }) => {
   await expect(panel).toHaveAttribute("role", "complementary");
   await expect(panel).toHaveAttribute("aria-label", /review/i);
   await expect(widget.getByRole("heading", { level: 2 })).toHaveCount(1);
-  await expect(widget.getByRole("heading", { level: 3 })).toHaveCount(4);
+  await expect(widget.getByRole("heading", { level: 3 })).toHaveCount(1);
 
   const pass = widget
     .locator(".step.current .detail")
@@ -367,24 +383,56 @@ test("hands the review over as a single document the reviewer can paste", async 
     .getByRole("button", { name: "Fail" })
     .click();
 
-  const downloads = [];
-  page.on("download", (download) =>
-    downloads.push(download.suggestedFilename()),
-  );
-  await widget.getByRole("button", { name: /download/i }).click();
-  await page.waitForTimeout(750);
+  await widget.getByLabel(/Your name/).fill("Piotr Manko");
+
+  await widget.getByRole("button", { name: "More review actions" }).click();
+  const downloadPromise = page.waitForEvent("download");
+  await widget.getByRole("button", { name: "Download report" }).click();
+  const download = await downloadPromise;
 
   // Two blob downloads from one click trips Chrome's automatic-downloads
   // permission, and a reviewer who dismisses it silently loses half the review.
-  expect(downloads).toHaveLength(1);
-  expect(downloads[0]).toMatch(/\.md$/);
+  expect(download.suggestedFilename()).toMatch(/\.md$/);
 
   const report = await page.evaluate(() =>
     window.__OE_REVIEW_TEST__.buildReport(),
   );
   expect(report.md).toContain("```json");
   expect(report.md).toContain('"schemaVersion": 2');
-  await expect(widget.getByRole("button", { name: /copy/i })).toBeVisible();
+  await expect(widget.getByRole("button", { name: "More review actions" })).toBeVisible();
+});
+
+test("keeps secondary review actions out of the primary footer", async ({ page }) => {
+  const widget = await openPanel(page);
+  const footer = widget.locator(".foot");
+
+  await expect(footer.getByRole("button")).toHaveCount(2);
+  await expect(footer.getByRole("button", { name: "Submit review" })).toBeVisible();
+  const more = footer.getByRole("button", { name: "More review actions" });
+  const stories = widget.getByRole("button", { name: "Choose story" });
+  await expect(more).toHaveAttribute("aria-expanded", "false");
+  await expect(widget.getByRole("button", { name: "Download report" })).toHaveCount(0);
+
+  await stories.click();
+  await expect(stories).toHaveAttribute("aria-expanded", "true");
+  await more.click();
+  await expect(stories).toHaveAttribute("aria-expanded", "false");
+  await expect(more).toHaveAttribute("aria-expanded", "true");
+  await expect(widget.getByRole("button", { name: "Copy report" })).toBeVisible();
+  await expect(widget.getByRole("button", { name: "Download report" })).toBeVisible();
+  await expect(widget.getByRole("button", { name: "Reset review" })).toBeVisible();
+  await expect(widget.getByRole("button", { name: "All steps" })).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
+
+  await widget.getByRole("button", { name: "To do" }).click();
+  await expect(more).toHaveAttribute("aria-expanded", "false");
+
+  await more.click();
+  await stories.click();
+  await expect(stories).toHaveAttribute("aria-expanded", "true");
+  await expect(more).toHaveAttribute("aria-expanded", "false");
 });
 
 test("records the page and console errors behind a failure", async ({

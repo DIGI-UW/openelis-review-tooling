@@ -206,11 +206,12 @@ app.get("/healthz", (_req, res) => res.json({ ok: true }));
 // path shape so no deployment needs a new proxy rule to expose it.
 app.get("/uat/index.json", async (_req, res) => {
   try {
-    const [metaRecs, stepRecs] = await Promise.all([
+    const [metaRecs, stepRecs, storyRecs] = await Promise.all([
       listRecords("UAT_Meta"),
       listRecords("UAT_Steps"),
+      listRecords("UAT_Stories"),
     ]);
-    const index = buildUatIndex(metaRecs, stepRecs);
+    const index = buildUatIndex(metaRecs, stepRecs, storyRecs);
     // Skipped routes are reported rather than fatal, so the only place anyone
     // would notice a malformed row is here.
     if (index.warnings.length) {

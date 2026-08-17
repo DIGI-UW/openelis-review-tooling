@@ -42,6 +42,11 @@ is about submitting, not about reviewing, and their answers count either way.
 Answers are keyed by the build under review, never by who is signed in, so
 signing in half way through never orphans the work done before it.
 
+Where the application cannot supply a signed-in identity, **Your name** is
+required before the reviewer can copy, download, or submit the report. Steps can
+still be worked first; the widget focuses the missing field and keeps every answer
+in place when the reviewer tries to hand off an unnamed report.
+
 ## Handing a review in
 
 **Submit review** posts what was answered to `data-submit-src`. The service
@@ -73,8 +78,7 @@ Add `?oe-review=` to any page the widget is on:
 The parameter is **consumed**: it is applied once and then removed from the address
 bar, so it cannot keep reopening a panel the reviewer has closed, and it does not
 end up in the page URLs the report records as evidence. `off` persists across
-navigation — otherwise the checklist's own "Go to …" links would undo it on the
-next page — so `?oe-review=on` is the way back, and the widget logs that reminder
+navigation, so `?oe-review=on` is the way back, and the widget logs that reminder
 when it stands down.
 
 ### Where the checklist comes from (priority order)
@@ -115,7 +119,7 @@ when it stands down.
           "required": true,
           "do": "The action the reviewer performs.",
           "expect": "What they should see (optional).",
-          "route": "/some/path (optional deep-link hint)"
+          "route": "/some/path (captured in the review evidence)"
         }
       ]
     }
@@ -126,10 +130,11 @@ when it stands down.
 ## What the reviewer gets
 
 Every step is listed so the scope of the review is visible, but only the step being
-worked spells out its expected result, its route link and its **pass / fail / n-a**
-buttons; the rest collapse to a line and a status chip. Answering a step opens the
-next unanswered one, and clicking any line goes back to it. Marking never scrolls
-the checklist away from where the reviewer is.
+worked spells out its expected result and its **pass / fail / n-a** buttons; the
+rest collapse to a line and a numbered state marker. A route is recorded in the
+report, not presented as a link, so the reviewer must assess the real navigation
+and workflow. Answering a step opens the next unanswered one, and clicking any line
+goes back to it. Marking never scrolls the checklist away from where the reviewer is.
 
 Reordering keeps the answer; changed instructions mark the answer stale until it is
 reviewed again. Answers never carry into a different deployment, and old
@@ -143,11 +148,12 @@ the right, centre and left; a side chosen by hand is remembered and never
 overridden. Below 640px the open panel becomes a bottom sheet.
 
 **Expand panel** widens it and opens every step at once, laying the expected result
-down the left and the answer on the right so more of the checklist fits. **All / To
-do / Failed** narrows the list once there is something to narrow, and each section
-heading carries its own count. How the panel is arranged — side, expanded, filter,
-and which story was open — is remembered per deployment, so it survives a reload
-and a story switch.
+down the left and the answer on the right so more of the checklist fits. The footer
+keeps one primary action, **Submit review**. The `...` menu contains the occasional
+controls: **All steps / To do / Failed**, copy/download, reset, and current-story
+sources. Each section heading carries its own count. How the panel is arranged —
+side, expanded, filter, and which story was open — is remembered per deployment, so
+it survives a reload and a story switch.
 
 ### Popping it out
 
@@ -158,9 +164,8 @@ application paints can reach it. ⌘/Ctrl-click opens a tab instead of a window.
 The popped-out panel is a second view of one review rather than a copy of it. Both
 windows share the reviewer's saved answers, so a mark made in either shows up in the
 other straight away; the page keeps its launcher, which turns dark and raises the
-review window rather than opening a second panel. Because the application is in the
-window the panel came from, that is where a step's **Go to …** link navigates, and
-that page — wherever the reviewer has since got to — is what a mark records as
+review window rather than opening a second panel. The reviewer navigates the
+application independently, and the page they have reached is what a mark records as
 evidence. **Return the checklist to the page** hands it back and closes the window.
 
 Pop-out needs the widget to have been loaded from a URL; a copy pasted inline has no
@@ -169,20 +174,50 @@ blocks the window says so in the panel rather than doing nothing.
 
 ## Several stories on one deployment
 
-A deployment usually hosts more than one story. If the checklist URL follows either
-`…/uat-<story>.json` or `…/uat/<story>.json`, the widget looks for a catalog beside
-it at `uat-index.json` and offers a **Story** picker, grouped into _On this page_
-and _Other stories_ by matching each story's step routes against the current path.
-Point `data-index` somewhere else to override that, and any other `data-src` shape
-simply gets no picker. The catalog is optional in the strongest sense: if it is
-missing, malformed or unreachable, the checklist still loads.
+A deployment review usually contains several independently reviewable stories.
+The schema-v2 catalog names each real story and its parent review instance. The
+widget limits the story checklist to the instance injected on that deployment,
+then renders only the selected story from the instance's aggregate checklist.
+By default, the checklist offers only stories whose step routes match the current
+path. **Show all server stories** deliberately expands that set; when no story has
+a route for the page, all server stories are shown automatically and the widget
+says why. A route change resets the default, while an explicit story choice
+survives refresh on the same page.
+
+The story control is an in-panel disclosure and listbox rather than a native
+select. It shows each story's saved progress, supports arrow-key navigation, and
+keeps Escape local to the disclosure instead of minimizing the whole review.
+This keeps a milestone or project from appearing as one giant story while
+preserving one Grist source and one checklist endpoint.
+
+Only the schema-v2 story catalog is accepted. A `404` means the deployment has a
+single checklist and needs no story navigator. Any catalog that is present but
+uses another schema, is malformed, or cannot be read is shown as a load failure;
+the widget never disguises a catalog contract failure by rendering the aggregate
+checklist. Point `data-index` somewhere else to override discovery.
+
+Each catalog story must provide a stable `review--key` `id`, matching `review`
+and `key`, a non-empty `title`, integer `steps` and `required` counts, and a
+`routes` array. The matching aggregate checklist must contain exactly one section
+with that key. A story choice is committed only after both documents validate;
+on failure, the previous story and its answers remain active. Concurrent refreshes
+are generation-checked so a late response cannot replace a newer checklist.
 
 Each story keeps its own answers, so switching never shows one story's marks
-against another's steps. A story that disappears from the catalog between visits
-falls back to the one the deployment injects rather than stranding the reviewer.
+against another's steps. A schema-v2 story switch reuses the parent checklist
+document but filters by stable story key; sharing a checklist revision must never
+leave the previous story's rows mounted. A story that disappears from the catalog
+between visits falls back to a current story from the injected review.
 
-**Copy report** puts the whole review on the clipboard, which is what the reviewer
-is asked to paste into Claude. **Download** writes the same thing as a single
+Story prose is presented as a labeled, full-size description above the steps. It
+is not squeezed into the link metadata or pinned with the section heading, so it
+remains readable and scrolls away naturally when work begins. Route-selected
+defaults open on the first actionable step; deliberately choosing a story brings
+its description into view first.
+
+The `...` menu's **Copy report** action puts the whole review on the clipboard,
+which is what the reviewer is asked to paste into Claude. **Download report** writes
+the same thing as a single
 `oe-review-<instance>-<timestamp>.md`:
 
 - a readable checklist with `[PASS]/[FAIL]/[N/A]/[----]` boxes, a summary line, and

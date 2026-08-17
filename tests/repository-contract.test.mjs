@@ -16,6 +16,17 @@ test("agent and operator docs preserve the native MCP boundary", async () => {
   assert.match(readService, /no authoring endpoint/);
 });
 
+test("REST checklist authoring requires explicit stable keys", async () => {
+  const contract = await read("docs/AGENTS.md");
+  const skill = await read("skills/uat-authoring/SKILL.md");
+  const schema = await read("skills/uat-authoring/references/schema.md");
+
+  assert.match(contract, /REST creates must send[\s\S]*`story_key` and `step_key`/);
+  assert.match(skill, /REST creates must provide stable keys explicitly/);
+  assert.match(skill, /REST create MUST include an unused stable `story_key`/);
+  assert.match(schema, /REST creates must send it explicitly/);
+});
+
 test("remote deploy commands never carry Grist or Dex secret values", async () => {
   const deploy = await read("deploy.sh");
   const localEnv = await read(".env.example");
@@ -62,6 +73,18 @@ test("ready target metadata is published only after successful health verificati
   assert.match(router, /location = \/__review\/target\.json/);
   assert.match(router, /target-amr\.json/);
   assert.match(router, /target-analyzers\.json/);
+  assert.match(router, /target-phrases\.json/);
+  assert.match(router, /data-instance="phrases"/);
+});
+
+test("the dedicated phrases review verifies sessions against its own app", async () => {
+  const compose = await read("grist/docker-compose.grist.yml");
+  const router = await read("router/nginx.conf.template");
+
+  assert.match(compose, /phrases=https:\/\/phrases-oe:8443/);
+  assert.match(compose, /phrases-oe/);
+  assert.match(router, /server_name \$\{PHRASES_DOMAIN\}/);
+  assert.match(router, /data-instance="phrases"/);
 });
 
 test("the deployed review surface remains inspectable by accessibility and UAT tools", async () => {
@@ -96,8 +119,12 @@ test("Microbiology review data is provisioned through OpenELIS services", async 
   const seed = await read("scripts/seed-microbiology.sh");
 
   assert.match(seed, /\/rest\/microbiology\/uat\/scenarios/);
-  assert.match(seed, /"scenario": "WORKLIST"/);
-  assert.match(seed, /review-amr-microbiology-mvp/);
+  assert.match(seed, /"AMR-S17:WORKLIST"/);
+  assert.match(seed, /"AMR-S18:R1"/);
+  assert.match(seed, /"AMR-S02:CASE"/);
+  assert.match(seed, /"AMR-S19:CASE"/);
+  assert.match(seed, /__review\/target\.json/);
+  assert.match(seed, /review-amr-\$\{deployment_key\}/);
   assert.doesNotMatch(seed, /\bpsql\b/);
   assert.doesNotMatch(seed, /docker exec/);
   assert.doesNotMatch(seed, /\bINSERT\b/i);

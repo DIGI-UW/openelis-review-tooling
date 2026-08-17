@@ -14,6 +14,7 @@ describes the current system, including state intentionally kept outside Git.
 | `oe-grist`      | `oe-edge-grist-uat-read` | Public, read-only Grist-to-widget adapter                 | Server-side Grist API key mounted read-only         |
 | `amr`           | OpenELIS AMR stack       | Microbiology review target                                | OpenELIS database and application volumes           |
 | `analyzers`     | OpenELIS analyzer stack  | Analyzer review target                                    | OpenELIS database and application volumes           |
+| `phrases`       | OpenELIS phrases stack   | Macro Library review target                               | OpenELIS database and application volumes           |
 
 Grist is the checklist source of truth. The read adapter reshapes rows into
 `/uat/<instance>.json`; router caches are limited to about 30 seconds. There is
@@ -34,11 +35,11 @@ the first deployment.
 
 | Value                                                         | Used for                             | Secret                                           |
 | ------------------------------------------------------------- | ------------------------------------ | ------------------------------------------------ |
-| `AMR_DOMAIN`, `ANALYZERS_DOMAIN`, `GRIST_DOMAIN`              | Router hosts and certificates        | No                                               |
+| `AMR_DOMAIN`, `ANALYZERS_DOMAIN`, `PHRASES_DOMAIN`, `GRIST_DOMAIN` | Router hosts and certificates     | No                                               |
 | `LETSENCRYPT_EMAIL`, `LETSENCRYPT_STAGING`                    | ACME registration                    | No                                               |
-| `AMR_BRANCH`, `ANALYZERS_BRANCH`                              | Current full-stack deployment inputs | No                                               |
+| `AMR_BRANCH`, `ANALYZERS_BRANCH`, `PHRASES_BRANCH`            | Application deployment inputs        | No                                               |
 | `REGION`, `INSTANCE_ID`, `EIP`, `SG_ID`, `OS_USER`, `SSH_KEY` | AWS/SSM host access                  | `SSH_KEY` is a local path; do not commit the key |
-| `EDGE_DIR`, `AMR_DIR`, `ANALYZERS_DIR`                        | Host checkout layout                 | No                                               |
+| `EDGE_DIR`, `AMR_DIR`, `ANALYZERS_DIR`, `PHRASES_DIR`         | Host checkout layout                 | No                                               |
 | `GRIST_STATE_DIR`                                             | Server-side API-key mount            | No                                               |
 | `DEX_GRIST_CLIENT_SECRET`                                     | Dex-to-Grist OIDC client             | Yes                                              |
 | `DEX_REVIEWER_PASSWORD_HASH`                                  | Demo reviewer login hash             | Yes                                              |
@@ -55,7 +56,7 @@ The Git checkout is replaceable. These paths are not:
   server-side read adapter;
 - Docker volume `oe-grist_grist-data`: Grist documents and full-edition marker;
 - `router/letsencrypt/`: certificate lineages;
-- OpenELIS database volumes for `amr` and `analyzers`.
+- OpenELIS database volumes for `amr`, `analyzers`, and `phrases`.
 
 Deployment sync refuses to overwrite tracked changes and preserves untracked
 files. Persistent values still belong in the paths above, never in tracked
@@ -114,7 +115,7 @@ reconciles Grist and rebuilds both OpenELIS review targets plus the router. It
 must not be presented as a single-instance or low-risk application deployment.
 
 Targeted application delivery uses an exact pushed SHA and leaves the other
-OpenELIS stack, router, Grist, databases, FHIR, and analyzer harness services
+OpenELIS stacks, router, Grist, databases, FHIR, and analyzer harness services
 untouched:
 
 ```text
@@ -163,7 +164,10 @@ The router goes last because its probe expects the checklist service to answer
 the submissions route; against an older service the probe sees a 404 and
 correctly refuses.
 
-Targeted delivery supports `instance=amr` and `instance=analyzers`. It tags the
+Targeted delivery supports `instance=amr`, `instance=analyzers`, and
+`instance=phrases`. The first `phrases --scope app` deployment creates its
+isolated checkout, Compose project, database, and FHIR services; later deploys
+use the same narrow application-only replacement path. It tags the
 current frontend/backend images before replacement, publishes target metadata
 only after instance-specific health and route smoke checks pass, and
 automatically restores those images if candidate verification fails. Automatic
@@ -178,3 +182,8 @@ The review-widget scope checks out an exact harness SHA under the same lock.
 Because the widget is a read-only router bind mount, no application or router
 container restart is required. The command verifies the live script before
 updating each ready target's `harnessSha`.
+
+The Macro Library review is a dedicated `phrases` Grist instance. Do not place
+its stories under `amr` with a host filter: submissions are authenticated against
+the backend mapped to the checklist instance, so sharing the AMR slug would
+verify the wrong application session.

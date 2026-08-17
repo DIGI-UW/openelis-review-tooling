@@ -113,6 +113,13 @@ to a `UAT_Meta` row, not the slug. Typing a name that matches nothing used to
 produce a second, empty checklist instead of an error; now it is a reference and
 cannot.
 
+**REST creates must provide stable keys explicitly.** Grist's UI can apply the
+default formulas for `story_key` and `step_key`, but a REST `POST` is not
+guaranteed to do so. Before adding records over REST, read the current keys,
+choose unused values in the instance's existing scheme, and send both keys in
+the create payload. Never infer success from an empty computed `problems` value
+alone; verify the public checklist endpoint after the write.
+
 ## Write steps a reviewer can actually judge
 
 A step is a `do` the reviewer performs and an `expect` they measure against. The
@@ -138,9 +145,42 @@ to measure, and a Fail tells you nothing about where it broke.
 
 Keep a step to one observation. If the `expect` needs "and", it is two steps.
 
-Group steps into stories that match how a reviewer moves through the app. A short
-checklist is legitimately one story — the thing to avoid is fragmenting six steps
-into six stories of one, not having a single well-named story.
+### Reviewer-executable contract
+
+Schema-valid prose is not enough. Before publishing a story, follow its exact
+instructions on the deployed target as a reviewer who has no knowledge of test
+helpers, fixture APIs, or implementation details.
+
+The story description must orient the reviewer with:
+
+- the signed-in starting surface and complete navigation path;
+- stable, human-discoverable fixture names or identifiers;
+- whether steps share one record or require a fresh record; and
+- which region of a complex screen is in scope.
+
+Any story that changes a record's stage or consumes a one-time action must have
+its own story-specific fixture. Do not share one mutable case across independently
+selectable stories. Name the reset boundary explicitly: for a consume-once demo
+fixture, state the exact starting stage and tell the reviewer to request a reseed
+instead of adapting the expected result when that stage is no longer present.
+
+Each `do` must name the screen region and exact control labels needed to reach
+the observation. Disambiguate repeated labels such as several `Search` buttons.
+Setup actions may precede the observation without violating the one-observation
+rule; omitting necessary setup is worse than a longer instruction.
+
+An automated helper is evidence for behavior, not evidence that a human can run
+the checklist. If the helper receives an identifier from an API, the checklist
+must instead use a stable identifier visible to the reviewer. If no such fixture
+exists, stop and report a fixture-readiness gap rather than publishing an
+unstartable step. A `route` link is a convenience and never substitutes for the
+navigation path in the prose.
+
+Group steps into stories that match independently reviewable user outcomes and how
+a reviewer moves through the app. A short checklist may legitimately be one story,
+but a release with several milestones or user outcomes must not be collapsed into
+one story merely because it shares a deployment. Avoid both extremes: one story
+for the whole project and one story for every individual step.
 
 A story can also carry where it came from: `jira`, `pr` and `mock` take one link
 each and appear beside its heading, and `user_story` is prose rather than a URL.
@@ -176,9 +216,10 @@ grist_add_records(doc_id, "UAT_Steps", [{
 ```
 
 A new story needs `instance` (the `UAT_Meta` **row id**), `title` and
-`story_order`; `story_key` fills itself in. A brand-new checklist needs the
-`UAT_Meta` row first — `instance`, `title`, `intro`, `jira` — because everything
-else points at it.
+`story_order`. Native MCP or the Grist UI may apply the `story_key` default; a
+REST create MUST include an unused stable `story_key` explicitly. A brand-new
+checklist needs the `UAT_Meta` row first — `instance`, `title`, `intro`, `jira` —
+because everything else points at it.
 
 ## Always verify — the edit is not done until this passes
 
@@ -201,6 +242,14 @@ still looks fine is not evidence.
 
 Report the result to the user plainly: the instance, how many steps, and the
 check status.
+
+Endpoint validity is only the publishability check. Also open the deployed
+Review overlay, select the edited story, and dry-run every instruction exactly
+as written. Confirm that the story is discoverable, its description provides
+the starting context, every named control exists, fixture lookup succeeds, and
+the expected result is scoped to what the reviewer can actually see. Do not use
+direct URLs, fixture APIs, or automation-only helpers unless the prose explicitly
+tells the reviewer to use that same surface.
 
 ## Triaging a returned report
 

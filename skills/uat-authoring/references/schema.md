@@ -24,7 +24,7 @@ A story is a thing being reviewed, and the steps that check it.
 | Column | Type | Notes |
 |---|---|---|
 | `instance` | Ref → `UAT_Meta` | The review this belongs to. A **row id**, not the slug — which is why a typo can no longer create a second, empty checklist. |
-| `story_key` | Text | **Unique within the review.** Fills itself in (`AMR-S01`). Survives a retitle, so it is what anything pointing at the story uses. |
+| `story_key` | Text | **Unique within the review.** The UI may default it (`AMR-S01`); REST creates must send it explicitly. Survives a retitle, so it is what anything pointing at the story uses. |
 | `title` | Text | The heading above this story's steps. |
 | `story_order` | Int | 0-based position in the checklist. |
 | `jira` | Text | The ticket, as a key or URL. One. |
@@ -39,7 +39,7 @@ A story is a thing being reviewed, and the steps that check it.
 | Column | Type | Notes |
 |---|---|---|
 | `instance` | Text | The review's slug. |
-| `step_key` | Text | **Mandatory, unique, immutable.** Reviewer answers are keyed by it. |
+| `step_key` | Text | **Mandatory, unique, immutable.** Reviewer answers are keyed by it; REST creates must send it explicitly. |
 | `required` | Bool | **Set explicitly.** Grist writes `false` for untouched rows, so an unset step is silently optional. |
 | `story` | Ref → `UAT_Stories` | The story this step is under. A step without one is refused. |
 | `step_order` | Int | 0-based within the story. |
@@ -71,6 +71,29 @@ document — this is exactly what a reviewer's browser loads:
 
 Note the shape differs from the table: rows are grouped into `sections`, and
 `step_key` is emitted as `key`.
+
+`GET /uat/index.json` publishes those story rows separately for the widget picker:
+
+```json
+{
+  "schemaVersion": 2,
+  "stories": [
+    {
+      "id": "amr--AMR-S01",
+      "review": "amr",
+      "key": "AMR-S01",
+      "title": "Find and route microbiology work",
+      "steps": 2,
+      "required": 2,
+      "routes": ["/Microbiology/worklist"]
+    }
+  ]
+}
+```
+
+The checklist endpoint stays aggregate; the widget selects one catalog story and
+renders the section with the matching stable key. `review` is the `UAT_Meta`
+instance, while `key` is the `UAT_Stories.story_key`. They are not interchangeable.
 
 ## `checklistRevision`
 

@@ -14,6 +14,49 @@ async function savedState(page) {
   });
 }
 
+test("mounts while the host application is still loading", async ({ page }) => {
+  let releaseHostModule;
+  const hostModuleReady = new Promise((resolve) => {
+    releaseHostModule = resolve;
+  });
+
+  await page.route("**/tests/widget/pending-host-app.js", async (route) => {
+    await hostModuleReady;
+    await route.fulfill({
+      contentType: "application/javascript",
+      body: "export {};",
+    });
+  });
+  await page.route("**/loading-host", (route) =>
+    route.fulfill({
+      contentType: "text/html",
+      body: `<!doctype html>
+        <html lang="en">
+          <body>
+            <main>Host application shell</main>
+            <script type="module" src="/tests/widget/pending-host-app.js"></script>
+            <script
+              src="/widget/oe-review-widget.js"
+              data-instance="analyzers"
+              data-label="Analyzer QC"
+              data-src="/tests/widget/uat.json"
+              data-build-src="/tests/widget/target.json"
+            ></script>
+          </body>
+        </html>`,
+    }),
+  );
+
+  try {
+    await page.goto("/loading-host", { waitUntil: "commit" });
+    await expect(
+      page.locator("#oe-review-host").getByRole("button", { name: "Review" }),
+    ).toBeVisible();
+  } finally {
+    releaseHostModule();
+  }
+});
+
 test("keeps the minimized launcher clear of page actions", async ({ page }) => {
   await page.goto("/");
   const launcher = page
@@ -110,7 +153,12 @@ test("refresh preserves reordered answers and marks changed instructions stale",
   await widget.getByRole("button", { name: "Refresh checklist" }).click();
 
   await expect(widget.getByText("Find and inspect a shipped profile")).toBeVisible();
-  await expect(widget.getByText("Review again")).toBeVisible();
+  await expect(
+    widget
+      .locator(".step")
+      .filter({ hasText: "Find and inspect a shipped profile" })
+      .locator(".steptop"),
+  ).toHaveAttribute("aria-label", /^Step 2, needs another look:/);
   const stored = await savedState(page);
   expect(stored.value.steps["AN-QC-001"].mark).toBe("pass");
   expect(stored.value.steps["AN-QC-001"].stale).toBe(true);
@@ -237,7 +285,11 @@ test("keeps answers when the target fetch fails after a mark", async ({ page }) 
   await page.reload();
   widget = page.locator("#oe-review-host");
   const marked = widget.locator(".step").filter({ hasText: "Find a shipped profile" });
-  await expect(marked.locator(".chip")).toHaveText("Pass");
+  await expect(marked.locator(".chip")).toHaveCount(0);
+  await expect(marked.locator(".steptop")).toHaveAttribute(
+    "aria-label",
+    /^Step 1, passed:/,
+  );
 
   const stored = await savedState(page);
   expect(stored.key).toContain("oe-review:v2:analyzers:abc123:");
