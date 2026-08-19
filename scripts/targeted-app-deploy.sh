@@ -46,6 +46,21 @@ repo_git() {
   sudo -u "$REMOTE_USER" git -c safe.directory="$dir" -C "$dir" "$@"
 }
 
+normalize_initialized_submodules() {
+  local dir="$1" dirty
+  dirty="$(repo_git "$dir" submodule foreach --quiet --recursive '
+    if ! git diff --quiet || ! git diff --cached --quiet; then
+      printf "%s\n" "$sm_path"
+    fi
+  ')"
+  if [ -n "$dirty" ]; then
+    echo "refusing to overwrite tracked changes in initialized submodules:" >&2
+    printf '%s\n' "$dirty" >&2
+    exit 1
+  fi
+  repo_git "$dir" submodule update --depth 1
+}
+
 write_status() {
   local state="$1" verification="${2:-pending}" tmp
   tmp="$(mktemp "$DEPLOYMENT_DIR/.status.XXXXXX")"
@@ -122,6 +137,7 @@ if [ ! -d "$APP_DIR/.git" ]; then
   sudo chown "$REMOTE_USER":"$REMOTE_USER" "$APP_DIR"
   sudo -u "$REMOTE_USER" git clone --no-checkout --filter=blob:none "$APP_REPO" "$APP_DIR"
 fi
+normalize_initialized_submodules "$APP_DIR"
 if ! repo_git "$APP_DIR" diff --quiet || ! repo_git "$APP_DIR" diff --cached --quiet; then
   echo "refusing to overwrite tracked changes in $APP_DIR" >&2
   repo_git "$APP_DIR" status --short >&2
@@ -134,6 +150,7 @@ fi
 [ -f "$TARGET_FILE" ] && cp "$TARGET_FILE" "$PREVIOUS_TARGET"
 repo_git "$APP_DIR" fetch --depth 1 origin "$APP_REF"
 repo_git "$APP_DIR" checkout --detach FETCH_HEAD
+normalize_initialized_submodules "$APP_DIR"
 app_sha="$(repo_git "$APP_DIR" rev-parse HEAD)"
 [ "$app_sha" = "$APP_REF" ] || {
   echo "fetched SHA $app_sha does not match requested SHA $APP_REF" >&2
