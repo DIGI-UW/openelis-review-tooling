@@ -76,6 +76,7 @@ default_fixture_specs=(
   "AMR-S02:CASE"
   "AMR-S29:CASE"
   "AMR-S19:CASE"
+  "AMR-S14:M4"
   "AMR-S21:AST_ANALYZER_REVIEW"
 )
 if [ -n "${FIXTURE_SPECS:-}" ]; then
