@@ -50,6 +50,10 @@ case "$*" in
         [[ "$*" == *'"scenario": "CASE"'* ]]
         printf '{"scenario":"CASE","scenarioKey":"review-amr-1234567890ab-amr-s19","accessionNumber":"UATMICRO119","caseId":"case-19a"}'
         ;;
+      *'"scenarioKey": "review-amr-1234567890ab-amr-s21"'*)
+        [[ "$*" == *'"scenario": "AST_ANALYZER_REVIEW"'* ]]
+        printf '{"scenario":"AST_ANALYZER_REVIEW","scenarioKey":"review-amr-1234567890ab-amr-s21","accessionNumber":"UATMICRO121","caseId":"case-21a","isolateId":"isolate-21","astRunId":"run-21","analyzerInstrumentId":"analyzer-21","analyzerCardId":"card-21"}'
+        ;;
       *) exit 3 ;;
     esac
     ;;
@@ -93,8 +97,10 @@ esac
   assert.match(result.stdout, /fixture:\s+AMR-S02/);
   assert.match(result.stdout, /fixture:\s+AMR-S29/);
   assert.match(result.stdout, /fixture:\s+AMR-S19/);
+  assert.match(result.stdout, /fixture:\s+AMR-S21/);
+  assert.match(result.stdout, /scenario:\s+AST_ANALYZER_REVIEW/);
 
-  assert.equal(calls.trim().split("\n").length, 8);
+  assert.equal(calls.trim().split("\n").length, 9);
   assert.match(calls, /__review\/target\.json/);
   assert.match(calls, /ValidateLogin\?apiCall=true/);
   assert.match(calls, /api\/OpenELIS-Global\/session/);

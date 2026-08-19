@@ -76,6 +76,7 @@ default_fixture_specs=(
   "AMR-S02:CASE"
   "AMR-S29:CASE"
   "AMR-S19:CASE"
+  "AMR-S21:AST_ANALYZER_REVIEW"
 )
 if [ -n "${FIXTURE_SPECS:-}" ]; then
   read -r -a fixture_specs <<< "$FIXTURE_SPECS"
@@ -87,7 +88,7 @@ for fixture_spec in "${fixture_specs[@]}"; do
   fixture_key="${fixture_spec%%:*}"
   scenario="${fixture_spec#*:}"
   case "$scenario" in
-    CASE|MVP|WORKLIST|M3|M4|R1) ;;
+    CASE|MVP|WORKLIST|M3|M4|R1|AST_ANALYZER_REVIEW) ;;
     *)
       echo "Unsupported fixture scenario in $fixture_spec" >&2
       exit 1
