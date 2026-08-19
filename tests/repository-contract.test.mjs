@@ -87,6 +87,16 @@ test("the dedicated phrases review verifies sessions against its own app", async
   assert.match(router, /data-instance="phrases"/);
 });
 
+test("the review router recompresses frontend responses after overlay injection", async () => {
+  const router = await read("router/nginx.conf.template");
+
+  assert.match(router, /\bgzip on;/);
+  assert.match(router, /\bgzip_proxied any;/);
+  assert.match(router, /\bgzip_vary on;/);
+  assert.match(router, /gzip_types[\s\S]*application\/javascript/);
+  assert.match(router, /gzip_types[\s\S]*text\/css/);
+});
+
 test("the deployed review surface remains inspectable by accessibility and UAT tools", async () => {
   const widget = await readFile(
     new URL("../widget/oe-review-widget.js", import.meta.url),

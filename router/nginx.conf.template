@@ -27,6 +27,15 @@ http {
     # refusing to start on an unresolvable upstream).
     resolver 127.0.0.11 valid=10s ipv6=off;
 
+    # Frontend responses arrive uncompressed so the router can inject the review
+    # widget into HTML. Recompress them here; otherwise the same setting also sends
+    # multi-megabyte JavaScript and CSS bundles to reviewers uncompressed.
+    gzip on;
+    gzip_proxied any;
+    gzip_vary on;
+    gzip_min_length 1024;
+    gzip_types application/javascript application/json image/svg+xml text/css text/javascript;
+
     # WebSocket upgrade passthrough (Grist relies on it).
     map $http_upgrade $connection_upgrade {
         default upgrade;
