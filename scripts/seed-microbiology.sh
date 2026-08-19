@@ -116,6 +116,93 @@ print(json.dumps({
       "$API_ROOT/rest/microbiology/uat/scenarios"
   )"
 
+  if [ "$scenario" = "AST_ANALYZER_REVIEW" ]; then
+    matched_event_payload="$(
+      printf '%s' "$scenario_json" |
+        python3 -c '
+import json
+import sys
+
+scenario = json.load(sys.stdin)
+event_id = f"{scenario['"'"'scenarioKey'"'"']}-matched-result"
+print(json.dumps({
+    "externalEventId": event_id,
+    "eventType": "AST_RESULT_AVAILABLE",
+    "analyzerId": scenario["analyzerInstrumentId"],
+    "sourceId": scenario["analyzerCardId"],
+    "payload": {
+        "analyzerInstrumentId": scenario["analyzerInstrumentId"],
+        "analyzerCardId": scenario["analyzerCardId"],
+        "analyzerSoftwareVersion": "UAT-1.0",
+        "analyzerOrganismId": scenario["organismId"],
+        "analyzerOrganismName": "Escherichia coli (UAT)",
+        "analyzerOrganismConfidence": 99.5,
+        "instrumentQcReference": "UAT-QC-CONTROL-17",
+        "qcPassed": False,
+        "analyzerMessageCodes": ["CONTROL_OUT_OF_RANGE"],
+        "readings": [{
+            "antibioticId": scenario["antibioticId"],
+            "rawValue": 4,
+            "units": "mg/L",
+            "instrumentInterpretation": "SUSCEPTIBLE",
+            "analyzerResultReference": f"{event_id}-CIP",
+        }],
+    },
+}))
+'
+    )"
+    curl -fsSk \
+      -b "$COOKIE_JAR" \
+      -H "Content-Type: application/json" \
+      -H "X-CSRF-Token: $csrf" \
+      --data "$matched_event_payload" \
+      "$API_ROOT/rest/analyzer/events/ast" >/dev/null
+
+    unmatched_event_payload="$(
+      printf '%s' "$scenario_json" |
+        python3 -c '
+import json
+import sys
+
+scenario = json.load(sys.stdin)
+event_id = f"{scenario['"'"'scenarioKey'"'"']}-unmatched-result"
+source_id = f"{scenario['"'"'analyzerCardId'"'"']}-UNMATCHED"
+print(json.dumps({
+    "externalEventId": event_id,
+    "eventType": "AST_RESULT_AVAILABLE",
+    "analyzerId": scenario["analyzerInstrumentId"],
+    "sourceId": source_id,
+    "payload": {
+        "analyzerInstrumentId": scenario["analyzerInstrumentId"],
+        "analyzerCardId": source_id,
+        "analyzerSoftwareVersion": "UAT-1.0",
+        "readings": [{
+            "antibioticId": scenario["antibioticId"],
+            "rawValue": 4,
+            "units": "mg/L",
+            "instrumentInterpretation": "SUSCEPTIBLE",
+            "analyzerResultReference": f"{event_id}-CIP",
+        }],
+    },
+}))
+'
+    )"
+    unmatched_status="$(
+      curl -sSk \
+        -o /dev/null \
+        -w '%{http_code}' \
+        -b "$COOKIE_JAR" \
+        -H "Content-Type: application/json" \
+        -H "X-CSRF-Token: $csrf" \
+        --data "$unmatched_event_payload" \
+        "$API_ROOT/rest/analyzer/events/ast"
+    )"
+    [ "$unmatched_status" = "422" ] || {
+      echo "Unmatched analyzer fixture returned HTTP $unmatched_status" >&2
+      exit 1
+    }
+  fi
+
   printf '%s' "$scenario_json" |
     BASE_URL="$BASE_URL" FIXTURE_KEY="$fixture_key" python3 -c '
 import json
@@ -139,6 +226,8 @@ print(f"accession:     {accession}")
 print(f"primary case: {case_id} -> {base_url}/Microbiology/cases/{case_id}")
 if sibling_id:
     print(f"sibling case: {sibling_id} -> {base_url}/Microbiology/cases/{sibling_id}")
+if scenario.get("analyzerCardId"):
+    print(f"analyzer card: {scenario['"'"'analyzerCardId'"'"']}")
 print(f"worklist:     {base_url}/Microbiology/worklist")
 print("MICRO_SEED_DONE")
 '

@@ -52,10 +52,21 @@ case "$*" in
         ;;
       *'"scenarioKey": "review-amr-1234567890ab-amr-s21"'*)
         [[ "$*" == *'"scenario": "AST_ANALYZER_REVIEW"'* ]]
-        printf '{"scenario":"AST_ANALYZER_REVIEW","scenarioKey":"review-amr-1234567890ab-amr-s21","accessionNumber":"UATMICRO121","caseId":"case-21a","isolateId":"isolate-21","astRunId":"run-21","analyzerInstrumentId":"analyzer-21","analyzerCardId":"card-21"}'
+        printf '{"scenario":"AST_ANALYZER_REVIEW","scenarioKey":"review-amr-1234567890ab-amr-s21","accessionNumber":"UATMICRO121","caseId":"case-21a","isolateId":"isolate-21","astRunId":"run-21","analyzerInstrumentId":"analyzer-21","analyzerCardId":"card-21","organismId":"organism-21","antibioticId":"antibiotic-21"}'
         ;;
       *) exit 3 ;;
     esac
+    ;;
+  *rest/analyzer/events/ast*)
+    [[ "$*" == *"X-CSRF-Token: test-csrf"* ]]
+    if [[ "$*" == *'"sourceId": "card-21-UNMATCHED"'* ]]; then
+      [[ "$*" == *'"externalEventId": "review-amr-1234567890ab-amr-s21-unmatched-result"'* ]]
+      printf '422'
+    else
+      [[ "$*" == *'"sourceId": "card-21"'* ]]
+      [[ "$*" == *'"qcPassed": false'* ]]
+      printf '{"status":"success"}'
+    fi
     ;;
   *)
     exit 2
@@ -99,8 +110,9 @@ esac
   assert.match(result.stdout, /fixture:\s+AMR-S19/);
   assert.match(result.stdout, /fixture:\s+AMR-S21/);
   assert.match(result.stdout, /scenario:\s+AST_ANALYZER_REVIEW/);
+  assert.match(result.stdout, /analyzer card:\s+card-21/);
 
-  assert.equal(calls.trim().split("\n").length, 9);
+  assert.equal(calls.trim().split("\n").length, 11);
   assert.match(calls, /__review\/target\.json/);
   assert.match(calls, /ValidateLogin\?apiCall=true/);
   assert.match(calls, /api\/OpenELIS-Global\/session/);
