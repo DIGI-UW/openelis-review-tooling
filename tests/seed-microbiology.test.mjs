@@ -54,12 +54,39 @@ case "$*" in
         [[ "$*" == *'"scenario": "M4"'* ]]
         printf '{"scenario":"M4","scenarioKey":"review-amr-1234567890ab-amr-s14","accessionNumber":"UATMICRO114","caseId":"case-14a","sampleTypeId":"sample-type-14","unmappedOrganismId":"organism-unmapped-14"}'
         ;;
+      *'"scenarioKey": "review-amr-1234567890ab-amr-s30"'*)
+        [[ "$*" == *'"scenario": "AST_REVIEWED"'* ]]
+        printf '{"scenario":"AST_REVIEWED","scenarioKey":"review-amr-1234567890ab-amr-s30","accessionNumber":"UATMICRO130","caseId":"case-30a","methodId":"method-30","organismId":"organism-30"}'
+        ;;
       *'"scenarioKey": "review-amr-1234567890ab-amr-s21"'*)
         [[ "$*" == *'"scenario": "AST_ANALYZER_REVIEW"'* ]]
         printf '{"scenario":"AST_ANALYZER_REVIEW","scenarioKey":"review-amr-1234567890ab-amr-s21","accessionNumber":"UATMICRO121","caseId":"case-21a","isolateId":"isolate-21","astRunId":"run-21","analyzerInstrumentId":"analyzer-21","analyzerCardId":"card-21","organismId":"organism-21","antibioticId":"antibiotic-21"}'
         ;;
       *) exit 3 ;;
     esac
+    ;;
+  *rest/microbiology/cases/case-30a/order-detail*)
+    [[ "$*" == *"--request PUT"* ]]
+    [[ "$*" == *'"patientOrigin": "INPATIENT"'* ]]
+    printf '{"id":"case-30a","orderDetail":{"patientOrigin":"INPATIENT"}}'
+    ;;
+  *rest/microbiology/cases/case-30a/release/final*)
+    [[ "$*" == *'{}'* ]]
+    printf '{"caseId":"case-30a","finalReleaseState":"FINAL_RELEASED"}'
+    ;;
+  *rest/microbiology/cases/case-30a*)
+    printf '{"id":"case-30a","finalReleaseState":"NOT_RELEASED","orderDetail":{},"isolates":[{"id":"isolate-30a","isolateLabel":"ISO-1","organismId":"organism-30","significance":"CLINICALLY_SIGNIFICANT","identificationStatus":"CONFIRMED"}]}'
+    ;;
+  *rest/microbiology/isolates/isolate-30b/identification*)
+    [[ "$*" == *"--request PUT"* ]]
+    [[ "$*" == *'"organismId": "organism-30"'* ]]
+    [[ "$*" == *'"significance": "CONTAMINANT"'* ]]
+    printf '{"id":"isolate-30b","isolateLabel":"WHONET-FILTER-CONTAMINANT","organismId":"organism-30","significance":"CONTAMINANT","identificationStatus":"CONFIRMED"}'
+    ;;
+  *rest/microbiology/isolates*)
+    [[ "$*" == *'"caseId": "case-30a"'* ]]
+    [[ "$*" == *'"isolateLabel": "WHONET-FILTER-CONTAMINANT"'* ]]
+    printf '{"id":"isolate-30b","isolateLabel":"WHONET-FILTER-CONTAMINANT","significance":"CONTAMINANT","identificationStatus":"PRELIMINARY"}'
     ;;
   *rest/analyzer/events/ast*)
     [[ "$*" == *"X-CSRF-Token: test-csrf"* ]]
@@ -114,13 +141,18 @@ esac
   assert.match(result.stdout, /fixture:\s+AMR-S19/);
   assert.match(result.stdout, /fixture:\s+AMR-S14/);
   assert.match(result.stdout, /scenario:\s+M4/);
+  assert.match(result.stdout, /fixture:\s+AMR-S30/);
+  assert.match(result.stdout, /scenario:\s+AST_REVIEWED/);
   assert.match(result.stdout, /fixture:\s+AMR-S21/);
   assert.match(result.stdout, /scenario:\s+AST_ANALYZER_REVIEW/);
   assert.match(result.stdout, /analyzer card:\s+card-21/);
 
-  assert.equal(calls.trim().split("\n").length, 12);
+  assert.equal(calls.trim().split("\n").length, 18);
   assert.match(calls, /__review\/target\.json/);
   assert.match(calls, /ValidateLogin\?apiCall=true/);
   assert.match(calls, /api\/OpenELIS-Global\/session/);
   assert.match(calls, /rest\/microbiology\/uat\/scenarios/);
+  assert.match(calls, /rest\/microbiology\/cases\/case-30a\/order-detail/);
+  assert.match(calls, /rest\/microbiology\/isolates\/isolate-30b\/identification/);
+  assert.match(calls, /rest\/microbiology\/cases\/case-30a\/release\/final/);
 });

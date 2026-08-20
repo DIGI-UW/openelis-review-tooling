@@ -77,6 +77,7 @@ default_fixture_specs=(
   "AMR-S29:CASE"
   "AMR-S19:CASE"
   "AMR-S14:M4"
+  "AMR-S30:AST_REVIEWED"
   "AMR-S21:AST_ANALYZER_REVIEW"
 )
 if [ -n "${FIXTURE_SPECS:-}" ]; then
@@ -89,7 +90,7 @@ for fixture_spec in "${fixture_specs[@]}"; do
   fixture_key="${fixture_spec%%:*}"
   scenario="${fixture_spec#*:}"
   case "$scenario" in
-    CASE|MVP|WORKLIST|M3|M4|R1|AST_ANALYZER_REVIEW) ;;
+    CASE|MVP|WORKLIST|M3|M4|R1|AST_REVIEWED|AST_ANALYZER_REVIEW) ;;
     *)
       echo "Unsupported fixture scenario in $fixture_spec" >&2
       exit 1
@@ -116,6 +117,125 @@ print(json.dumps({
       --data "$payload" \
       "$API_ROOT/rest/microbiology/uat/scenarios"
   )"
+
+  if [ "$fixture_key" = "AMR-S30" ]; then
+    case_id="$(printf '%s' "$scenario_json" | python3 -c 'import json,sys; print(json.load(sys.stdin)["caseId"])')"
+    organism_id="$(printf '%s' "$scenario_json" | python3 -c 'import json,sys; print(json.load(sys.stdin)["organismId"])')"
+    method_id="$(printf '%s' "$scenario_json" | python3 -c 'import json,sys; print(json.load(sys.stdin)["methodId"])')"
+    case_json="$(curl -fsSk -b "$COOKIE_JAR" "$API_ROOT/rest/microbiology/cases/$case_id")"
+    final_state="$(printf '%s' "$case_json" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("finalReleaseState", ""))')"
+    patient_origin="$(printf '%s' "$case_json" | python3 -c 'import json,sys; print((json.load(sys.stdin).get("orderDetail") or {}).get("patientOrigin", ""))')"
+    contaminant_id="$(
+      printf '%s' "$case_json" |
+        python3 -c '
+import json
+import sys
+
+case = json.load(sys.stdin)
+isolate = next((item for item in case.get("isolates", [])
+                if item.get("isolateLabel") == "WHONET-FILTER-CONTAMINANT"), {})
+print(isolate.get("id", ""))
+'
+    )"
+
+    if [ "$final_state" = "FINAL_RELEASED" ]; then
+      printf '%s' "$case_json" |
+        python3 -c '
+import json
+import sys
+
+case = json.load(sys.stdin)
+origin = (case.get("orderDetail") or {}).get("patientOrigin")
+contaminant = next((item for item in case.get("isolates", [])
+                    if item.get("isolateLabel") == "WHONET-FILTER-CONTAMINANT"), None)
+if origin != "INPATIENT":
+    raise SystemExit("Final R9 fixture is missing patient origin INPATIENT")
+if not contaminant or contaminant.get("significance") != "CONTAMINANT" or contaminant.get("identificationStatus") != "CONFIRMED":
+    raise SystemExit("Final R9 fixture is missing its confirmed contaminant isolate")
+'
+    else
+      if [ "$patient_origin" != "INPATIENT" ]; then
+        order_payload="$(
+          METHOD_ID="$method_id" python3 -c '
+import json
+import os
+
+print(json.dumps({
+    "cultureMethodId": os.environ["METHOD_ID"],
+    "patientOrigin": "INPATIENT",
+    "numberOfSets": 1,
+    "clinicalHistory": "Synthetic WHONET population-filter fixture",
+    "antibioticExposure": False,
+}))
+'
+        )"
+        curl -fsSk \
+          --request PUT \
+          -b "$COOKIE_JAR" \
+          -H "Content-Type: application/json" \
+          -H "X-CSRF-Token: $csrf" \
+          --data "$order_payload" \
+          "$API_ROOT/rest/microbiology/cases/$case_id/order-detail" >/dev/null
+      fi
+
+      if [ -z "$contaminant_id" ]; then
+        isolate_payload="$(
+          CASE_ID="$case_id" python3 -c '
+import json
+import os
+
+print(json.dumps({
+    "caseId": os.environ["CASE_ID"],
+    "isolateLabel": "WHONET-FILTER-CONTAMINANT",
+    "gramStain": "Gram negative rods",
+    "colonyMorphology": "Synthetic contaminant colonies",
+    "significance": "CONTAMINANT",
+}))
+'
+        )"
+        isolate_json="$(
+          curl -fsSk \
+            -b "$COOKIE_JAR" \
+            -H "Content-Type: application/json" \
+            -H "X-CSRF-Token: $csrf" \
+            --data "$isolate_payload" \
+            "$API_ROOT/rest/microbiology/isolates"
+        )"
+        contaminant_id="$(printf '%s' "$isolate_json" | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')"
+      fi
+
+      identification_payload="$(
+        ORGANISM_ID="$organism_id" python3 -c '
+import json
+import os
+
+print(json.dumps({
+    "organismId": os.environ["ORGANISM_ID"],
+    "preliminaryOrganismText": "Escherichia coli (UAT contaminant)",
+    "significance": "CONTAMINANT",
+    "identificationStatus": "CONFIRMED",
+    "identificationMethod": "MALDI_TOF",
+    "identificationConfidence": 99.5,
+    "identificationReason": "Deterministic WHONET population-filter fixture",
+}))
+'
+      )"
+      curl -fsSk \
+        --request PUT \
+        -b "$COOKIE_JAR" \
+        -H "Content-Type: application/json" \
+        -H "X-CSRF-Token: $csrf" \
+        --data "$identification_payload" \
+        "$API_ROOT/rest/microbiology/isolates/$contaminant_id/identification" >/dev/null
+
+      curl -fsSk \
+        -b "$COOKIE_JAR" \
+        -H "Content-Type: application/json" \
+        -H "X-CSRF-Token: $csrf" \
+        --data '{}' \
+        "$API_ROOT/rest/microbiology/cases/$case_id/release/final" >/dev/null
+    fi
+  fi
 
   if [ "$scenario" = "AST_ANALYZER_REVIEW" ]; then
     matched_event_payload="$(
