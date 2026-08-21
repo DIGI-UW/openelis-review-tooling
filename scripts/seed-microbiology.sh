@@ -121,7 +121,6 @@ print(json.dumps({
   if [ "$fixture_key" = "AMR-S30" ]; then
     case_id="$(printf '%s' "$scenario_json" | python3 -c 'import json,sys; print(json.load(sys.stdin)["caseId"])')"
     sample_type_id="$(printf '%s' "$scenario_json" | python3 -c 'import json,sys; print(json.load(sys.stdin)["sampleTypeId"])')"
-    organism_id="$(printf '%s' "$scenario_json" | python3 -c 'import json,sys; print(json.load(sys.stdin)["organismId"])')"
     unmapped_organism_id="$(printf '%s' "$scenario_json" | python3 -c 'import json,sys; print(json.load(sys.stdin)["unmappedOrganismId"])')"
     method_id="$(printf '%s' "$scenario_json" | python3 -c 'import json,sys; print(json.load(sys.stdin)["methodId"])')"
     sample_type_json="$(curl -fsSk -b "$COOKIE_JAR" "$API_ROOT/rest/sample-types/$sample_type_id")"
