@@ -48,6 +48,7 @@ repo_git() {
 
 normalize_initialized_submodules() {
   local dir="$1" dirty
+  # shellcheck disable=SC2016 # $sm_path belongs to git submodule foreach's shell.
   dirty="$(repo_git "$dir" submodule foreach --quiet --recursive '
     if ! git diff --quiet || ! git diff --cached --quiet; then
       printf "%s\n" "$sm_path"
