@@ -97,6 +97,20 @@ test("the review router recompresses frontend responses after overlay injection"
   assert.match(router, /gzip_types[\s\S]*text\/css/);
 });
 
+test("the public TLS review hosts use HTTP/2 for frontend assets", async () => {
+  const router = await read("router/nginx.conf.template");
+
+  for (const domain of ["PHRASES", "AMR", "ANALYZERS", "GRIST"]) {
+    assert.match(
+      router,
+      new RegExp(
+        `server \\{\\s+listen 443 ssl;\\s+http2 on;\\s+server_name \\$\\{${domain}_DOMAIN\\};`,
+      ),
+      `${domain.toLowerCase()} must multiplex review assets over HTTP/2`,
+    );
+  }
+});
+
 test("the deployed review surface remains inspectable by accessibility and UAT tools", async () => {
   const widget = await readFile(
     new URL("../widget/oe-review-widget.js", import.meta.url),

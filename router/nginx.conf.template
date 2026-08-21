@@ -74,6 +74,7 @@ http {
     # -------------------------------------------------------------------------
     server {
         listen 443 ssl;
+        http2 on;
         server_name ${PHRASES_DOMAIN};
 
         ssl_certificate     ${PHRASES_CERT};
@@ -156,6 +157,7 @@ http {
     # -------------------------------------------------------------------------
     server {
         listen 443 ssl;
+        http2 on;
         server_name ${AMR_DOMAIN};
 
         ssl_certificate     ${AMR_CERT};
@@ -259,6 +261,7 @@ http {
     # -------------------------------------------------------------------------
     server {
         listen 443 ssl;
+        http2 on;
         server_name ${ANALYZERS_DOMAIN};
 
         ssl_certificate     ${ANALYZERS_CERT};
@@ -350,6 +353,7 @@ http {
     # -------------------------------------------------------------------------
     server {
         listen 443 ssl;
+        http2 on;
         server_name ${GRIST_DOMAIN};
 
         ssl_certificate     ${GRIST_CERT};
