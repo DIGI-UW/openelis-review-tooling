@@ -90,6 +90,25 @@ test("targeted app deployment accepts only an exact SHA and explicit scope", () 
   assert.match(deployScript, /data seed amr --fixture microbiology-mvp/);
 });
 
+test("targeted app status resolves and validates the requested instance", () => {
+  assert.match(
+    deployScript,
+    /target=.*edge_dir\/runtime\/target-.*instance\.json/,
+  );
+  assert.match(
+    deployScript,
+    /target_instance=.*instance.*\n.*target_instance.*=.*instance/s,
+  );
+  assert.match(
+    deployScript,
+    /status_instance=.*instance.*\n.*status_instance.*=.*instance/s,
+  );
+  assert.doesNotMatch(
+    deployScript,
+    /find \\\"\\\\\$edge_dir\/runtime\/deployments\\\".*sort.*tail -1/,
+  );
+});
+
 test("phrases is an isolated first-class OpenELIS review instance", () => {
   assert.match(deployScript, /amr \| analyzers \| phrases/);
   assert.match(deployScript, /SELECTED_APP_DIR="\$PHRASES_DIR"/);

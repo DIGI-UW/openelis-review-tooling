@@ -475,15 +475,24 @@ running_configs=\$(docker inspect -f '{{index .Config.Labels \"com.docker.compos
 running_override=\$(printf '%s' \"\$running_configs\" | tr ',' '\n' | awk -v instance=\"\$instance\" '\$0 ~ \"/\" instance \"/docker-compose\\\\.override\\\\.yml$\" { print; exit }')
 edge_dir='$EDGE_DIR'
 [ -z \"\$running_override\" ] || edge_dir=\${running_override%/\$instance/docker-compose.override.yml}
+target=\"\$edge_dir/runtime/target-\$instance.json\"
 if [ -z \"\$deployment_id\" ]; then
-  latest=\$(find \"\$edge_dir/runtime/deployments\" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sort | tail -1)
-  deployment_id=\${latest##*/}
+  [ -f \"\$target\" ] || { echo \"no ready deployment found for \$instance\"; exit 1; }
+  target_instance=\$(sed -n 's/.*\"instance\":\"\\([^\"]*\\)\".*/\\1/p' \"\$target\")
+  [ \"\$target_instance\" = \"\$instance\" ] || { echo \"target record belongs to \$target_instance, not \$instance\"; exit 1; }
+  deployment_id=\$(sed -n 's/.*\"deploymentId\":\"\\([^\"]*\\)\".*/\\1/p' \"\$target\")
 fi
-[ -n \"\$deployment_id\" ] || { echo 'no targeted deployments found'; exit 1; }
+[ -n \"\$deployment_id\" ] || { echo \"no deployment id found for \$instance\"; exit 1; }
 status=\"\$edge_dir/runtime/deployments/\$deployment_id/status.json\"
 log='/home/$OS_USER/oe-app-deploy-'\"\$deployment_id\"'.log'
 echo \"deployment=\$deployment_id\"
-cat \"\$status\" 2>/dev/null || echo '{\"state\":\"launching\"}'
+if [ -f \"\$status\" ]; then
+  status_instance=\$(sed -n 's/.*\"instance\":\"\\([^\"]*\\)\".*/\\1/p' \"\$status\")
+  [ \"\$status_instance\" = \"\$instance\" ] || { echo \"deployment \$deployment_id belongs to \$status_instance, not \$instance\"; exit 1; }
+  cat \"\$status\"
+else
+  echo '{\"state\":\"launching\"}'
+fi
 echo
 tail -12 \"\$log\" 2>/dev/null || true"
 }
