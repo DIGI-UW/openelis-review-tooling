@@ -55,8 +55,8 @@ case "$*" in
         printf '{"scenario":"M4","scenarioKey":"review-amr-1234567890ab-amr-s14","accessionNumber":"UATMICRO114","caseId":"case-14a","sampleTypeId":"sample-type-14","unmappedOrganismId":"organism-unmapped-14"}'
         ;;
       *'"scenarioKey": "review-amr-1234567890ab-amr-s30"'*)
-        [[ "$*" == *'"scenario": "AST_REVIEWED"'* ]]
-        printf '{"scenario":"AST_REVIEWED","scenarioKey":"review-amr-1234567890ab-amr-s30","accessionNumber":"UATMICRO130","caseId":"case-30a","sampleTypeId":"sample-type-30","methodId":"method-30","organismId":"organism-30"}'
+        [[ "$*" == *'"scenario": "WHONET_FILTERS"'* ]]
+        printf '{"scenario":"WHONET_FILTERS","scenarioKey":"review-amr-1234567890ab-amr-s30","accessionNumber":"UATMICRO130","caseId":"case-30a","sampleTypeId":"sample-type-30","methodId":"method-30","organismId":"organism-30","unmappedOrganismId":"organism-unmapped-30"}'
         ;;
       *'"scenarioKey": "review-amr-1234567890ab-amr-s21"'*)
         [[ "$*" == *'"scenario": "AST_ANALYZER_REVIEW"'* ]]
@@ -87,7 +87,7 @@ case "$*" in
     ;;
   *rest/microbiology/isolates/isolate-30b/identification*)
     [[ "$*" == *"--request PUT"* ]]
-    [[ "$*" == *'"organismId": "organism-30"'* ]]
+    [[ "$*" == *'"organismId": "organism-unmapped-30"'* ]]
     [[ "$*" == *'"significance": "CONTAMINANT"'* ]]
     printf '{"id":"isolate-30b","isolateLabel":"WHONET-FILTER-CONTAMINANT","organismId":"organism-30","significance":"CONTAMINANT","identificationStatus":"CONFIRMED"}'
     ;;
@@ -150,7 +150,7 @@ esac
   assert.match(result.stdout, /fixture:\s+AMR-S14/);
   assert.match(result.stdout, /scenario:\s+M4/);
   assert.match(result.stdout, /fixture:\s+AMR-S30/);
-  assert.match(result.stdout, /scenario:\s+AST_REVIEWED/);
+  assert.match(result.stdout, /scenario:\s+WHONET_FILTERS/);
   assert.match(result.stdout, /fixture:\s+AMR-S21/);
   assert.match(result.stdout, /scenario:\s+AST_ANALYZER_REVIEW/);
   assert.match(result.stdout, /analyzer card:\s+card-21/);

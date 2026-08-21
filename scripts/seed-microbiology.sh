@@ -77,7 +77,7 @@ default_fixture_specs=(
   "AMR-S29:CASE"
   "AMR-S19:CASE"
   "AMR-S14:M4"
-  "AMR-S30:AST_REVIEWED"
+  "AMR-S30:WHONET_FILTERS"
   "AMR-S21:AST_ANALYZER_REVIEW"
 )
 if [ -n "${FIXTURE_SPECS:-}" ]; then
@@ -90,7 +90,7 @@ for fixture_spec in "${fixture_specs[@]}"; do
   fixture_key="${fixture_spec%%:*}"
   scenario="${fixture_spec#*:}"
   case "$scenario" in
-    CASE|MVP|WORKLIST|M3|M4|R1|AST_REVIEWED|AST_ANALYZER_REVIEW) ;;
+    CASE|MVP|WORKLIST|M3|M4|R1|AST_REVIEWED|WHONET_FILTERS|AST_ANALYZER_REVIEW) ;;
     *)
       echo "Unsupported fixture scenario in $fixture_spec" >&2
       exit 1
@@ -122,6 +122,7 @@ print(json.dumps({
     case_id="$(printf '%s' "$scenario_json" | python3 -c 'import json,sys; print(json.load(sys.stdin)["caseId"])')"
     sample_type_id="$(printf '%s' "$scenario_json" | python3 -c 'import json,sys; print(json.load(sys.stdin)["sampleTypeId"])')"
     organism_id="$(printf '%s' "$scenario_json" | python3 -c 'import json,sys; print(json.load(sys.stdin)["organismId"])')"
+    unmapped_organism_id="$(printf '%s' "$scenario_json" | python3 -c 'import json,sys; print(json.load(sys.stdin)["unmappedOrganismId"])')"
     method_id="$(printf '%s' "$scenario_json" | python3 -c 'import json,sys; print(json.load(sys.stdin)["methodId"])')"
     sample_type_json="$(curl -fsSk -b "$COOKIE_JAR" "$API_ROOT/rest/sample-types/$sample_type_id")"
     specimen_code="$(printf '%s' "$sample_type_json" | python3 -c 'import json,sys; print((json.load(sys.stdin).get("data") or {}).get("whonetCode") or "")')"
@@ -152,17 +153,20 @@ print(isolate.get("id", ""))
 
     if [ "$final_state" = "FINAL_RELEASED" ]; then
       printf '%s' "$case_json" |
+        UNMAPPED_ORGANISM_ID="$unmapped_organism_id" \
         python3 -c '
 import json
+import os
 import sys
 
 case = json.load(sys.stdin)
 origin = (case.get("orderDetail") or {}).get("patientOrigin")
+unmapped_organism_id = os.environ["UNMAPPED_ORGANISM_ID"]
 contaminant = next((item for item in case.get("isolates", [])
                     if item.get("isolateLabel") == "WHONET-FILTER-CONTAMINANT"), None)
 if origin != "INPATIENT":
     raise SystemExit("Final R9 fixture is missing patient origin INPATIENT")
-if not contaminant or contaminant.get("significance") != "CONTAMINANT" or contaminant.get("identificationStatus") != "CONFIRMED":
+if not contaminant or contaminant.get("organismId") != unmapped_organism_id or contaminant.get("significance") != "CONTAMINANT" or contaminant.get("identificationStatus") != "CONFIRMED":
     raise SystemExit("Final R9 fixture is missing its confirmed contaminant isolate")
 '
     else
@@ -217,7 +221,7 @@ print(json.dumps({
       fi
 
       identification_payload="$(
-        ORGANISM_ID="$organism_id" python3 -c '
+        ORGANISM_ID="$unmapped_organism_id" python3 -c '
 import json
 import os
 
