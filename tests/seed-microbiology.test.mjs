@@ -56,7 +56,7 @@ case "$*" in
         ;;
       *'"scenarioKey": "review-amr-1234567890ab-amr-s30"'*)
         [[ "$*" == *'"scenario": "AST_REVIEWED"'* ]]
-        printf '{"scenario":"AST_REVIEWED","scenarioKey":"review-amr-1234567890ab-amr-s30","accessionNumber":"UATMICRO130","caseId":"case-30a","methodId":"method-30","organismId":"organism-30"}'
+        printf '{"scenario":"AST_REVIEWED","scenarioKey":"review-amr-1234567890ab-amr-s30","accessionNumber":"UATMICRO130","caseId":"case-30a","sampleTypeId":"sample-type-30","methodId":"method-30","organismId":"organism-30"}'
         ;;
       *'"scenarioKey": "review-amr-1234567890ab-amr-s21"'*)
         [[ "$*" == *'"scenario": "AST_ANALYZER_REVIEW"'* ]]
@@ -76,6 +76,14 @@ case "$*" in
     ;;
   *rest/microbiology/cases/case-30a*)
     printf '{"id":"case-30a","finalReleaseState":"NOT_RELEASED","orderDetail":{},"isolates":[{"id":"isolate-30a","isolateLabel":"ISO-1","organismId":"organism-30","significance":"CLINICALLY_SIGNIFICANT","identificationStatus":"CONFIRMED"}]}'
+    ;;
+  *rest/sample-types/sample-type-30*)
+    if [[ "$*" == *"--request PUT"* ]]; then
+      [[ "$*" == *'"whonetCode": "BLD"'* ]]
+      printf '{"success":true,"data":{"id":"sample-type-30","whonetCode":"BLD"}}'
+    else
+      printf '{"success":true,"data":{"id":"sample-type-30","whonetCode":""}}'
+    fi
     ;;
   *rest/microbiology/isolates/isolate-30b/identification*)
     [[ "$*" == *"--request PUT"* ]]
@@ -147,12 +155,14 @@ esac
   assert.match(result.stdout, /scenario:\s+AST_ANALYZER_REVIEW/);
   assert.match(result.stdout, /analyzer card:\s+card-21/);
 
-  assert.equal(calls.trim().split("\n").length, 18);
+  assert.equal(calls.trim().split("\n").length, 20);
   assert.match(calls, /__review\/target\.json/);
   assert.match(calls, /ValidateLogin\?apiCall=true/);
   assert.match(calls, /api\/OpenELIS-Global\/session/);
   assert.match(calls, /rest\/microbiology\/uat\/scenarios/);
   assert.match(calls, /rest\/microbiology\/cases\/case-30a\/order-detail/);
+  assert.match(calls, /rest\/sample-types\/sample-type-30/);
+  assert.match(calls, /"whonetCode": "BLD"/);
   assert.match(calls, /rest\/microbiology\/isolates\/isolate-30b\/identification/);
   assert.match(calls, /rest\/microbiology\/cases\/case-30a\/release\/final/);
 });

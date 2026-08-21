@@ -120,8 +120,20 @@ print(json.dumps({
 
   if [ "$fixture_key" = "AMR-S30" ]; then
     case_id="$(printf '%s' "$scenario_json" | python3 -c 'import json,sys; print(json.load(sys.stdin)["caseId"])')"
+    sample_type_id="$(printf '%s' "$scenario_json" | python3 -c 'import json,sys; print(json.load(sys.stdin)["sampleTypeId"])')"
     organism_id="$(printf '%s' "$scenario_json" | python3 -c 'import json,sys; print(json.load(sys.stdin)["organismId"])')"
     method_id="$(printf '%s' "$scenario_json" | python3 -c 'import json,sys; print(json.load(sys.stdin)["methodId"])')"
+    sample_type_json="$(curl -fsSk -b "$COOKIE_JAR" "$API_ROOT/rest/sample-types/$sample_type_id")"
+    specimen_code="$(printf '%s' "$sample_type_json" | python3 -c 'import json,sys; print((json.load(sys.stdin).get("data") or {}).get("whonetCode") or "")')"
+    if [ "$specimen_code" != "BLD" ]; then
+      curl -fsSk \
+        --request PUT \
+        -b "$COOKIE_JAR" \
+        -H "Content-Type: application/json" \
+        -H "X-CSRF-Token: $csrf" \
+        --data '{"whonetCode": "BLD"}' \
+        "$API_ROOT/rest/sample-types/$sample_type_id" >/dev/null
+    fi
     case_json="$(curl -fsSk -b "$COOKIE_JAR" "$API_ROOT/rest/microbiology/cases/$case_id")"
     final_state="$(printf '%s' "$case_json" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("finalReleaseState", ""))')"
     patient_origin="$(printf '%s' "$case_json" | python3 -c 'import json,sys; print((json.load(sys.stdin).get("orderDetail") or {}).get("patientOrigin", ""))')"
