@@ -77,6 +77,7 @@ at an exact pushed SHA:
 ```bash
 ./deploy.sh app deploy analyzers --ref <sha> --scope app
 ./deploy.sh app status analyzers
+./deploy.sh app logs analyzers --since 10m --tail 400
 ./deploy.sh app verify analyzers
 ```
 
@@ -84,6 +85,8 @@ The targeted path rebuilds and replaces only the selected app's frontend and/or
 backend services. It derives the live Compose chain from container labels, keeps
 the other app and shared review infrastructure running, and publishes
 `/__review/target.json` only after health and route smoke checks pass.
+Runtime logs use the same SSM transport as deployment, so diagnostics do not
+require SSH ingress or an interactive shell.
 
 Local deploy configuration comes from `.env.example` and lives in a git-ignored
 `.env`. Grist/Dex secrets use the separate `grist/.env.example` template and

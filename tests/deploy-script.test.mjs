@@ -109,6 +109,18 @@ test("targeted app status resolves and validates the requested instance", () => 
   );
 });
 
+test("targeted app logs use SSM instead of the legacy SSH path", () => {
+  assert.match(deployScript, /app logs <instance> \[--since <duration>\] \[--tail <lines>\]/);
+  assert.match(deployScript, /cmd_app_logs\(\)/);
+  const appLogs = deployScript.slice(
+    deployScript.indexOf("cmd_app_logs()"),
+    deployScript.indexOf("cmd_app_verify()"),
+  );
+  assert.match(appLogs, /require_aws/);
+  assert.match(appLogs, /ssm_run .*docker logs/s);
+  assert.doesNotMatch(appLogs, /ssh|allow_ssh_ingress/);
+});
+
 test("phrases is an isolated first-class OpenELIS review instance", () => {
   assert.match(deployScript, /amr \| analyzers \| phrases/);
   assert.match(deployScript, /SELECTED_APP_DIR="\$PHRASES_DIR"/);

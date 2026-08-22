@@ -122,6 +122,7 @@ untouched:
 ./deploy.sh infra bootstrap|status|upgrade
 ./deploy.sh app deploy <instance> --ref <sha> --scope frontend|backend|app
 ./deploy.sh app status <instance> [--deployment <id>]
+./deploy.sh app logs <instance> [--since <duration>] [--tail <lines>]
 ./deploy.sh app verify <instance>
 ./deploy.sh app rollback <instance>
 ./deploy.sh review deploy --ref <sha> --scope widget
