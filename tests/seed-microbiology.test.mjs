@@ -66,6 +66,10 @@ case "$*" in
         [[ "$*" == *'"scenario": "AST_ANALYZER_REVIEW"'* ]]
         printf '{"scenario":"AST_ANALYZER_REVIEW","scenarioKey":"review-amr-1234567890ab-amr-s31","accessionNumber":"UATMICRO131","caseId":"case-31a","isolateId":"isolate-31","astRunId":"run-31","analyzerInstrumentId":"analyzer-31","analyzerCardId":"card-31","organismId":"organism-31","antibioticId":"antibiotic-31"}'
         ;;
+      *'"scenarioKey": "review-amr-1234567890ab-amr-s32"'*)
+        [[ "$*" == *'"scenario": "CASE"'* ]]
+        printf '{"scenario":"CASE","scenarioKey":"review-amr-1234567890ab-amr-s32","accessionNumber":"UATMICRO132","caseId":"case-32a","methodId":"method-32"}'
+        ;;
       *) exit 3 ;;
     esac
     ;;
@@ -77,6 +81,12 @@ case "$*" in
   *rest/microbiology/cases/case-30a/release/final*)
     [[ "$*" == *'{}'* ]]
     printf '{"caseId":"case-30a","finalReleaseState":"FINAL_RELEASED"}'
+    ;;
+  *rest/microbiology/cases/case-32a/order-detail*)
+    [[ "$*" == *"--request PUT"* ]]
+    [[ "$*" == *'"culturePurpose": "CLINICAL_DIAGNOSTIC"'* ]]
+    [[ "$*" == *'"clinicalHistory": "R11 culture-purpose review fixture"'* ]]
+    printf '{"id":"case-32a","culturePurpose":"CLINICAL_DIAGNOSTIC"}'
     ;;
   *rest/microbiology/cases/case-30a*)
     printf '{"id":"case-30a","finalReleaseState":"NOT_RELEASED","orderDetail":{},"isolates":[{"id":"isolate-30a","isolateLabel":"ISO-1","organismId":"organism-30","significance":"CLINICALLY_SIGNIFICANT","identificationStatus":"CONFIRMED"}]}'
@@ -169,8 +179,10 @@ esac
   assert.match(result.stdout, /analyzer card:\s+card-21/);
   assert.match(result.stdout, /fixture:\s+AMR-S31/);
   assert.match(result.stdout, /analyzer card:\s+card-31/);
+  assert.match(result.stdout, /fixture:\s+AMR-S32/);
+  assert.match(result.stdout, /accession:\s+UATMICRO132/);
 
-  assert.equal(calls.trim().split("\n").length, 23);
+  assert.equal(calls.trim().split("\n").length, 25);
   assert.match(calls, /__review\/target\.json/);
   assert.match(calls, /ValidateLogin\?apiCall=true/);
   assert.match(calls, /api\/OpenELIS-Global\/session/);
@@ -180,4 +192,5 @@ esac
   assert.match(calls, /"whonetCode": "BLD"/);
   assert.match(calls, /rest\/microbiology\/isolates\/isolate-30b\/identification/);
   assert.match(calls, /rest\/microbiology\/cases\/case-30a\/release\/final/);
+  assert.match(calls, /rest\/microbiology\/cases\/case-32a\/order-detail/);
 });

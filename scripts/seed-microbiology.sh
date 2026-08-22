@@ -80,6 +80,7 @@ default_fixture_specs=(
   "AMR-S30:WHONET_FILTERS"
   "AMR-S21:AST_ANALYZER_REVIEW"
   "AMR-S31:AST_ANALYZER_REVIEW"
+  "AMR-S32:CASE"
 )
 if [ -n "${FIXTURE_SPECS:-}" ]; then
   read -r -a fixture_specs <<< "$FIXTURE_SPECS"
@@ -118,6 +119,34 @@ print(json.dumps({
       --data "$payload" \
       "$API_ROOT/rest/microbiology/uat/scenarios"
   )"
+
+  if [ "$fixture_key" = "AMR-S32" ]; then
+    case_id="$(printf '%s' "$scenario_json" | python3 -c 'import json,sys; print(json.load(sys.stdin)["caseId"])')"
+    method_id="$(printf '%s' "$scenario_json" | python3 -c 'import json,sys; print(json.load(sys.stdin)["methodId"])')"
+    order_payload="$(
+      METHOD_ID="$method_id" python3 -c '
+import json
+import os
+
+print(json.dumps({
+    "culturePurpose": "CLINICAL_DIAGNOSTIC",
+    "cultureMethodId": os.environ["METHOD_ID"],
+    "patientOrigin": "",
+    "admissionDate": None,
+    "numberOfSets": 1,
+    "clinicalHistory": "R11 culture-purpose review fixture",
+    "antibioticExposure": False,
+}))
+'
+    )"
+    curl -fsSk \
+      --request PUT \
+      -b "$COOKIE_JAR" \
+      -H "Content-Type: application/json" \
+      -H "X-CSRF-Token: $csrf" \
+      --data "$order_payload" \
+      "$API_ROOT/rest/microbiology/cases/$case_id/order-detail" >/dev/null
+  fi
 
   if [ "$fixture_key" = "AMR-S30" ]; then
     case_id="$(printf '%s' "$scenario_json" | python3 -c 'import json,sys; print(json.load(sys.stdin)["caseId"])')"
