@@ -31,7 +31,7 @@
 #   ./deploy.sh app deploy analyzers --ref <sha> --scope frontend|backend|app
 #   ./deploy.sh app deploy phrases --ref <sha> --scope app
 #   ./deploy.sh app status <instance> [--deployment <id>]
-#   ./deploy.sh app logs <instance> [--since <duration>] [--tail <lines>]
+#   ./deploy.sh app logs <instance> [--since <duration>] [--tail <lines>] [--errors]
 #   ./deploy.sh app verify <instance>
 #   ./deploy.sh app rollback <instance>
 #   ./deploy.sh review deploy --ref <sha> --scope widget|service|all
@@ -499,12 +499,13 @@ tail -12 \"\$log\" 2>/dev/null || true"
 }
 
 cmd_app_logs() {
-  local instance="${1:-}" since="10m" tail_lines="400"
+  local instance="${1:-}" since="10m" tail_lines="400" errors=false
   shift || true
   while [ "$#" -gt 0 ]; do
     case "$1" in
       --since) since="${2:-}"; shift 2 ;;
       --tail) tail_lines="${2:-}"; shift 2 ;;
+      --errors) errors=true; shift ;;
       *) die "unknown app logs argument '$1'" ;;
     esac
   done
@@ -513,6 +514,10 @@ cmd_app_logs() {
   [[ "$tail_lines" =~ ^[1-9][0-9]*$ ]] || die "--tail must be a positive line count"
   [ "$tail_lines" -le 5000 ] || die "--tail must not exceed 5000 lines"
   require_aws
+  if [ "$errors" = true ]; then
+    ssm_run "docker exec '$instance-openelisglobal-webapp' sh -c 'for file in /var/lib/openelis-global/logs/openELIS.log /var/lib/openelis-global/logs/error-backup-*.log.gz; do [ -f \"\$file\" ] || continue; case \"\$file\" in *.gz) gzip -cd \"\$file\" ;; *) cat \"\$file\" ;; esac; done | grep -E -C 25 \"ERROR|Exception|Caused by|filter-options|MicroWhonet\" || true'"
+    return
+  fi
   ssm_run "docker logs --since '$since' --tail '$tail_lines' '$instance-openelisglobal-webapp' 2>&1"
 }
 

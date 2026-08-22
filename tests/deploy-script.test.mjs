@@ -110,7 +110,10 @@ test("targeted app status resolves and validates the requested instance", () => 
 });
 
 test("targeted app logs use SSM instead of the legacy SSH path", () => {
-  assert.match(deployScript, /app logs <instance> \[--since <duration>\] \[--tail <lines>\]/);
+  assert.match(
+    deployScript,
+    /app logs <instance> \[--since <duration>\] \[--tail <lines>\] \[--errors\]/,
+  );
   assert.match(deployScript, /cmd_app_logs\(\)/);
   const appLogs = deployScript.slice(
     deployScript.indexOf("cmd_app_logs()"),
@@ -118,6 +121,8 @@ test("targeted app logs use SSM instead of the legacy SSH path", () => {
   );
   assert.match(appLogs, /require_aws/);
   assert.match(appLogs, /ssm_run .*docker logs/s);
+  assert.match(appLogs, /openELIS\.log/);
+  assert.match(appLogs, /error-backup-\*/);
   assert.doesNotMatch(appLogs, /ssh|allow_ssh_ingress/);
 });
 
