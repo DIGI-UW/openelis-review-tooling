@@ -18,6 +18,10 @@ const phrasesOverride = readFileSync(
 );
 
 test("AWS preflight distinguishes refresh failures from endpoint failures", () => {
+  const requireAws = deployScript.slice(
+    deployScript.indexOf("require_aws()"),
+    deployScript.indexOf("my_ip()"),
+  );
   assert.match(deployScript, /AWS credentials could not be refreshed/);
   assert.match(
     deployScript,
@@ -27,6 +31,8 @@ test("AWS preflight distinguishes refresh failures from endpoint failures", () =
     deployScript,
     /get-caller-identity[^\n]+>\/dev\/null 2>&1 \|\| die "no AWS session/,
   );
+  assert.match(requireAws, /for attempt in 1 2/);
+  assert.doesNotMatch(requireAws, /sleep/);
 });
 
 test("remote repository operations run as the checkout owner", () => {

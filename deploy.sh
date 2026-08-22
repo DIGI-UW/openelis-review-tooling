@@ -78,10 +78,18 @@ warn() { printf '%s!! %s%s\n' "$C_W" "$*" "$C_0" >&2; }
 die()  { printf '%s!! %s%s\n' "$C_E" "$*" "$C_0" >&2; exit 1; }
 
 require_aws() {
-  local output
-  if output="$(aws sts get-caller-identity --region "$REGION" 2>&1)"; then
-    return 0
-  fi
+  local output attempt
+  for attempt in 1 2; do
+    if output="$(aws sts get-caller-identity --region "$REGION" 2>&1)"; then
+      return 0
+    fi
+    case "$output" in
+      *InvalidGrantException*|*CreateOAuth2Token*|*ExpiredToken*|*InvalidClientTokenId*|*UnrecognizedClientException*)
+        [ "$attempt" -eq 1 ] && continue
+        ;;
+    esac
+    break
+  done
 
   case "$output" in
     *InvalidGrantException*|*CreateOAuth2Token*|*ExpiredToken*|*InvalidClientTokenId*|*UnrecognizedClientException*)
