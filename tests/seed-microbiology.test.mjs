@@ -62,6 +62,10 @@ case "$*" in
         [[ "$*" == *'"scenario": "AST_ANALYZER_REVIEW"'* ]]
         printf '{"scenario":"AST_ANALYZER_REVIEW","scenarioKey":"review-amr-1234567890ab-amr-s21","accessionNumber":"UATMICRO121","caseId":"case-21a","isolateId":"isolate-21","astRunId":"run-21","analyzerInstrumentId":"analyzer-21","analyzerCardId":"card-21","organismId":"organism-21","antibioticId":"antibiotic-21"}'
         ;;
+      *'"scenarioKey": "review-amr-1234567890ab-amr-s31"'*)
+        [[ "$*" == *'"scenario": "AST_ANALYZER_REVIEW"'* ]]
+        printf '{"scenario":"AST_ANALYZER_REVIEW","scenarioKey":"review-amr-1234567890ab-amr-s31","accessionNumber":"UATMICRO131","caseId":"case-31a","isolateId":"isolate-31","astRunId":"run-31","analyzerInstrumentId":"analyzer-31","analyzerCardId":"card-31","organismId":"organism-31","antibioticId":"antibiotic-31"}'
+        ;;
       *) exit 3 ;;
     esac
     ;;
@@ -97,14 +101,23 @@ case "$*" in
     printf '{"id":"isolate-30b","isolateLabel":"WHONET-FILTER-CONTAMINANT","significance":"CONTAMINANT","identificationStatus":"PRELIMINARY"}'
     ;;
   *rest/analyzer/events/ast*)
-    [[ "$*" == *"X-CSRF-Token: test-csrf"* ]]
+    [[ "$*" == *"--user admin:adminADMIN!"* ]]
+    [[ "$*" != *"X-CSRF-Token"* ]]
     if [[ "$*" == *'"sourceId": "card-21-UNMATCHED"'* ]]; then
       [[ "$*" == *'"externalEventId": "review-amr-1234567890ab-amr-s21-unmatched-result"'* ]]
       printf '422'
-    else
+    elif [[ "$*" == *'"sourceId": "card-31-UNMATCHED"'* ]]; then
+      [[ "$*" == *'"externalEventId": "review-amr-1234567890ab-amr-s31-unmatched-result"'* ]]
+      printf '422'
+    elif [[ "$*" == *'"sourceId": "card-21"'* ]]; then
       [[ "$*" == *'"sourceId": "card-21"'* ]]
       [[ "$*" == *'"qcPassed": false'* ]]
       printf '{"status":"success"}'
+    elif [[ "$*" == *'"sourceId": "card-31"'* ]]; then
+      [[ "$*" == *'"qcPassed": false'* ]]
+      printf '{"status":"success"}'
+    else
+      exit 4
     fi
     ;;
   *)
@@ -154,8 +167,10 @@ esac
   assert.match(result.stdout, /fixture:\s+AMR-S21/);
   assert.match(result.stdout, /scenario:\s+AST_ANALYZER_REVIEW/);
   assert.match(result.stdout, /analyzer card:\s+card-21/);
+  assert.match(result.stdout, /fixture:\s+AMR-S31/);
+  assert.match(result.stdout, /analyzer card:\s+card-31/);
 
-  assert.equal(calls.trim().split("\n").length, 20);
+  assert.equal(calls.trim().split("\n").length, 23);
   assert.match(calls, /__review\/target\.json/);
   assert.match(calls, /ValidateLogin\?apiCall=true/);
   assert.match(calls, /api\/OpenELIS-Global\/session/);

@@ -79,6 +79,7 @@ default_fixture_specs=(
   "AMR-S14:M4"
   "AMR-S30:WHONET_FILTERS"
   "AMR-S21:AST_ANALYZER_REVIEW"
+  "AMR-S31:AST_ANALYZER_REVIEW"
 )
 if [ -n "${FIXTURE_SPECS:-}" ]; then
   read -r -a fixture_specs <<< "$FIXTURE_SPECS"
@@ -288,9 +289,8 @@ print(json.dumps({
 '
     )"
     curl -fsSk \
-      -b "$COOKIE_JAR" \
+      --user "$TEST_USER:$TEST_PASS" \
       -H "Content-Type: application/json" \
-      -H "X-CSRF-Token: $csrf" \
       --data "$matched_event_payload" \
       "$API_ROOT/rest/analyzer/events/ast" >/dev/null
 
@@ -327,9 +327,8 @@ print(json.dumps({
       curl -sSk \
         -o /dev/null \
         -w '%{http_code}' \
-        -b "$COOKIE_JAR" \
+        --user "$TEST_USER:$TEST_PASS" \
         -H "Content-Type: application/json" \
-        -H "X-CSRF-Token: $csrf" \
         --data "$unmatched_event_payload" \
         "$API_ROOT/rest/analyzer/events/ast"
     )"
