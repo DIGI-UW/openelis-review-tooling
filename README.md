@@ -82,10 +82,13 @@ at an exact pushed SHA:
 ./deploy.sh app verify analyzers
 ```
 
-The targeted path rebuilds and replaces only the selected app's frontend and/or
-backend services. It derives the live Compose chain from container labels, keeps
-the other app and shared review infrastructure running, and publishes
-`/__review/target.json` only after health and route smoke checks pass.
+The targeted path rebuilds and replaces only the selected app's services. For
+the analyzer app, `--scope app` includes its pinned Analyzer Bridge and analyzer
+mock alongside the OpenELIS backend and frontend. It derives the live Compose
+chain from container labels, keeps the other apps and shared review
+infrastructure running, and publishes `/__review/target.json` only after health
+and route smoke checks pass.
+
 Runtime logs use the same SSM transport as deployment, so diagnostics do not
 require SSH ingress or an interactive shell. Use `--errors` to search the
 current and rotated OpenELIS application logs for exception context.

@@ -43,6 +43,10 @@ done
 }
 BACKEND_IMAGE="openelisglobal-webapp.$INSTANCE"
 FRONTEND_IMAGE="frontend.$INSTANCE"
+BRIDGE_IMAGE="openelis-analyzer-bridge.$INSTANCE"
+MOCK_IMAGE="openelis-astm-simulator.$INSTANCE"
+BRIDGE_CONTAINER="$INSTANCE-openelis-analyzer-bridge"
+MOCK_CONTAINER="$INSTANCE-openelis-astm-simulator"
 
 case "$INSTANCE" in
   amr | analyzers | phrases) ;;
@@ -74,6 +78,11 @@ if [ "$scope" = frontend ] || [ "$scope" = app ]; then
   docker image tag "$FRONTEND_IMAGE:rollback-$DEPLOYMENT_ID" "$FRONTEND_IMAGE:latest"
   services+=("frontend.openelis.org")
 fi
+if [ "$INSTANCE" = analyzers ] && [ "$scope" = app ]; then
+  docker image tag "$BRIDGE_IMAGE:rollback-$DEPLOYMENT_ID" "$BRIDGE_IMAGE:latest"
+  docker image tag "$MOCK_IMAGE:rollback-$DEPLOYMENT_ID" "$MOCK_IMAGE:latest"
+  services=("openelis-analyzer-bridge" "astm-simulator" "${services[@]}")
+fi
 [ "${#services[@]}" -gt 0 ] || {
   echo "deployment has an unsupported rollback scope: $scope" >&2
   exit 1
@@ -81,6 +90,19 @@ fi
 
 docker compose -p "$INSTANCE" "${COMPOSE_FILES[@]}" \
   up -d --no-deps --force-recreate "${services[@]}"
+if [ "$INSTANCE" = analyzers ] && [ "$scope" = app ]; then
+  ready=false
+  for _ in $(seq 1 120); do
+    if docker exec "$BRIDGE_CONTAINER" /app/healthcheck.sh >/dev/null 2>&1 && \
+      [ "$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' \
+        "$MOCK_CONTAINER" 2>/dev/null || true)" = healthy ]; then
+      ready=true
+      break
+    fi
+    sleep 5
+  done
+  [ "$ready" = true ]
+fi
 if [ "$scope" = backend ] || [ "$scope" = app ]; then
   healthy=false
   for _ in $(seq 1 120); do

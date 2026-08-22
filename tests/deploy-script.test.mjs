@@ -150,7 +150,7 @@ test("targeted deployment bootstraps a missing declared instance", () => {
   assert.match(appDeployScript, /docker-compose\.override\.yml/);
   assert.match(
     appDeployScript,
-    /compose up -d --build certs db\.openelis\.org oe\.openelis\.org fhir\.openelis\.org frontend\.openelis\.org/,
+    /compose up -d --build certs db\.openelis\.org fhir\.openelis\.org "\$\{services\[@\]\}"/,
   );
   assert.match(
     appDeployScript,
@@ -206,7 +206,7 @@ test("targeted app deployment preserves unrelated review infrastructure", () => 
   assert.doesNotMatch(appDeployScript, /docker compose -p analyzers/);
   assert.match(
     appDeployScript,
-    /if \[ "\$bootstrap" = false \]; then\s+candidate_started=true\s+write_status verifying\s+compose up -d --no-deps --force-recreate/s,
+    /if \[ "\$bootstrap" = false \]; then\s+candidate_started=true\s+write_status verifying[\s\S]*compose up -d --no-deps --force-recreate/,
   );
 });
 
@@ -245,6 +245,35 @@ test("targeted analyzer deployment reuses its active Compose chain", () => {
     appDeployScript,
     /docker compose -p "\$INSTANCE" "\$\{COMPOSE_FILES\[@\]\}"/,
   );
+});
+
+test("analyzer app deployment includes the pinned Bridge and mock runtime", () => {
+  assert.match(
+    appDeployScript,
+    /tools\/openelis-analyzer-bridge tools\/analyzer-mock-server/,
+    "the exact analyzer runtime submodules must be initialized from the deployed OpenELIS commit",
+  );
+  assert.match(
+    appDeployScript,
+    /\[ "\$INSTANCE" = analyzers \].*openelis-analyzer-bridge.*astm-simulator/s,
+    "an analyzer app deployment must select both runtime services",
+  );
+  assert.match(
+    appDeployScript,
+    /BRIDGE_CONTAINER="\$INSTANCE-openelis-analyzer-bridge".*MOCK_CONTAINER="\$INSTANCE-openelis-astm-simulator".*docker exec "\$BRIDGE_CONTAINER".*docker inspect.*"\$MOCK_CONTAINER"/s,
+    "runtime containers must participate in health verification and rollback",
+  );
+  assert.match(
+    appRollbackScript,
+    /BRIDGE_CONTAINER="\$INSTANCE-openelis-analyzer-bridge".*MOCK_CONTAINER="\$INSTANCE-openelis-astm-simulator".*docker exec "\$BRIDGE_CONTAINER".*docker inspect.*"\$MOCK_CONTAINER"/s,
+    "explicit rollback must restore the runtime images with the OpenELIS images",
+  );
+  const appVerify = deployScript.slice(
+    deployScript.indexOf("cmd_app_verify()"),
+    deployScript.indexOf("cmd_app_rollback()"),
+  );
+  assert.match(appVerify, /analyzers-openelis-analyzer-bridge/);
+  assert.match(appVerify, /analyzers-openelis-astm-simulator/);
 });
 
 test("targeted lifecycle resolves the active Compose paths from the running app", () => {
