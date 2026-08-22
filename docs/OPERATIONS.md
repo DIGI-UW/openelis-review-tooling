@@ -47,6 +47,19 @@ the first deployment.
 AWS credentials remain in the operator's normal AWS CLI session. They are
 never copied into `.env`, Grist, the widget, or MCP.
 
+The configured `AWS_PROFILE` region must match `REGION`. Console-login
+credentials are short-lived and the CLI refreshes them through the regional
+AWS Sign-In endpoint that issued the session. Before the first deployment, or
+after changing regions, configure and log in once with matching values:
+
+```bash
+aws configure set region us-west-2 --profile default
+aws login --profile default --region us-west-2
+```
+
+`deploy.sh` rejects a mismatched profile before making a deployment request so
+an initially valid 15-minute credential cannot fail later during a long build.
+
 ## Protected State
 
 The Git checkout is replaceable. These paths are not:

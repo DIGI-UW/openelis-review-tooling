@@ -17,11 +17,15 @@ const phrasesOverride = readFileSync(
   "utf8",
 );
 
-test("AWS preflight distinguishes refresh failures from endpoint failures", () => {
+test("AWS preflight rejects a login profile from a different region", () => {
   const requireAws = deployScript.slice(
     deployScript.indexOf("require_aws()"),
     deployScript.indexOf("my_ip()"),
   );
+  assert.match(deployScript, /export AWS_PROFILE="\$\{AWS_PROFILE:-default\}"/);
+  assert.match(requireAws, /aws configure get region --profile "\$AWS_PROFILE"/);
+  assert.match(requireAws, /AWS login refresh is region-bound/);
+  assert.match(requireAws, /aws login --profile '\$AWS_PROFILE' --region '\$REGION'/);
   assert.match(deployScript, /AWS credentials could not be refreshed/);
   assert.match(
     deployScript,
@@ -31,7 +35,7 @@ test("AWS preflight distinguishes refresh failures from endpoint failures", () =
     deployScript,
     /get-caller-identity[^\n]+>\/dev\/null 2>&1 \|\| die "no AWS session/,
   );
-  assert.match(requireAws, /for attempt in 1 2/);
+  assert.doesNotMatch(requireAws, /for attempt in 1 2/);
   assert.doesNotMatch(requireAws, /sleep/);
 });
 

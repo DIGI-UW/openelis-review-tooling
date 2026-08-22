@@ -54,6 +54,7 @@ fi
 : "${AMR_DOMAIN:?}" "${ANALYZERS_DOMAIN:?}" "${PHRASES_DOMAIN:?}" "${GRIST_DOMAIN:?}"
 : "${AMR_BRANCH:?}" "${ANALYZERS_BRANCH:?}" "${PHRASES_BRANCH:?}"
 : "${EDGE_DIR:?}" "${AMR_DIR:?}" "${ANALYZERS_DIR:?}" "${PHRASES_DIR:?}" "${LETSENCRYPT_EMAIL:?}"
+export AWS_PROFILE="${AWS_PROFILE:-default}"
 SSH_KEY_EXPANDED="${SSH_KEY/#\~/$HOME}"
 # Two repos: this harness (cloned into EDGE_DIR) and the OpenELIS app it builds
 # (cloned into the instance-specific directories). They are separate checkouts.
@@ -78,22 +79,21 @@ warn() { printf '%s!! %s%s\n' "$C_W" "$*" "$C_0" >&2; }
 die()  { printf '%s!! %s%s\n' "$C_E" "$*" "$C_0" >&2; exit 1; }
 
 require_aws() {
-  local output attempt
-  for attempt in 1 2; do
-    if output="$(aws sts get-caller-identity --region "$REGION" 2>&1)"; then
-      return 0
-    fi
-    case "$output" in
-      *InvalidGrantException*|*CreateOAuth2Token*|*ExpiredToken*|*InvalidClientTokenId*|*UnrecognizedClientException*)
-        [ "$attempt" -eq 1 ] && continue
-        ;;
-    esac
-    break
-  done
+  local output profile_region
+  profile_region="$(aws configure get region --profile "$AWS_PROFILE" 2>/dev/null || true)"
+  if [ -z "$profile_region" ]; then
+    die "AWS profile '$AWS_PROFILE' has no configured region. Run: aws configure set region '$REGION' --profile '$AWS_PROFILE'"
+  fi
+  if [ "$profile_region" != "$REGION" ]; then
+    die "AWS profile '$AWS_PROFILE' uses $profile_region but this deployment uses $REGION. AWS login refresh is region-bound. Run: aws configure set region '$REGION' --profile '$AWS_PROFILE'; then aws login --profile '$AWS_PROFILE' --region '$REGION'"
+  fi
+  if output="$(aws sts get-caller-identity --region "$REGION" 2>&1)"; then
+    return 0
+  fi
 
   case "$output" in
     *InvalidGrantException*|*CreateOAuth2Token*|*ExpiredToken*|*InvalidClientTokenId*|*UnrecognizedClientException*)
-      die "AWS credentials could not be refreshed — run 'aws login' once, then retry"
+      die "AWS credentials could not be refreshed for profile '$AWS_PROFILE' in $REGION. Run: aws login --profile '$AWS_PROFILE' --region '$REGION'"
       ;;
     *"Could not connect to the endpoint URL"*|*"Connection was closed"*|*"Name or service not known"*|*"SSL validation failed"*)
       die "AWS endpoint is unreachable; the login may still be valid — check network/sandbox access, then retry"
