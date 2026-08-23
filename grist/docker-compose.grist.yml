@@ -42,6 +42,10 @@ services:
       # API key or session; the OAuth-bearer path additionally needs the OIDC
       # server + Redis (see Phase B). No effect until the full edition is active.
       - GRIST_MCP_ENABLED=true
+      # Full-edition authoring becomes read-only when the 30-day evaluation
+      # expires. Keep the activation only in the host-side .env; Compose passes
+      # it directly to Grist and the repository never copies its value.
+      - GRIST_ACTIVATION=${GRIST_ACTIVATION:-}
       # Web-client MCP auth: Grist runs its own OIDC server issuing tokens to MCP
       # clients (claude.ai/chatgpt.com auto-register via CIMD + DCR). Token storage
       # requires Redis — without REDIS_URL, /api/mcp rejects all OAuth bearer tokens.

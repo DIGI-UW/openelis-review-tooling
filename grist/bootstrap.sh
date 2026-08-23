@@ -136,6 +136,9 @@ cmd_up() {
   wait_for_grist
   ensure_api_key
 
+  echo ">> verifying full-edition authoring entitlement and document ownership"
+  run_node check-access
+
   echo ">> migrating the UAT schema without clearing authored rows"
   run_node migrate
   echo ">> seeding only checklist instances that are not already authored"
@@ -173,18 +176,6 @@ cmd_check_access() {
   run_node check-access
 }
 
-cmd_reconcile_access() {
-  [ "${1:-}" = "--yes" ] ||
-    die "reconcile-access restarts Grist; re-run with --yes"
-  require_runtime
-  [ -s "$KEYFILE" ] || die "$KEYFILE is missing; run up first"
-  echo ">> restarting Grist to reconcile cached document access"
-  compose restart grist
-  wait_for_grist
-  copy_runtime_scripts
-  run_node check-access
-}
-
 # Listing a story in the public catalog is an act with a consequence, so it has
 # its own command rather than riding along with a migration.
 cmd_publish() {
@@ -213,10 +204,6 @@ main() {
     status) cmd_status ;;
     generate) cmd_generate ;;
     check-access) cmd_check_access ;;
-    reconcile-access)
-      shift
-      cmd_reconcile_access "$@"
-      ;;
     publish)
       shift
       cmd_publish "$@"
@@ -234,7 +221,6 @@ Usage:
   ./grist/bootstrap.sh status
   ./grist/bootstrap.sh generate
   ./grist/bootstrap.sh check-access
-  ./grist/bootstrap.sh reconcile-access --yes
   ./grist/bootstrap.sh publish <instance…> [--unlist]
   ./grist/bootstrap.sh seed-examples --replace-all
 USAGE

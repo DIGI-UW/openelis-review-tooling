@@ -43,6 +43,10 @@ test("remote deploy commands never carry Grist or Dex secret values", async () =
   assert.doesNotMatch(localEnv, /^DEX_/m);
   assert.match(hostEnv, /^DEX_GRIST_CLIENT_SECRET=/m);
   assert.match(hostEnv, /^DEX_REVIEWER_PASSWORD_HASH=/m);
+  assert.match(hostEnv, /^GRIST_ACTIVATION=/m);
+  const compose = await read("grist/docker-compose.grist.yml");
+  assert.match(compose, /GRIST_ACTIVATION=\$\{GRIST_ACTIVATION:-\}/);
+  assert.match(bootstrap, /run_node check-access/);
   assert.match(
     bootstrap,
     /DEX_REVIEWER_PASSWORD_HASH must start with a supported bcrypt prefix/,

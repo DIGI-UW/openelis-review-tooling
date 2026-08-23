@@ -131,8 +131,10 @@ stable `/Microbiology/worklist` route.
 - **Renaming harness containers** requires updating `astm-simulator`'s
   `BRIDGE_CONTAINER_NAME` / `MOCK_CONTAINER_NAME`.
 - **Two separate LE certs**, not one multi-SAN — renewals/failures stay decoupled.
-- **Enterprise Grist** is activated by `/persist/config.json`
-  (`{"version":"1","edition":"enterprise"}`); delete it to revert to community.
+- **Full-edition Grist** is selected by `/persist/config.json`
+  (`{"version":"1","edition":"enterprise"}`). This starts a 30-day evaluation;
+  a valid `GRIST_ACTIVATION` is required afterward. Delete the marker to revert
+  to writable community Grist, which does not provide native MCP.
 
 ## License
 MIT — see [LICENSE](LICENSE).

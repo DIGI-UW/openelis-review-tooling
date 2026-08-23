@@ -108,8 +108,7 @@ test("targeted app deployment accepts only an exact SHA and explicit scope", () 
   );
   assert.match(deployScript, /grist check-access/);
   assert.match(deployScript, /grist\/bootstrap\.sh check-access/);
-  assert.match(deployScript, /grist reconcile-access --yes/);
-  assert.match(deployScript, /grist\/bootstrap\.sh reconcile-access --yes/);
+  assert.doesNotMatch(deployScript, /reconcile-access/);
 });
 
 test("targeted app status resolves and validates the requested instance", () => {

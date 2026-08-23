@@ -72,9 +72,21 @@ async function resolveDoc() {
 
 async function checkAccess() {
   const doc = await resolveDoc();
-  const info = await api(`/api/docs/${doc}`);
+  const [info, activation] = await Promise.all([
+    api(`/api/docs/${doc}`),
+    api("/api/activation/status"),
+  ]);
   const access = String(info.access || "none");
   console.log(`${info.name || DOC_NAME} ${doc}: ${access}`);
+  const entitlement = activation.key
+    ? activation.planName || "licensed"
+    : activation.trial
+      ? "trial"
+      : activation.planName || "unknown";
+  const daysLeft = activation.key?.daysLeft ?? activation.trial?.daysLeft;
+  console.error(
+    `activation ${entitlement}${daysLeft === undefined ? "" : `, ${daysLeft} days left`}, ${activation.needKey ? "key required" : "writable"}`,
+  );
   if (ADMIN_EMAIL) {
     const [profile, sharing, org] = await Promise.all([
       api("/api/profile/user"),
@@ -91,6 +103,11 @@ async function checkAccess() {
     const product = billing.product || {};
     console.error(
       `site product ${product.name || "unknown"}, inGoodStanding ${String(billing.inGoodStanding)}, readOnlyDocs ${String(product.features?.readOnlyDocs)}`,
+    );
+  }
+  if (activation.needKey) {
+    throw new Error(
+      "Grist full-edition trial has expired; configure GRIST_ACTIVATION with a valid activation key before authoring UAT",
     );
   }
   if (access !== "owners") {

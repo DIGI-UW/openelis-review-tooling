@@ -20,6 +20,19 @@ export function fakeGristDoc(seed = {}) {
     id: "docFAKE",
     name: "UAT Checklists",
     access: seed.access || "owners",
+    activation: structuredClone(
+      seed.activation || {
+        installationId: "installation-FAKE",
+        planName: "trial",
+        keyPrefix: null,
+        trial: {
+          days: 30,
+          expirationDate: "2099-01-31T00:00:00.000Z",
+          daysLeft: 30,
+        },
+        needKey: false,
+      },
+    ),
     tables: structuredClone(seed.tables || {}),
     // Every request the tool made, in order, so a test can assert on sequence
     // rather than only on the state left behind.
@@ -147,6 +160,10 @@ export async function startFakeGrist(doc) {
             product: { name: "team", features: { readOnlyDocs: false } },
           },
         });
+      }
+
+      if (path === "/api/activation/status" && req.method === "GET") {
+        return send(200, doc.activation);
       }
 
       if (path === `/api/docs/${doc.id}` && req.method === "GET") {

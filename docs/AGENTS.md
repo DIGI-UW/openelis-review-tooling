@@ -144,9 +144,12 @@ issues; don't file them unless asked.
   or an untrusted client. The widget read path is the only anonymous surface, and
   it is read-only. Verify that contract with `./deploy.sh grist check-access`;
   a connected MCP identity reported as `viewers` is not ready for authoring.
-- Grist runs the **full edition**, activated by `/persist/config.json`
-  (`{"version":"1","edition":"enterprise"}`) + `GRIST_MCP_ENABLED=true`. Removing
-  that file reverts to community (rollback-safe; data untouched).
+- Grist runs the **full edition**, selected by `/persist/config.json`
+  (`{"version":"1","edition":"enterprise"}`) + `GRIST_MCP_ENABLED=true`.
+  Selection starts a 30-day evaluation; it does not license the server. After
+  the evaluation, `GRIST_ACTIVATION` is required or Grist caps every document
+  owner to read-only. Removing the marker reverts to community (rollback-safe;
+  data untouched) but also removes native MCP.
 - Runtime secrets live in the untracked `${EDGE_DIR}/.env`; never put their
   values in Git or an SSM command body.
 - `bootstrap.sh up` migrates schema and seeds only missing instances. Never use

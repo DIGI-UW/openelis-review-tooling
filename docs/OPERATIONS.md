@@ -27,7 +27,7 @@ The operator has two untracked environment files:
 - A local `.env`, copied from `.env.example`, for AWS coordinates, branches,
   domains, and host paths used by `deploy.sh`.
 - `${EDGE_DIR}/.env` on the host, provisioned from `grist/.env.example`, for the
-  Grist/Dex runtime and its two secret values.
+  Grist/Dex runtime and its credentials.
 
 The deploy command never embeds the host-side secret values in an SSM command
 body. Provision `${EDGE_DIR}/.env` through an approved operator channel before
@@ -43,6 +43,7 @@ the first deployment.
 | `GRIST_STATE_DIR`                                             | Server-side API-key mount            | No                                               |
 | `DEX_GRIST_CLIENT_SECRET`                                     | Dex-to-Grist OIDC client             | Yes                                              |
 | `DEX_REVIEWER_PASSWORD_HASH`                                  | Demo reviewer login hash             | Yes                                              |
+| `GRIST_ACTIVATION`                                            | Full-edition license and native MCP   | Yes                                              |
 
 AWS credentials remain in the operator's normal AWS CLI session. They are
 never copied into `.env`, Grist, the widget, or MCP.
@@ -97,18 +98,18 @@ cp grist/.env.example .env
 document. Run it before relying on native MCP authoring; a connected read-only
 identity is not a healthy authoring setup.
 
-If the check reports effective `viewers` while both direct and inherited access
-are `owners`, reconcile Grist's cached access state and verify it again:
+If the check reports an expired full-edition evaluation, provision a valid
+`GRIST_ACTIVATION` in `${EDGE_DIR}/.env` and run `up` again. Restarting Grist or
+changing document sharing cannot restore writes because the server applies the
+read-only cap after access is calculated.
 
-```bash
-./deploy.sh grist reconcile-access --yes
-./deploy.sh grist check-access
-```
-
-`up` activates the full edition in its persistent volume, starts
-Grist/Dex/Redis, preserves or creates the server-side API key, migrates missing
-columns, seeds only instances absent from Grist, and starts the read adapter.
-Routine runs do not clear authored rows.
+`up` selects the full edition in its persistent volume, starts
+Grist/Dex/Redis, preserves or creates the server-side API key, and verifies the
+official activation status and document ownership before changing the UAT
+document. With valid authoring access, it migrates missing columns, seeds only
+instances absent from Grist, and starts the read adapter. Routine runs do not
+clear authored rows. Full edition starts with a 30-day evaluation; native MCP
+requires a valid activation after that evaluation expires.
 
 For a deliberate replacement of the committed example instances:
 

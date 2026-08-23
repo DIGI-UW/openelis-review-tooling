@@ -68,6 +68,7 @@ test("check-access requires the server authoring identity to own the document", 
     stderr,
     /site product team, inGoodStanding true, readOnlyDocs false/,
   );
+  assert.match(stderr, /activation trial, 30 days left, writable/);
 
   const viewer = fakeGristDoc({ access: "viewers" });
   await assert.rejects(
@@ -78,6 +79,36 @@ test("check-access requires the server authoring identity to own the document", 
         /authenticated user 5, shared user 5, direct viewers, inherited owners/,
       );
       assert.match(error.stderr, /expected owners, received viewers/);
+      return true;
+    },
+  );
+});
+
+test("check-access identifies an expired full-edition trial as the write blocker", async () => {
+  const expired = fakeGristDoc({
+    access: "viewers",
+    activation: {
+      installationId: "installation-FAKE",
+      planName: null,
+      keyPrefix: null,
+      trial: {
+        days: 30,
+        expirationDate: "2026-08-22T00:00:00.000Z",
+        daysLeft: -1,
+      },
+      needKey: true,
+    },
+  });
+
+  await assert.rejects(
+    checkAccess(expired, { GRIST_ADMIN_EMAIL: "admin@example.test" }),
+    (error) => {
+      assert.match(error.stderr, /activation trial, -1 days left, key required/);
+      assert.match(
+        error.stderr,
+        /full-edition trial has expired; configure GRIST_ACTIVATION/,
+      );
+      assert.doesNotMatch(error.stderr, /expected owners, received viewers/);
       return true;
     },
   );
