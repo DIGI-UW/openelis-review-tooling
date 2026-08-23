@@ -140,6 +140,15 @@ export async function startFakeGrist(doc) {
         return send(200, { id: 5, email: "admin@example.test" });
       }
 
+      if (path === "/api/orgs/openelis" && req.method === "GET") {
+        return send(200, {
+          billingAccount: {
+            inGoodStanding: true,
+            product: { name: "team", features: { readOnlyDocs: false } },
+          },
+        });
+      }
+
       if (path === `/api/docs/${doc.id}` && req.method === "GET") {
         return send(200, { id: doc.id, name: doc.name, access: doc.access });
       }

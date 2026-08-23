@@ -64,6 +64,10 @@ test("check-access requires the server authoring identity to own the document", 
     stderr,
     /authenticated user 5, shared user 5, direct owners, inherited owners/,
   );
+  assert.match(
+    stderr,
+    /site product team, inGoodStanding true, readOnlyDocs false/,
+  );
 
   const viewer = fakeGristDoc({ access: "viewers" });
   await assert.rejects(

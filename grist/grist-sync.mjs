@@ -76,15 +76,21 @@ async function checkAccess() {
   const access = String(info.access || "none");
   console.log(`${info.name || DOC_NAME} ${doc}: ${access}`);
   if (ADMIN_EMAIL) {
-    const [profile, sharing] = await Promise.all([
+    const [profile, sharing, org] = await Promise.all([
       api("/api/profile/user"),
       api(`/api/docs/${doc}/access`),
+      api(`/api/orgs/${ORG}`),
     ]);
     const admin = (sharing.users || []).find(
       (user) => String(user.email || "") === ADMIN_EMAIL,
     );
     console.error(
       `${ADMIN_EMAIL}: authenticated user ${profile.id || "unknown"}, shared user ${admin?.id || "unknown"}, direct ${admin?.access || "none"}, inherited ${admin?.parentAccess || sharing.maxInheritedRole || "none"}`,
+    );
+    const billing = org.billingAccount || {};
+    const product = billing.product || {};
+    console.error(
+      `site product ${product.name || "unknown"}, inGoodStanding ${String(billing.inGoodStanding)}, readOnlyDocs ${String(product.features?.readOnlyDocs)}`,
     );
   }
   if (access !== "owners") {
