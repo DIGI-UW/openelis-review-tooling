@@ -20,6 +20,8 @@ export function fakeGristDoc(seed = {}) {
     id: "docFAKE",
     name: "UAT Checklists",
     access: seed.access || "owners",
+    directAccess: seed.directAccess || seed.access || "owners",
+    activationForbidden: Boolean(seed.activationForbidden),
     activation: structuredClone(
       seed.activation || {
         installationId: "installation-FAKE",
@@ -163,6 +165,7 @@ export async function startFakeGrist(doc) {
       }
 
       if (path === "/api/activation/status" && req.method === "GET") {
+        if (doc.activationForbidden) return send(403, { error: "Access denied" });
         return send(200, doc.activation);
       }
 
@@ -177,7 +180,7 @@ export async function startFakeGrist(doc) {
             {
               email: "admin@example.test",
               id: 5,
-              access: doc.access,
+              access: doc.directAccess,
               parentAccess: "owners",
             },
           ],

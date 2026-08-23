@@ -114,6 +114,28 @@ test("check-access identifies an expired full-edition trial as the write blocker
   );
 });
 
+test("check-access identifies a global read-only cap when activation status requires a browser session", async () => {
+  const restricted = fakeGristDoc({
+    access: "viewers",
+    directAccess: "owners",
+    activationForbidden: true,
+  });
+
+  await assert.rejects(
+    checkAccess(restricted, { GRIST_ADMIN_EMAIL: "admin@example.test" }),
+    (error) => {
+      assert.match(error.stderr, /activation status requires installation-admin session/);
+      assert.match(
+        error.stderr,
+        /global restricted mode is capping the document owner to read-only/,
+      );
+      assert.match(error.stderr, /configure GRIST_ACTIVATION/);
+      assert.doesNotMatch(error.stderr, /expected owners, received viewers/);
+      return true;
+    },
+  );
+});
+
 // A document as it was before stories existed: steps carrying their group as a
 // repeated title, which is the only state the migration has to work from.
 function legacyDoc() {
