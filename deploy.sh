@@ -37,7 +37,7 @@
 #   ./deploy.sh review deploy --ref <sha> --scope widget|service|all
 #   ./deploy.sh review reload-router [--instance amr] [--domain <host>]
 #                                   # re-render nginx from the template, router only
-#   ./deploy.sh data seed amr --fixture microbiology-mvp
+#   ./deploy.sh data seed amr --fixture microbiology-mvp --story AMR-S33
 #   ./deploy.sh up-to-certs --yes   # configure -> deploy -> certs -> seed
 set -euo pipefail
 
@@ -736,11 +736,13 @@ cmd_grist() {
 }
 
 cmd_data_seed() {
-  local instance="${1:-}" fixture=""
+  local instance="${1:-}" fixture="" story story_values=""
+  local stories=()
   shift || true
   while [ "$#" -gt 0 ]; do
     case "$1" in
       --fixture) fixture="${2:-}"; shift 2 ;;
+      --story) stories+=("${2:-}"); shift 2 ;;
       *) die "unknown data seed argument '$1'" ;;
     esac
   done
@@ -749,6 +751,13 @@ cmd_data_seed() {
     amr:microbiology-mvp | phrases:macro-library) ;;
     *) die "supported data fixtures are amr:microbiology-mvp and phrases:macro-library" ;;
   esac
+  if [ "${#stories[@]}" -gt 0 ]; then
+    [ "$instance" = "amr" ] || die "--story is supported only for the AMR microbiology fixture"
+    for story in "${stories[@]}"; do
+      [[ "$story" =~ ^AMR-S[0-9]{2}$ ]] || die "invalid AMR story key '$story'"
+    done
+    story_values="${stories[*]}"
+  fi
   select_instance_config "$instance"
   require_aws
   log "seeding $instance fixture $fixture"
@@ -756,7 +765,7 @@ cmd_data_seed() {
 $(cat "$HERE/scripts/seed-microbiology.sh")
 SEEDEOF
 chmod +x /tmp/seed-microbiology.sh
-BASE_URL=https://$SELECTED_APP_DOMAIN /tmp/seed-microbiology.sh"
+FIXTURE_STORIES='$story_values' BASE_URL=https://$SELECTED_APP_DOMAIN /tmp/seed-microbiology.sh"
 }
 
 cmd_data() {

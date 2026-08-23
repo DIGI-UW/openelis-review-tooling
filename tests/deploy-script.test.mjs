@@ -97,7 +97,15 @@ test("targeted app deployment accepts only an exact SHA and explicit scope", () 
   assert.match(deployScript, /app deploy amr --ref <sha>/);
   assert.match(deployScript, /app deploy phrases --ref <sha>/);
   assert.match(deployScript, /review deploy --ref <sha> --scope widget/);
-  assert.match(deployScript, /data seed amr --fixture microbiology-mvp/);
+  assert.match(
+    deployScript,
+    /data seed amr --fixture microbiology-mvp --story AMR-S33/,
+  );
+  assert.match(deployScript, /--story\) stories\+=\("\$\{2:-\}"\)/);
+  assert.match(
+    deployScript,
+    /FIXTURE_STORIES='\$story_values' BASE_URL=https:\/\/\$SELECTED_APP_DOMAIN/,
+  );
 });
 
 test("targeted app status resolves and validates the requested instance", () => {

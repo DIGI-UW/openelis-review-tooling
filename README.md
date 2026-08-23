@@ -62,6 +62,7 @@ cp .env.example .env      # fill in your host, domains, email, repos/branches
 # → point DNS: amr, analyzers, grist A-records → the host EIP (all share one IP)
 ./deploy.sh certs         # issue Let's Encrypt once DNS resolves
 ./deploy.sh seed          # seed reviewable demo data on both instances
+./deploy.sh data seed amr --fixture microbiology-mvp --story AMR-S33
 ./deploy.sh status        # instance + HTTPS codes + container states
 ```
 

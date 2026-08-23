@@ -83,7 +83,24 @@ default_fixture_specs=(
   "AMR-S32:CASE"
   "AMR-S33:WHONET_FILTERS"
 )
-if [ -n "${FIXTURE_SPECS:-}" ]; then
+if [ -n "${FIXTURE_STORIES:-}" ]; then
+  read -r -a requested_fixture_stories <<< "$FIXTURE_STORIES"
+  fixture_specs=()
+  for requested_story in "${requested_fixture_stories[@]}"; do
+    matched_fixture=""
+    for available_fixture in "${default_fixture_specs[@]}"; do
+      if [ "${available_fixture%%:*}" = "$requested_story" ]; then
+        matched_fixture="$available_fixture"
+        break
+      fi
+    done
+    if [ -z "$matched_fixture" ]; then
+      echo "Unknown microbiology fixture story: $requested_story" >&2
+      exit 1
+    fi
+    fixture_specs+=("$matched_fixture")
+  done
+elif [ -n "${FIXTURE_SPECS:-}" ]; then
   read -r -a fixture_specs <<< "$FIXTURE_SPECS"
 else
   fixture_specs=("${default_fixture_specs[@]}")

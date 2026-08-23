@@ -232,4 +232,45 @@ esac
   assert.match(calls, /rest\/microbiology\/cases\/case-32a\/order-detail/);
   assert.match(calls, /rest\/microbiology\/cases\/case-33a\/order-detail/);
   assert.match(calls, /rest\/microbiology\/cases\/case-33a\/release\/final/);
+
+  await writeFile(callsFile, "");
+  const targetedResult = spawnSync(
+    "bash",
+    [`${repoRoot}/scripts/seed-microbiology.sh`],
+    {
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        BASE_URL: "https://amr.example.test",
+        CALLS_FILE: callsFile,
+        FIXTURE_STORIES: "AMR-S33",
+        PATH: `${binDir}:${process.env.PATH}`,
+      },
+    },
+  );
+
+  assert.equal(targetedResult.status, 0, targetedResult.stderr);
+  assert.match(targetedResult.stdout, /fixture:\s+AMR-S33/);
+  assert.doesNotMatch(targetedResult.stdout, /fixture:\s+AMR-S32/);
+  const targetedCalls = await readFile(callsFile, "utf8");
+  assert.match(targetedCalls, /review-amr-1234567890ab-amr-s33/);
+  assert.doesNotMatch(targetedCalls, /review-amr-1234567890ab-amr-s30/);
+
+  const unknownStoryResult = spawnSync(
+    "bash",
+    [`${repoRoot}/scripts/seed-microbiology.sh`],
+    {
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        BASE_URL: "https://amr.example.test",
+        CALLS_FILE: callsFile,
+        FIXTURE_STORIES: "AMR-S99",
+        PATH: `${binDir}:${process.env.PATH}`,
+      },
+    },
+  );
+
+  assert.notEqual(unknownStoryResult.status, 0);
+  assert.match(unknownStoryResult.stderr, /Unknown microbiology fixture story: AMR-S99/);
 });
