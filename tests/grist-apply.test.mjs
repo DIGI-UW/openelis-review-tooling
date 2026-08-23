@@ -38,7 +38,7 @@ async function apply(doc, args = [], env = {}) {
   }
 }
 
-async function checkAccess(doc) {
+async function checkAccess(doc, env = {}) {
   const grist = await startFakeGrist(doc);
   try {
     return await run("node", [SYNC, "check-access"], {
@@ -46,6 +46,7 @@ async function checkAccess(doc) {
         ...process.env,
         GRIST_URL: grist.url,
         GRIST_KEY: "test-key",
+        ...env,
       },
     });
   } finally {
@@ -71,11 +72,21 @@ async function repairAccess(doc) {
 
 test("check-access requires the server authoring identity to own the document", async () => {
   const owner = fakeGristDoc({ access: "owners" });
-  const { stdout } = await checkAccess(owner);
+  const { stdout, stderr } = await checkAccess(owner, {
+    GRIST_ADMIN_EMAIL: "admin@example.test",
+  });
   assert.match(stdout, /UAT Checklists.*owners/);
+  assert.match(stderr, /direct owners, inherited owners/);
 
   const viewer = fakeGristDoc({ access: "viewers" });
-  await assert.rejects(checkAccess(viewer), /expected owners, received viewers/);
+  await assert.rejects(
+    checkAccess(viewer, { GRIST_ADMIN_EMAIL: "admin@example.test" }),
+    (error) => {
+      assert.match(error.stderr, /direct viewers, inherited owners/);
+      assert.match(error.stderr, /expected owners, received viewers/);
+      return true;
+    },
+  );
 });
 
 test("repair-access restores the configured admin through Grist's access API", async () => {

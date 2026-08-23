@@ -75,6 +75,15 @@ async function checkAccess() {
   const info = await api(`/api/docs/${doc}`);
   const access = String(info.access || "none");
   console.log(`${info.name || DOC_NAME} ${doc}: ${access}`);
+  if (ADMIN_EMAIL) {
+    const sharing = await api(`/api/docs/${doc}/access`);
+    const admin = (sharing.users || []).find(
+      (user) => String(user.email || "") === ADMIN_EMAIL,
+    );
+    console.error(
+      `${ADMIN_EMAIL}: direct ${admin?.access || "none"}, inherited ${admin?.parentAccess || sharing.maxInheritedRole || "none"}`,
+    );
+  }
   if (access !== "owners") {
     throw new Error(
       `Grist authoring identity must own ${DOC_NAME}; expected owners, received ${access}`,

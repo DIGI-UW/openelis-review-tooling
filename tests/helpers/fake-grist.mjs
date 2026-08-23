@@ -140,6 +140,19 @@ export async function startFakeGrist(doc) {
         return send(200, { id: doc.id, name: doc.name, access: doc.access });
       }
 
+      if (path === `/api/docs/${doc.id}/access` && req.method === "GET") {
+        return send(200, {
+          maxInheritedRole: "owners",
+          users: [
+            {
+              email: "admin@example.test",
+              access: doc.access,
+              parentAccess: "owners",
+            },
+          ],
+        });
+      }
+
       if (path === `/api/docs/${doc.id}/access` && req.method === "PATCH") {
         const roles = Object.values(parsed.delta?.users || {});
         if (roles.length !== 1 || roles[0] !== "owners") {
