@@ -70,6 +70,10 @@ case "$*" in
         [[ "$*" == *'"scenario": "CASE"'* ]]
         printf '{"scenario":"CASE","scenarioKey":"review-amr-1234567890ab-amr-s32","accessionNumber":"UATMICRO132","caseId":"case-32a","methodId":"method-32"}'
         ;;
+      *'"scenarioKey": "review-amr-1234567890ab-amr-s33"'*)
+        [[ "$*" == *'"scenario": "WHONET_FILTERS"'* ]]
+        printf '{"scenario":"WHONET_FILTERS","scenarioKey":"review-amr-1234567890ab-amr-s33","accessionNumber":"UATMICRO133","caseId":"case-33a","sampleTypeId":"sample-type-33","methodId":"method-33","organismId":"organism-33","unmappedOrganismId":"organism-unmapped-33"}'
+        ;;
       *) exit 3 ;;
     esac
     ;;
@@ -88,8 +92,20 @@ case "$*" in
     [[ "$*" == *'"clinicalHistory": "R11 culture-purpose review fixture"'* ]]
     printf '{"id":"case-32a","culturePurpose":"CLINICAL_DIAGNOSTIC"}'
     ;;
+  *rest/microbiology/cases/case-33a/order-detail*)
+    [[ "$*" == *"--request PUT"* ]]
+    [[ "$*" == *'"patientOrigin": "INPATIENT"'* ]]
+    printf '{"id":"case-33a","orderDetail":{"patientOrigin":"INPATIENT"}}'
+    ;;
   *rest/microbiology/cases/case-30a*)
     printf '{"id":"case-30a","finalReleaseState":"NOT_RELEASED","orderDetail":{},"isolates":[{"id":"isolate-30a","isolateLabel":"ISO-1","organismId":"organism-30","significance":"CLINICALLY_SIGNIFICANT","identificationStatus":"CONFIRMED"}]}'
+    ;;
+  *rest/microbiology/cases/case-33a/release/final*)
+    [[ "$*" == *'{}'* ]]
+    printf '{"caseId":"case-33a","finalReleaseState":"FINAL_RELEASED"}'
+    ;;
+  *rest/microbiology/cases/case-33a*)
+    printf '{"id":"case-33a","finalReleaseState":"NOT_RELEASED","orderDetail":{},"isolates":[{"id":"isolate-33a","isolateLabel":"ISO-1","organismId":"organism-33","significance":"CLINICALLY_SIGNIFICANT","identificationStatus":"CONFIRMED"}]}'
     ;;
   *rest/sample-types/sample-type-30*)
     if [[ "$*" == *"--request PUT"* ]]; then
@@ -99,16 +115,35 @@ case "$*" in
       printf '{"success":true,"data":{"id":"sample-type-30","whonetCode":""}}'
     fi
     ;;
+  *rest/sample-types/sample-type-33*)
+    if [[ "$*" == *"--request PUT"* ]]; then
+      [[ "$*" == *'"whonetCode": "BLD"'* ]]
+      printf '{"success":true,"data":{"id":"sample-type-33","whonetCode":"BLD"}}'
+    else
+      printf '{"success":true,"data":{"id":"sample-type-33","whonetCode":""}}'
+    fi
+    ;;
   *rest/microbiology/isolates/isolate-30b/identification*)
     [[ "$*" == *"--request PUT"* ]]
     [[ "$*" == *'"organismId": "organism-unmapped-30"'* ]]
     [[ "$*" == *'"significance": "CONTAMINANT"'* ]]
     printf '{"id":"isolate-30b","isolateLabel":"WHONET-FILTER-CONTAMINANT","organismId":"organism-30","significance":"CONTAMINANT","identificationStatus":"CONFIRMED"}'
     ;;
+  *rest/microbiology/isolates/isolate-33b/identification*)
+    [[ "$*" == *"--request PUT"* ]]
+    [[ "$*" == *'"organismId": "organism-unmapped-33"'* ]]
+    [[ "$*" == *'"significance": "CONTAMINANT"'* ]]
+    printf '{"id":"isolate-33b","isolateLabel":"WHONET-FILTER-CONTAMINANT","organismId":"organism-33","significance":"CONTAMINANT","identificationStatus":"CONFIRMED"}'
+    ;;
   *rest/microbiology/isolates*)
-    [[ "$*" == *'"caseId": "case-30a"'* ]]
     [[ "$*" == *'"isolateLabel": "WHONET-FILTER-CONTAMINANT"'* ]]
-    printf '{"id":"isolate-30b","isolateLabel":"WHONET-FILTER-CONTAMINANT","significance":"CONTAMINANT","identificationStatus":"PRELIMINARY"}'
+    if [[ "$*" == *'"caseId": "case-30a"'* ]]; then
+      printf '{"id":"isolate-30b","isolateLabel":"WHONET-FILTER-CONTAMINANT","significance":"CONTAMINANT","identificationStatus":"PRELIMINARY"}'
+    elif [[ "$*" == *'"caseId": "case-33a"'* ]]; then
+      printf '{"id":"isolate-33b","isolateLabel":"WHONET-FILTER-CONTAMINANT","significance":"CONTAMINANT","identificationStatus":"PRELIMINARY"}'
+    else
+      exit 5
+    fi
     ;;
   *rest/analyzer/events/ast*)
     [[ "$*" == *"--user admin:adminADMIN!"* ]]
@@ -181,8 +216,10 @@ esac
   assert.match(result.stdout, /analyzer card:\s+card-31/);
   assert.match(result.stdout, /fixture:\s+AMR-S32/);
   assert.match(result.stdout, /accession:\s+UATMICRO132/);
+  assert.match(result.stdout, /fixture:\s+AMR-S33/);
+  assert.match(result.stdout, /accession:\s+UATMICRO133/);
 
-  assert.equal(calls.trim().split("\n").length, 25);
+  assert.equal(calls.trim().split("\n").length, 33);
   assert.match(calls, /__review\/target\.json/);
   assert.match(calls, /ValidateLogin\?apiCall=true/);
   assert.match(calls, /api\/OpenELIS-Global\/session/);
@@ -193,4 +230,6 @@ esac
   assert.match(calls, /rest\/microbiology\/isolates\/isolate-30b\/identification/);
   assert.match(calls, /rest\/microbiology\/cases\/case-30a\/release\/final/);
   assert.match(calls, /rest\/microbiology\/cases\/case-32a\/order-detail/);
+  assert.match(calls, /rest\/microbiology\/cases\/case-33a\/order-detail/);
+  assert.match(calls, /rest\/microbiology\/cases\/case-33a\/release\/final/);
 });

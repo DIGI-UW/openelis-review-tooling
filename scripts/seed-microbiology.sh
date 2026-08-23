@@ -81,6 +81,7 @@ default_fixture_specs=(
   "AMR-S21:AST_ANALYZER_REVIEW"
   "AMR-S31:AST_ANALYZER_REVIEW"
   "AMR-S32:CASE"
+  "AMR-S33:WHONET_FILTERS"
 )
 if [ -n "${FIXTURE_SPECS:-}" ]; then
   read -r -a fixture_specs <<< "$FIXTURE_SPECS"
@@ -148,7 +149,7 @@ print(json.dumps({
       "$API_ROOT/rest/microbiology/cases/$case_id/order-detail" >/dev/null
   fi
 
-  if [ "$fixture_key" = "AMR-S30" ]; then
+  if [ "$scenario" = "WHONET_FILTERS" ]; then
     case_id="$(printf '%s' "$scenario_json" | python3 -c 'import json,sys; print(json.load(sys.stdin)["caseId"])')"
     sample_type_id="$(printf '%s' "$scenario_json" | python3 -c 'import json,sys; print(json.load(sys.stdin)["sampleTypeId"])')"
     unmapped_organism_id="$(printf '%s' "$scenario_json" | python3 -c 'import json,sys; print(json.load(sys.stdin)["unmappedOrganismId"])')"
