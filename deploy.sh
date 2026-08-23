@@ -38,6 +38,7 @@
 #   ./deploy.sh review reload-router [--instance amr] [--domain <host>]
 #                                   # re-render nginx from the template, router only
 #   ./deploy.sh data seed amr --fixture microbiology-mvp --story AMR-S33
+#   ./deploy.sh grist check-access # prove the server/MCP author can write UAT
 #   ./deploy.sh up-to-certs --yes   # configure -> deploy -> certs -> seed
 set -euo pipefail
 
@@ -727,11 +728,24 @@ cd \"\$edge_dir\"
 sudo -u '$OS_USER' bash grist/bootstrap.sh apply $flags"
 }
 
+cmd_grist_check_access() {
+  shift || true
+  [ "$#" -eq 0 ] || die "grist check-access takes no arguments"
+  require_aws
+  log "checking the Grist authoring identity"
+  ssm_run "set -euo pipefail
+router_workdir=\$(docker inspect -f '{{index .Config.Labels \"com.docker.compose.project.working_dir\"}}' oe-edge-router)
+edge_dir=\${router_workdir%/router}
+cd \"\$edge_dir\"
+sudo -u '$OS_USER' bash grist/bootstrap.sh check-access"
+}
+
 cmd_grist() {
   local action="${1:-}"
   case "$action" in
     apply) cmd_grist_apply "$@" ;;
-    *) die "unknown grist action '$action' (apply)" ;;
+    check-access) cmd_grist_check_access "$@" ;;
+    *) die "unknown grist action '$action' (apply|check-access)" ;;
   esac
 }
 

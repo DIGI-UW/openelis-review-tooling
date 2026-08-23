@@ -69,6 +69,18 @@ async function resolveDoc() {
   });
 }
 
+async function checkAccess() {
+  const doc = await resolveDoc();
+  const info = await api(`/api/docs/${doc}`);
+  const access = String(info.access || "none");
+  console.log(`${info.name || DOC_NAME} ${doc}: ${access}`);
+  if (access !== "owners") {
+    throw new Error(
+      `Grist authoring identity must own ${DOC_NAME}; expected owners, received ${access}`,
+    );
+  }
+}
+
 async function ensureTables(doc, { dryRun = false } = {}) {
   const existing = new Set(
     (await api(`/api/docs/${doc}/tables`)).tables.map((t) => t.id),
@@ -554,6 +566,7 @@ if (mode === "apply") {
 } else if (mode === "migrate") await migrate();
 else if (mode === "seed") await seed(process.argv.includes("--replace-all"));
 else if (mode === "generate") await generate();
+else if (mode === "check-access") await checkAccess();
 else if (mode === "publish") {
   const unlist = process.argv.includes("--unlist");
   await publish(
@@ -562,7 +575,7 @@ else if (mode === "publish") {
   );
 } else {
   console.error(
-    "usage: grist-sync.mjs apply [--dry-run] [--rebuild-pages]|migrate|seed [--replace-all]|generate|publish <instance…> [--unlist]",
+    "usage: grist-sync.mjs apply [--dry-run] [--rebuild-pages]|migrate|seed [--replace-all]|generate|check-access|publish <instance…> [--unlist]",
   );
   process.exit(1);
 }

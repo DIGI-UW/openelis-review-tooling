@@ -38,6 +38,30 @@ async function apply(doc, args = [], env = {}) {
   }
 }
 
+async function checkAccess(doc) {
+  const grist = await startFakeGrist(doc);
+  try {
+    return await run("node", [SYNC, "check-access"], {
+      env: {
+        ...process.env,
+        GRIST_URL: grist.url,
+        GRIST_KEY: "test-key",
+      },
+    });
+  } finally {
+    await grist.stop();
+  }
+}
+
+test("check-access requires the server authoring identity to own the document", async () => {
+  const owner = fakeGristDoc({ access: "owners" });
+  const { stdout } = await checkAccess(owner);
+  assert.match(stdout, /UAT Checklists.*owners/);
+
+  const viewer = fakeGristDoc({ access: "viewers" });
+  await assert.rejects(checkAccess(viewer), /expected owners, received viewers/);
+});
+
 // A document as it was before stories existed: steps carrying their group as a
 // repeated title, which is the only state the migration has to work from.
 function legacyDoc() {

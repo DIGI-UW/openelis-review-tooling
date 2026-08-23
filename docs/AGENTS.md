@@ -142,7 +142,8 @@ issues; don't file them unless asked.
 
 - Native MCP is **authed with a full-access key** — never expose it to a browser
   or an untrusted client. The widget read path is the only anonymous surface, and
-  it is read-only.
+  it is read-only. Verify that contract with `./deploy.sh grist check-access`;
+  a connected MCP identity reported as `viewers` is not ready for authoring.
 - Grist runs the **full edition**, activated by `/persist/config.json`
   (`{"version":"1","edition":"enterprise"}`) + `GRIST_MCP_ENABLED=true`. Removing
   that file reverts to community (rollback-safe; data untouched).

@@ -90,7 +90,12 @@ cp grist/.env.example .env
 # Replace every placeholder before provisioning this file to ${EDGE_DIR}/.env.
 ./grist/bootstrap.sh up
 ./grist/bootstrap.sh status
+./grist/bootstrap.sh check-access
 ```
+
+`check-access` fails unless the server-side Grist identity owns the UAT
+document. Run it before relying on native MCP authoring; a connected read-only
+identity is not a healthy authoring setup.
 
 `up` activates the full edition in its persistent volume, starts
 Grist/Dex/Redis, preserves or creates the server-side API key, migrates missing

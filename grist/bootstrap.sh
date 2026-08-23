@@ -165,6 +165,13 @@ cmd_generate() {
   echo ">> diagnostic export complete; live delivery still reads directly from Grist"
 }
 
+cmd_check_access() {
+  require_runtime
+  [ -s "$KEYFILE" ] || die "$KEYFILE is missing; run up first"
+  copy_runtime_scripts
+  run_node check-access
+}
+
 # Listing a story in the public catalog is an act with a consequence, so it has
 # its own command rather than riding along with a migration.
 cmd_publish() {
@@ -192,6 +199,7 @@ main() {
       ;;
     status) cmd_status ;;
     generate) cmd_generate ;;
+    check-access) cmd_check_access ;;
     publish)
       shift
       cmd_publish "$@"
@@ -208,6 +216,7 @@ Usage:
   ./grist/bootstrap.sh apply [--dry-run] [--rebuild-pages]
   ./grist/bootstrap.sh status
   ./grist/bootstrap.sh generate
+  ./grist/bootstrap.sh check-access
   ./grist/bootstrap.sh publish <instance…> [--unlist]
   ./grist/bootstrap.sh seed-examples --replace-all
 USAGE

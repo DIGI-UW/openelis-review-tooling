@@ -106,6 +106,8 @@ test("targeted app deployment accepts only an exact SHA and explicit scope", () 
     deployScript,
     /FIXTURE_STORIES='\$story_values' BASE_URL=https:\/\/\$SELECTED_APP_DOMAIN/,
   );
+  assert.match(deployScript, /grist check-access/);
+  assert.match(deployScript, /grist\/bootstrap\.sh check-access/);
 });
 
 test("targeted app status resolves and validates the requested instance", () => {
