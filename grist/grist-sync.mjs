@@ -29,6 +29,7 @@ const URL = process.env.GRIST_URL || "http://grist:8484";
 const KEY = process.env.GRIST_KEY;
 const ORG = process.env.GRIST_ORG || "openelis";
 const DOC_NAME = process.env.GRIST_DOC_NAME || "UAT Checklists";
+const ADMIN_EMAIL = process.env.GRIST_ADMIN_EMAIL;
 const REVIEW_DIR =
   process.env.REVIEW_DIR ||
   join(import.meta.dirname, "..", "widget", "examples");
@@ -79,6 +80,19 @@ async function checkAccess() {
       `Grist authoring identity must own ${DOC_NAME}; expected owners, received ${access}`,
     );
   }
+}
+
+async function repairAccess() {
+  if (!ADMIN_EMAIL) throw new Error("GRIST_ADMIN_EMAIL is required");
+  const doc = await resolveDoc();
+  await api(`/api/docs/${doc}/access`, {
+    method: "PATCH",
+    body: JSON.stringify({
+      delta: { users: { [ADMIN_EMAIL]: "owners" } },
+    }),
+  });
+  console.log(`restored ${ADMIN_EMAIL} as owner of ${DOC_NAME}`);
+  await checkAccess();
 }
 
 async function ensureTables(doc, { dryRun = false } = {}) {
@@ -567,6 +581,7 @@ if (mode === "apply") {
 else if (mode === "seed") await seed(process.argv.includes("--replace-all"));
 else if (mode === "generate") await generate();
 else if (mode === "check-access") await checkAccess();
+else if (mode === "repair-access") await repairAccess();
 else if (mode === "publish") {
   const unlist = process.argv.includes("--unlist");
   await publish(
@@ -575,7 +590,7 @@ else if (mode === "publish") {
   );
 } else {
   console.error(
-    "usage: grist-sync.mjs apply [--dry-run] [--rebuild-pages]|migrate|seed [--replace-all]|generate|check-access|publish <instance…> [--unlist]",
+    "usage: grist-sync.mjs apply [--dry-run] [--rebuild-pages]|migrate|seed [--replace-all]|generate|check-access|repair-access|publish <instance…> [--unlist]",
   );
   process.exit(1);
 }

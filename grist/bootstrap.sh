@@ -73,6 +73,7 @@ run_node() {
     -v "$REVIEW_DIR:/review" \
     -e GRIST_KEY="$(cat "$KEYFILE")" \
     -e GRIST_URL=http://grist:8484 \
+    -e GRIST_ADMIN_EMAIL="$GRIST_ADMIN_EMAIL" \
     -e REVIEW_DIR=/review \
     -e EXPORT_DIR=/work/checklists \
     "$NODE_IMG" node /work/grist-sync.mjs "$@"
@@ -172,6 +173,15 @@ cmd_check_access() {
   run_node check-access
 }
 
+cmd_repair_access() {
+  [ "${1:-}" = "--yes" ] ||
+    die "repair-access changes document ownership; re-run with --yes"
+  require_runtime
+  [ -s "$KEYFILE" ] || die "$KEYFILE is missing; run up first"
+  copy_runtime_scripts
+  run_node repair-access
+}
+
 # Listing a story in the public catalog is an act with a consequence, so it has
 # its own command rather than riding along with a migration.
 cmd_publish() {
@@ -200,6 +210,10 @@ main() {
     status) cmd_status ;;
     generate) cmd_generate ;;
     check-access) cmd_check_access ;;
+    repair-access)
+      shift
+      cmd_repair_access "$@"
+      ;;
     publish)
       shift
       cmd_publish "$@"
@@ -217,6 +231,7 @@ Usage:
   ./grist/bootstrap.sh status
   ./grist/bootstrap.sh generate
   ./grist/bootstrap.sh check-access
+  ./grist/bootstrap.sh repair-access --yes
   ./grist/bootstrap.sh publish <instance…> [--unlist]
   ./grist/bootstrap.sh seed-examples --replace-all
 USAGE

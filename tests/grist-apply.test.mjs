@@ -53,6 +53,22 @@ async function checkAccess(doc) {
   }
 }
 
+async function repairAccess(doc) {
+  const grist = await startFakeGrist(doc);
+  try {
+    return await run("node", [SYNC, "repair-access"], {
+      env: {
+        ...process.env,
+        GRIST_URL: grist.url,
+        GRIST_KEY: "test-key",
+        GRIST_ADMIN_EMAIL: "admin@example.test",
+      },
+    });
+  } finally {
+    await grist.stop();
+  }
+}
+
 test("check-access requires the server authoring identity to own the document", async () => {
   const owner = fakeGristDoc({ access: "owners" });
   const { stdout } = await checkAccess(owner);
@@ -60,6 +76,19 @@ test("check-access requires the server authoring identity to own the document", 
 
   const viewer = fakeGristDoc({ access: "viewers" });
   await assert.rejects(checkAccess(viewer), /expected owners, received viewers/);
+});
+
+test("repair-access restores the configured admin through Grist's access API", async () => {
+  const doc = fakeGristDoc({ access: "viewers" });
+  const { stdout } = await repairAccess(doc);
+
+  assert.equal(doc.access, "owners");
+  assert.match(stdout, /restored admin@example\.test as owner/);
+  assert.match(stdout, /UAT Checklists.*owners/);
+  assert.ok(
+    doc.calls.includes("PATCH /api/docs/docFAKE/access"),
+    "repair must use the supported document access API",
+  );
 });
 
 // A document as it was before stories existed: steps carrying their group as a

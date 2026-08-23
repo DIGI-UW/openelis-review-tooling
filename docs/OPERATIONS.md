@@ -97,6 +97,14 @@ cp grist/.env.example .env
 document. Run it before relying on native MCP authoring; a connected read-only
 identity is not a healthy authoring setup.
 
+If the check reports `viewers`, restore the configured admin through Grist's
+document-access API, then verify it again:
+
+```bash
+./deploy.sh grist repair-access --yes
+./deploy.sh grist check-access
+```
+
 `up` activates the full edition in its persistent volume, starts
 Grist/Dex/Redis, preserves or creates the server-side API key, migrates missing
 columns, seeds only instances absent from Grist, and starts the read adapter.

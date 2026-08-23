@@ -39,6 +39,7 @@
 #                                   # re-render nginx from the template, router only
 #   ./deploy.sh data seed amr --fixture microbiology-mvp --story AMR-S33
 #   ./deploy.sh grist check-access # prove the server/MCP author can write UAT
+#   ./deploy.sh grist repair-access --yes # restore the configured Grist owner
 #   ./deploy.sh up-to-certs --yes   # configure -> deploy -> certs -> seed
 set -euo pipefail
 
@@ -740,12 +741,26 @@ cd \"\$edge_dir\"
 sudo -u '$OS_USER' bash grist/bootstrap.sh check-access"
 }
 
+cmd_grist_repair_access() {
+  shift || true
+  [ "${1:-}" = "--yes" ] && [ "$#" -eq 1 ] ||
+    die "grist repair-access changes document ownership; re-run with --yes"
+  require_aws
+  log "restoring the configured Grist document owner"
+  ssm_run "set -euo pipefail
+router_workdir=\$(docker inspect -f '{{index .Config.Labels \"com.docker.compose.project.working_dir\"}}' oe-edge-router)
+edge_dir=\${router_workdir%/router}
+cd \"\$edge_dir\"
+sudo -u '$OS_USER' bash grist/bootstrap.sh repair-access --yes"
+}
+
 cmd_grist() {
   local action="${1:-}"
   case "$action" in
     apply) cmd_grist_apply "$@" ;;
     check-access) cmd_grist_check_access "$@" ;;
-    *) die "unknown grist action '$action' (apply|check-access)" ;;
+    repair-access) cmd_grist_repair_access "$@" ;;
+    *) die "unknown grist action '$action' (apply|check-access|repair-access)" ;;
   esac
 }
 

@@ -140,6 +140,15 @@ export async function startFakeGrist(doc) {
         return send(200, { id: doc.id, name: doc.name, access: doc.access });
       }
 
+      if (path === `/api/docs/${doc.id}/access` && req.method === "PATCH") {
+        const roles = Object.values(parsed.delta?.users || {});
+        if (roles.length !== 1 || roles[0] !== "owners") {
+          return send(400, { error: "expected one owner assignment" });
+        }
+        doc.access = "owners";
+        return send(200, null);
+      }
+
       const tablesRoot = `/api/docs/${doc.id}/tables`;
       if (path === tablesRoot && req.method === "GET") {
         return send(200, {
