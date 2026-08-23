@@ -136,6 +136,10 @@ export async function startFakeGrist(doc) {
         return send(200, [{ id: 1, docs: [{ id: doc.id, name: doc.name }] }]);
       }
 
+      if (path === "/api/profile/user" && req.method === "GET") {
+        return send(200, { id: 5, email: "admin@example.test" });
+      }
+
       if (path === `/api/docs/${doc.id}` && req.method === "GET") {
         return send(200, { id: doc.id, name: doc.name, access: doc.access });
       }
@@ -146,6 +150,7 @@ export async function startFakeGrist(doc) {
           users: [
             {
               email: "admin@example.test",
+              id: 5,
               access: doc.access,
               parentAccess: "owners",
             },

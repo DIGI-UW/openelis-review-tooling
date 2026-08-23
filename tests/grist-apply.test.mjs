@@ -60,13 +60,19 @@ test("check-access requires the server authoring identity to own the document", 
     GRIST_ADMIN_EMAIL: "admin@example.test",
   });
   assert.match(stdout, /UAT Checklists.*owners/);
-  assert.match(stderr, /direct owners, inherited owners/);
+  assert.match(
+    stderr,
+    /authenticated user 5, shared user 5, direct owners, inherited owners/,
+  );
 
   const viewer = fakeGristDoc({ access: "viewers" });
   await assert.rejects(
     checkAccess(viewer, { GRIST_ADMIN_EMAIL: "admin@example.test" }),
     (error) => {
-      assert.match(error.stderr, /direct viewers, inherited owners/);
+      assert.match(
+        error.stderr,
+        /authenticated user 5, shared user 5, direct viewers, inherited owners/,
+      );
       assert.match(error.stderr, /expected owners, received viewers/);
       return true;
     },
