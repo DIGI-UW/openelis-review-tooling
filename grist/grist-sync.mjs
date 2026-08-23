@@ -91,19 +91,6 @@ async function checkAccess() {
   }
 }
 
-async function repairAccess() {
-  if (!ADMIN_EMAIL) throw new Error("GRIST_ADMIN_EMAIL is required");
-  const doc = await resolveDoc();
-  await api(`/api/docs/${doc}/access`, {
-    method: "PATCH",
-    body: JSON.stringify({
-      delta: { users: { [ADMIN_EMAIL]: "owners" } },
-    }),
-  });
-  console.log(`restored ${ADMIN_EMAIL} as owner of ${DOC_NAME}`);
-  await checkAccess();
-}
-
 async function ensureTables(doc, { dryRun = false } = {}) {
   const existing = new Set(
     (await api(`/api/docs/${doc}/tables`)).tables.map((t) => t.id),
@@ -590,7 +577,6 @@ if (mode === "apply") {
 else if (mode === "seed") await seed(process.argv.includes("--replace-all"));
 else if (mode === "generate") await generate();
 else if (mode === "check-access") await checkAccess();
-else if (mode === "repair-access") await repairAccess();
 else if (mode === "publish") {
   const unlist = process.argv.includes("--unlist");
   await publish(
@@ -599,7 +585,7 @@ else if (mode === "publish") {
   );
 } else {
   console.error(
-    "usage: grist-sync.mjs apply [--dry-run] [--rebuild-pages]|migrate|seed [--replace-all]|generate|check-access|repair-access|publish <instance…> [--unlist]",
+    "usage: grist-sync.mjs apply [--dry-run] [--rebuild-pages]|migrate|seed [--replace-all]|generate|check-access|publish <instance…> [--unlist]",
   );
   process.exit(1);
 }

@@ -39,7 +39,7 @@
 #                                   # re-render nginx from the template, router only
 #   ./deploy.sh data seed amr --fixture microbiology-mvp --story AMR-S33
 #   ./deploy.sh grist check-access # prove the server/MCP author can write UAT
-#   ./deploy.sh grist repair-access --yes # restore the configured Grist owner
+#   ./deploy.sh grist reconcile-access --yes # refresh cached Grist ownership
 #   ./deploy.sh up-to-certs --yes   # configure -> deploy -> certs -> seed
 set -euo pipefail
 
@@ -741,17 +741,17 @@ cd \"\$edge_dir\"
 sudo -u '$OS_USER' bash grist/bootstrap.sh check-access"
 }
 
-cmd_grist_repair_access() {
+cmd_grist_reconcile_access() {
   shift || true
   [ "${1:-}" = "--yes" ] && [ "$#" -eq 1 ] ||
-    die "grist repair-access changes document ownership; re-run with --yes"
+    die "grist reconcile-access restarts Grist; re-run with --yes"
   require_aws
-  log "restoring the configured Grist document owner"
+  log "reconciling the configured Grist document owner"
   ssm_run "set -euo pipefail
 router_workdir=\$(docker inspect -f '{{index .Config.Labels \"com.docker.compose.project.working_dir\"}}' oe-edge-router)
 edge_dir=\${router_workdir%/router}
 cd \"\$edge_dir\"
-sudo -u '$OS_USER' bash grist/bootstrap.sh repair-access --yes"
+sudo -u '$OS_USER' bash grist/bootstrap.sh reconcile-access --yes"
 }
 
 cmd_grist() {
@@ -759,8 +759,8 @@ cmd_grist() {
   case "$action" in
     apply) cmd_grist_apply "$@" ;;
     check-access) cmd_grist_check_access "$@" ;;
-    repair-access) cmd_grist_repair_access "$@" ;;
-    *) die "unknown grist action '$action' (apply|check-access|repair-access)" ;;
+    reconcile-access) cmd_grist_reconcile_access "$@" ;;
+    *) die "unknown grist action '$action' (apply|check-access|reconcile-access)" ;;
   esac
 }
 

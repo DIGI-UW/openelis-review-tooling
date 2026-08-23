@@ -173,13 +173,16 @@ cmd_check_access() {
   run_node check-access
 }
 
-cmd_repair_access() {
+cmd_reconcile_access() {
   [ "${1:-}" = "--yes" ] ||
-    die "repair-access changes document ownership; re-run with --yes"
+    die "reconcile-access restarts Grist; re-run with --yes"
   require_runtime
   [ -s "$KEYFILE" ] || die "$KEYFILE is missing; run up first"
+  echo ">> restarting Grist to reconcile cached document access"
+  compose restart grist
+  wait_for_grist
   copy_runtime_scripts
-  run_node repair-access
+  run_node check-access
 }
 
 # Listing a story in the public catalog is an act with a consequence, so it has
@@ -210,9 +213,9 @@ main() {
     status) cmd_status ;;
     generate) cmd_generate ;;
     check-access) cmd_check_access ;;
-    repair-access)
+    reconcile-access)
       shift
-      cmd_repair_access "$@"
+      cmd_reconcile_access "$@"
       ;;
     publish)
       shift
@@ -231,7 +234,7 @@ Usage:
   ./grist/bootstrap.sh status
   ./grist/bootstrap.sh generate
   ./grist/bootstrap.sh check-access
-  ./grist/bootstrap.sh repair-access --yes
+  ./grist/bootstrap.sh reconcile-access --yes
   ./grist/bootstrap.sh publish <instance…> [--unlist]
   ./grist/bootstrap.sh seed-examples --replace-all
 USAGE

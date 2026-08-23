@@ -97,11 +97,11 @@ cp grist/.env.example .env
 document. Run it before relying on native MCP authoring; a connected read-only
 identity is not a healthy authoring setup.
 
-If the check reports `viewers`, restore the configured admin through Grist's
-document-access API, then verify it again:
+If the check reports effective `viewers` while both direct and inherited access
+are `owners`, reconcile Grist's cached access state and verify it again:
 
 ```bash
-./deploy.sh grist repair-access --yes
+./deploy.sh grist reconcile-access --yes
 ./deploy.sh grist check-access
 ```
 
