@@ -137,6 +137,12 @@ test("targeted Grist deployment uses the checked-out bootstrap only", () => {
     applyStory,
     /story_file=\\\$\(mktemp \/tmp\/uat-story/,
   );
+  assert.match(
+    applyStory,
+    /base64 -d \| sudo -u '\$OS_USER' tee/,
+    "the deployment user must also write the payload it owns",
+  );
+  assert.doesNotMatch(applyStory, /base64 -d > \\"\\\$story_file\\"/);
 });
 
 test("targeted app status resolves and validates the requested instance", () => {

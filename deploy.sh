@@ -756,7 +756,7 @@ router_workdir=\$(docker inspect -f '{{index .Config.Labels \"com.docker.compose
 edge_dir=\${router_workdir%/router}
 story_file=\$(sudo -u '$OS_USER' mktemp /tmp/uat-story.XXXXXX.json)
 trap 'rm -f \"\$story_file\"' EXIT
-printf '%s' '$payload' | base64 -d > \"\$story_file\"
+printf '%s' '$payload' | base64 -d | sudo -u '$OS_USER' tee \"\$story_file\" >/dev/null
 cd \"\$edge_dir\"
 sudo -u '$OS_USER' bash grist/bootstrap.sh apply-story \"\$story_file\""
 }
