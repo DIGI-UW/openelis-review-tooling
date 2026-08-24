@@ -489,8 +489,11 @@ tail -12 \"\$log\" 2>/dev/null || true"
 }
 
 cmd_app_verify() {
-  local instance="${1:-}"
+  local instance="${1:-}" runtime_containers=""
   select_instance_config "$instance"
+  if [ "$instance" = analyzers ]; then
+    runtime_containers="'analyzers-openelis-analyzer-bridge' 'analyzers-openelis-astm-simulator'"
+  fi
   require_aws
   log "verified target metadata"
   curl -fsSk "https://$SELECTED_APP_DOMAIN/__review/target.json"
@@ -500,7 +503,7 @@ cmd_app_verify() {
   printf '   %s -> HTTP %s\n' "$SELECTED_APP_SMOKE_PATH" \
     "$(curl -sk -o /dev/null -w '%{http_code}' --max-time 15 "https://$SELECTED_APP_DOMAIN$SELECTED_APP_SMOKE_PATH")"
   ssm_run "docker inspect -f '{{.Name}}: running={{.State.Running}} health={{if .State.Health}}{{.State.Health.Status}}{{else}}n/a{{end}} image={{.Image}} started={{.State.StartedAt}}' \
-    '$instance-openelisglobal-webapp' '$instance-openelisglobal-front-end'"
+    '$instance-openelisglobal-webapp' '$instance-openelisglobal-front-end' $runtime_containers"
 }
 
 cmd_app_rollback() {
