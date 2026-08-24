@@ -124,6 +124,19 @@ test("targeted Grist deployment uses the checked-out bootstrap only", () => {
   assert.match(deployScript, /cmd_grist_apply_story\(\)/);
   assert.match(deployScript, /apply-story\) cmd_grist_apply_story "\$@"/);
   assert.match(deployScript, /grist\/bootstrap\.sh apply-story/);
+  const applyStory = deployScript.slice(
+    deployScript.indexOf("cmd_grist_apply_story()"),
+    deployScript.indexOf("cmd_grist_check_access()"),
+  );
+  assert.match(
+    applyStory,
+    /story_file=\\\$\(sudo -u '\$OS_USER' mktemp \/tmp\/uat-story/,
+    "the deployment user must own the staged payload it later reads",
+  );
+  assert.doesNotMatch(
+    applyStory,
+    /story_file=\\\$\(mktemp \/tmp\/uat-story/,
+  );
 });
 
 test("targeted app status resolves and validates the requested instance", () => {

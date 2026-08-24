@@ -754,7 +754,7 @@ cmd_grist_apply_story() {
   ssm_run "set -euo pipefail
 router_workdir=\$(docker inspect -f '{{index .Config.Labels \"com.docker.compose.project.working_dir\"}}' oe-edge-router)
 edge_dir=\${router_workdir%/router}
-story_file=\$(mktemp /tmp/uat-story.XXXXXX.json)
+story_file=\$(sudo -u '$OS_USER' mktemp /tmp/uat-story.XXXXXX.json)
 trap 'rm -f \"\$story_file\"' EXIT
 printf '%s' '$payload' | base64 -d > \"\$story_file\"
 cd \"\$edge_dir\"
