@@ -178,6 +178,24 @@ cmd_check_access() {
   run_node check-access
 }
 
+cmd_apply_story() {
+  require_runtime
+  [ "$#" -eq 1 ] || die "apply-story requires one JSON file"
+  [ -f "$1" ] || die "story file not found: $1"
+  [ -s "$KEYFILE" ] || die "$KEYFILE is missing; run up first"
+  copy_runtime_scripts
+  local payload result
+  payload="$(mktemp "$STATE_DIR/uat-story.XXXXXX.json")"
+  install -m 600 "$1" "$payload"
+  if run_node apply-story "/work/$(basename "$payload")"; then
+    rm -f "$payload"
+  else
+    result=$?
+    rm -f "$payload"
+    return "$result"
+  fi
+}
+
 # Listing a story in the public catalog is an act with a consequence, so it has
 # its own command rather than riding along with a migration.
 cmd_publish() {
@@ -206,6 +224,10 @@ main() {
     status) cmd_status ;;
     generate) cmd_generate ;;
     check-access) cmd_check_access ;;
+    apply-story)
+      shift
+      cmd_apply_story "$@"
+      ;;
     publish)
       shift
       cmd_publish "$@"
@@ -223,6 +245,7 @@ Usage:
   ./grist/bootstrap.sh status
   ./grist/bootstrap.sh generate
   ./grist/bootstrap.sh check-access
+  ./grist/bootstrap.sh apply-story <file.json>
   ./grist/bootstrap.sh publish <instance…> [--unlist]
   ./grist/bootstrap.sh seed-examples --replace-all
 USAGE

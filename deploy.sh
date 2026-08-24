@@ -39,6 +39,7 @@
 #                                   # re-render nginx from the template, router only
 #   ./deploy.sh data seed amr --fixture microbiology-mvp --story AMR-S33
 #   ./deploy.sh grist up           # reconcile the Grist runtime from this checkout
+#   ./deploy.sh grist apply-story --file <story.json>
 #   ./deploy.sh grist check-access # prove the server-side REST author can write UAT
 #   ./deploy.sh up-to-certs --yes   # configure -> deploy -> certs -> seed
 set -euo pipefail
@@ -741,6 +742,25 @@ cd \"\$edge_dir\"
 sudo -u '$OS_USER' bash grist/bootstrap.sh apply $flags"
 }
 
+cmd_grist_apply_story() {
+  shift || true
+  [ "${1:-}" = "--file" ] && [ -n "${2:-}" ] && [ "$#" -eq 2 ] ||
+    die "grist apply-story requires --file <story.json>"
+  local file="$2" payload
+  [ -f "$file" ] || die "story file not found: $file"
+  payload="$(base64 <"$file" | tr -d '\n')"
+  require_aws
+  log "applying one Grist UAT story from $file"
+  ssm_run "set -euo pipefail
+router_workdir=\$(docker inspect -f '{{index .Config.Labels \"com.docker.compose.project.working_dir\"}}' oe-edge-router)
+edge_dir=\${router_workdir%/router}
+story_file=\$(mktemp /tmp/uat-story.XXXXXX.json)
+trap 'rm -f \"\$story_file\"' EXIT
+printf '%s' '$payload' | base64 -d > \"\$story_file\"
+cd \"\$edge_dir\"
+sudo -u '$OS_USER' bash grist/bootstrap.sh apply-story \"\$story_file\""
+}
+
 cmd_grist_check_access() {
   shift || true
   [ "$#" -eq 0 ] || die "grist check-access takes no arguments"
@@ -758,8 +778,9 @@ cmd_grist() {
   case "$action" in
     up) cmd_grist_up "$@" ;;
     apply) cmd_grist_apply "$@" ;;
+    apply-story) cmd_grist_apply_story "$@" ;;
     check-access) cmd_grist_check_access "$@" ;;
-    *) die "unknown grist action '$action' (up|apply|check-access)" ;;
+    *) die "unknown grist action '$action' (up|apply|apply-story|check-access)" ;;
   esac
 }
 

@@ -145,6 +145,7 @@ OpenELIS stacks, router, Grist, databases, and FHIR services untouched:
 ./deploy.sh review deploy --ref <sha> --scope widget
 ./deploy.sh review reload-router [--instance amr] [--domain <host>]
 ./deploy.sh grist up
+./deploy.sh grist apply-story --file <story.json>
 ./deploy.sh data seed <instance> --fixture <name>
 ```
 

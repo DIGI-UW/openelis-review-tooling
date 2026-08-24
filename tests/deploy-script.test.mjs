@@ -121,6 +121,9 @@ test("targeted Grist deployment uses the checked-out bootstrap only", () => {
   assert.match(gristUp, /require_aws/);
   assert.match(gristUp, /sudo -u '\$OS_USER' bash grist\/bootstrap\.sh up/);
   assert.doesNotMatch(gristUp, /cmd_deploy|cmd_app|docker compose/);
+  assert.match(deployScript, /cmd_grist_apply_story\(\)/);
+  assert.match(deployScript, /apply-story\) cmd_grist_apply_story "\$@"/);
+  assert.match(deployScript, /grist\/bootstrap\.sh apply-story/);
 });
 
 test("targeted app status resolves and validates the requested instance", () => {

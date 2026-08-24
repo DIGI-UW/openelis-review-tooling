@@ -88,6 +88,7 @@ Shared Grist/runtime changes use the same checked-out review-tooling revision:
 ```bash
 ./deploy.sh review deploy --ref <sha> --scope all
 ./deploy.sh grist up
+./deploy.sh grist apply-story --file <story.json>
 ```
 
 The targeted path rebuilds and replaces only the selected app's services. For

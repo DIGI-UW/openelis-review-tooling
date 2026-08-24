@@ -78,10 +78,11 @@ bash bootstrap.sh validate
 bash bootstrap.sh up
 bash bootstrap.sh status
 bash bootstrap.sh generate
+bash bootstrap.sh apply-story story.json
 bash bootstrap.sh seed-examples --replace-all
 ```
 
-`grist-sync.mjs` (`apply` | `migrate` | `seed` | `generate` | `publish`) does the API
+`grist-sync.mjs` (`apply` | `apply-story` | `migrate` | `seed` | `generate` | `publish`) does the API
 work; `bootstrap.sh` wraps it with the container lifecycle + the headless API-key
 step.
 

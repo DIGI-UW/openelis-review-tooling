@@ -35,6 +35,17 @@ The document is **"UAT Checklists"** (`hvZ4rzsyGJuqggkZBko8gc`). Use structured
 JSON with `GET`, `POST`, `PATCH`, and `DELETE` on
 `$GRIST_API_ROOT/tables/<table>/records`.
 
+When the review-tooling repository and deploy access are available, apply one
+complete story without exposing the key locally:
+
+```bash
+./deploy.sh grist apply-story --file story.json
+```
+
+The file contains `instance`, one `story` object, and its exact `steps` array.
+The command reconciles only that stable `story_key`; omitted steps in that story
+are removed, while sibling stories are untouched.
+
 ## Read before you write
 
 Always pull the current rows first. Checklists are edited by people too, and

@@ -107,6 +107,19 @@ Send that body with `POST` to
 `$GRIST_API_ROOT/tables/UAT_Steps/records`. Updates use `PATCH` and include each
 record's numeric `id`; deletes use `DELETE` with `records: [<id>]`.
 
+From an authorized review-tooling checkout, prefer the scoped wrapper for a
+complete story. It uses the server-side API key, applies the story and its exact
+step set by stable keys, and leaves every sibling story alone:
+
+```bash
+./deploy.sh grist apply-story --file story.json
+```
+
+The JSON file has `instance`, one `story` object, and a non-empty `steps` array.
+The story requires `story_key`, `title`, and `story_order`; every step requires
+`step_key`, `required`, `step_order`, and `do`. Include `expect` and `route` when
+the reviewer needs them.
+
 Write UAT steps as **verifiable checks** — a `do` a reviewer performs and an
 `expect` they judge against. A missing feature is a legitimate step: the reviewer
 marks it Fail, which is useful signal.
