@@ -744,8 +744,9 @@ sudo -u '$OS_USER' bash grist/bootstrap.sh apply $flags"
 
 cmd_grist_apply_story() {
   shift || true
-  [ "${1:-}" = "--file" ] && [ -n "${2:-}" ] && [ "$#" -eq 2 ] ||
+  if [ "${1:-}" != "--file" ] || [ -z "${2:-}" ] || [ "$#" -ne 2 ]; then
     die "grist apply-story requires --file <story.json>"
+  fi
   local file="$2" payload
   [ -f "$file" ] || die "story file not found: $file"
   payload="$(base64 <"$file" | tr -d '\n')"
