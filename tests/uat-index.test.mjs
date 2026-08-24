@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { buildUatIndex, parsePublished } from "../grist/mcp/uat-document.mjs";
+import { buildUatIndex, parsePublished } from "../grist/uat-read/uat-document.mjs";
 
 function story(id, instance, key, fields = {}) {
   return {

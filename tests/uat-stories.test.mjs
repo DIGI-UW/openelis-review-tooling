@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { buildUatDocument } from "../grist/mcp/uat-document.mjs";
+import { buildUatDocument } from "../grist/uat-read/uat-document.mjs";
 
 // Grist returns a Ref column as the row id it points at, and 0 when it is empty.
 function story(id, fields = {}) {

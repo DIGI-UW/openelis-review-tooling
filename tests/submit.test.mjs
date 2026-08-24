@@ -11,7 +11,7 @@ import test from "node:test";
 import { fakeGristDoc, startFakeGrist } from "./helpers/fake-grist.mjs";
 import { startFakeOpenELIS } from "./helpers/fake-openelis.mjs";
 
-const SERVER = new URL("../grist/mcp/server.mjs", import.meta.url).pathname;
+const SERVER = new URL("../grist/uat-read/server.mjs", import.meta.url).pathname;
 
 const MERCY = {
   authenticated: true,

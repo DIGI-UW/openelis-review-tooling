@@ -14,7 +14,7 @@
 
 import { mkdirSync, readFileSync, writeFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
-import { buildUatDocument, parseRequired } from "./mcp/uat-document.mjs";
+import { buildUatDocument, parseRequired } from "./uat-read/uat-document.mjs";
 import {
   PAGES,
   SCHEMA,
@@ -73,62 +73,22 @@ async function resolveDoc() {
 
 async function checkAccess() {
   const doc = await resolveDoc();
-  const [info, activation] = await Promise.all([
-    api(`/api/docs/${doc}`),
-    api("/api/activation/status", {}, [403]),
-  ]);
+  const info = await api(`/api/docs/${doc}`);
   const access = String(info.access || "none");
   console.log(`${info.name || DOC_NAME} ${doc}: ${access}`);
-  if (activation) {
-    const entitlement = activation.key
-      ? activation.planName || "licensed"
-      : activation.trial
-        ? "trial"
-        : activation.planName || "unknown";
-    const daysLeft = activation.key?.daysLeft ?? activation.trial?.daysLeft;
-    console.error(
-      `activation ${entitlement}${daysLeft === undefined ? "" : `, ${daysLeft} days left`}, ${activation.needKey ? "key required" : "writable"}`,
-    );
-  } else {
-    console.error(
-      "activation status requires installation-admin session; continuing with effective-access diagnostics",
-    );
-  }
-  let configuredOwner = false;
-  let productAllowsWrites = false;
   if (ADMIN_EMAIL) {
-    const [profile, sharing, org] = await Promise.all([
+    const [profile, sharing] = await Promise.all([
       api("/api/profile/user"),
       api(`/api/docs/${doc}/access`),
-      api(`/api/orgs/${ORG}`),
     ]);
     const admin = (sharing.users || []).find(
       (user) => String(user.email || "") === ADMIN_EMAIL,
     );
-    configuredOwner =
-      String(profile.id) === String(admin?.id) && admin?.access === "owners";
     console.error(
       `${ADMIN_EMAIL}: authenticated user ${profile.id || "unknown"}, shared user ${admin?.id || "unknown"}, direct ${admin?.access || "none"}, inherited ${admin?.parentAccess || sharing.maxInheritedRole || "none"}`,
     );
-    const billing = org.billingAccount || {};
-    const product = billing.product || {};
-    productAllowsWrites =
-      billing.inGoodStanding !== false && product.features?.readOnlyDocs !== true;
-    console.error(
-      `site product ${product.name || "unknown"}, inGoodStanding ${String(billing.inGoodStanding)}, readOnlyDocs ${String(product.features?.readOnlyDocs)}`,
-    );
-  }
-  if (activation?.needKey) {
-    throw new Error(
-      "Grist full-edition trial has expired; configure GRIST_ACTIVATION with a valid activation key before authoring UAT",
-    );
   }
   if (access !== "owners") {
-    if (configuredOwner && productAllowsWrites) {
-      throw new Error(
-        "Grist global restricted mode is capping the document owner to read-only; for this full-edition deployment, confirm the evaluation status in the Installation page and configure GRIST_ACTIVATION before authoring UAT",
-      );
-    }
     throw new Error(
       `Grist authoring identity must own ${DOC_NAME}; expected owners, received ${access}`,
     );

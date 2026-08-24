@@ -13,7 +13,7 @@
 
 services:
   grist:
-    image: gristlabs/grist:latest
+    image: gristlabs/grist-oss@sha256:7d5a1f4e11562af75e0d881a50e414fc8286a5dee60057a97d11e1250f195064
     container_name: oe-edge-grist
     restart: unless-stopped
     environment:
@@ -38,21 +38,6 @@ services:
       - GRIST_OIDC_IDP_SKIP_END_SESSION_ENDPOINT=true
       # Trust the umbrella router's forwarded proto so Grist builds https URLs.
       - GRIST_FORWARD_URL_HOST=1
-      # Native MCP server at /api/mcp (full edition). Authenticates with a Grist
-      # API key or session; the OAuth-bearer path additionally needs the OIDC
-      # server + Redis (see Phase B). No effect until the full edition is active.
-      - GRIST_MCP_ENABLED=true
-      # Full-edition authoring becomes read-only when the 30-day evaluation
-      # expires. Keep the activation only in the host-side .env; Compose passes
-      # it directly to Grist and the repository never copies its value.
-      - GRIST_ACTIVATION=${GRIST_ACTIVATION:-}
-      # Web-client MCP auth: Grist runs its own OIDC server issuing tokens to MCP
-      # clients (claude.ai/chatgpt.com auto-register via CIMD + DCR). Token storage
-      # requires Redis — without REDIS_URL, /api/mcp rejects all OAuth bearer tokens.
-      - GRIST_ENABLE_OIDC_SERVER=true
-      - GRIST_ENABLE_OIDC_DCR=true
-      - GRIST_OIDC_CIMD_ALLOWED_HOSTS=claude.ai,chatgpt.com
-      - REDIS_URL=redis://redis:6379
     volumes:
       - grist-data:/persist
     networks:
@@ -60,7 +45,6 @@ services:
         aliases: [grist]
     depends_on:
       - dex
-      - redis
 
   # Identity provider: simple static users + OAuth2 connectors. Served under
   # grist.openelis-global.org/dex (routed by the umbrella router). Secrets
@@ -80,21 +64,11 @@ services:
       edge:
         aliases: [dex]
 
-  # Ephemeral token store for Grist's OIDC server (web-client MCP auth). Losing it
-  # just means outstanding MCP OAuth sessions must re-auth; no durable data here.
-  redis:
-    image: redis:7-alpine
-    container_name: oe-edge-redis
-    restart: unless-stopped
-    networks:
-      edge:
-        aliases: [redis]
-
-  # Public Grist-to-widget read transformer. Authoring is exclusively through
-  # Grist's native OAuth/API-key MCP endpoint at /api/mcp.
+  # Public Grist-to-widget read transformer. Agents and lifecycle tools author
+  # through Grist's authenticated REST API; this service remains read-only.
   uat-read:
     build:
-      context: ./mcp
+      context: ./uat-read
       dockerfile: Dockerfile
     image: oe-edge-grist-uat-read
     container_name: oe-edge-grist-uat-read

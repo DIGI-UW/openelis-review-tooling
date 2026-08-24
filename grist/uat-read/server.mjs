@@ -6,7 +6,7 @@
 //   GET  /healthz                  Liveness.
 //
 // The Grist API key is held here (server-side) and never exposed to callers:
-// the widget reads through GET /uat. Authoring uses Grist's native /api/mcp.
+// the widget reads through GET /uat. Authoring uses Grist's REST API directly.
 //
 // Env: GRIST_URL, GRIST_KEY | GRIST_KEY_FILE, GRIST_ORG, GRIST_DOC_NAME,
 //      PORT, REVIEW_BACKENDS, REVIEW_TLS_INSECURE_HOSTS, SESSION_PATH.
@@ -390,6 +390,6 @@ app.post("/uat/:instance/submissions", async (req, res) => {
 // lie in exactly the case where somebody needs to read it.
 const server = app.listen(PORT, () =>
   console.error(
-    `[grist-uat] :${server.address().port} — GET /uat/:file (public read); author via Grist /api/mcp`,
+    `[grist-uat] :${server.address().port} — GET /uat/:file (public read); author via Grist REST`,
   ),
 );

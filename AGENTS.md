@@ -7,8 +7,8 @@ this repository.
 Repository-wide rules:
 
 - Grist `UAT_Meta` and `UAT_Steps` are the checklist source of truth.
-- Agents author through Grist's native MCP at `/api/mcp`; there is no custom MCP
-  write service.
+- Agents author through the authenticated Grist REST API. There is no custom
+  checklist write service.
 - The public `/uat/<instance>.json` surface is anonymous and read-only.
 - Validation commands must not contact or mutate the live demo host.
 - Persistent data and secrets live outside the Git checkout. Read

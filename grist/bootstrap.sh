@@ -63,8 +63,8 @@ copy_runtime_scripts() {
   # import graph that nobody updates: a new import resolves here and is simply
   # absent on the box, where the first thing anyone sees is every command failing.
   cp "$HERE"/*.mjs "$STATE_DIR/"
-  mkdir -p "$STATE_DIR/mcp"
-  cp "$HERE/mcp/uat-document.mjs" "$STATE_DIR/mcp/uat-document.mjs"
+  mkdir -p "$STATE_DIR/uat-read"
+  cp "$HERE/uat-read/uat-document.mjs" "$STATE_DIR/uat-read/uat-document.mjs"
 }
 
 run_node() {
@@ -128,15 +128,17 @@ cmd_up() {
     docker network create oe-edge >/dev/null
   docker volume inspect "$GRIST_VOL" >/dev/null 2>&1 ||
     docker volume create "$GRIST_VOL" >/dev/null
-  docker run --rm -v "$GRIST_VOL:/persist" alpine:3.20 sh -c \
-    'printf "%s\n" "{\"version\":\"1\",\"edition\":\"enterprise\"}" > /persist/config.json'
+  # Older deployments selected the proprietary edition in this metadata file.
+  # It is not document data; remove only that selector before the OSS image starts.
+  docker run --rm -v "$GRIST_VOL:/persist" alpine:3.20 \
+    rm -f /persist/config.json
 
-  echo ">> starting Grist, Dex, and Redis"
-  compose up -d grist dex redis
+  echo ">> starting open-source Grist and Dex"
+  compose up -d --remove-orphans grist dex
   wait_for_grist
   ensure_api_key
 
-  echo ">> verifying full-edition authoring entitlement and document ownership"
+  echo ">> verifying REST authoring identity and document ownership"
   run_node check-access
 
   echo ">> migrating the UAT schema without clearing authored rows"
@@ -146,7 +148,7 @@ cmd_up() {
 
   echo ">> starting the public read-only UAT adapter"
   compose up -d --build uat-read
-  echo ">> Grist is up; UI and native MCP edits are live without a publish step"
+  echo ">> Grist is up; UI and REST edits are live without a publish step"
 }
 
 cmd_status() {

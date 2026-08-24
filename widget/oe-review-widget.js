@@ -888,7 +888,7 @@
     }
   }
 
-  // Mirrors parseRequired() in grist/mcp/uat-document.mjs — this file ships
+  // Mirrors parseRequired() in grist/uat-read/uat-document.mjs — this file ships
   // standalone so it cannot import it. A step is required unless it says
   // otherwise; keep the two in step if either changes.
   function isRequired(step) {

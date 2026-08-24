@@ -163,7 +163,7 @@
         <div class="stage">
           <div class="stack">
             <div class="node"><span class="role">Human</span><span class="name">Grist UI</span><span class="sub">edit in a spreadsheet</span></div>
-            <div class="node"><span class="role">Agent</span><span class="name">Native MCP</span><span class="sub">/api/mcp</span></div>
+            <div class="node"><span class="role">Agent</span><span class="name">REST API</span><span class="sub">/api/docs</span></div>
           </div>
           <div class="arrow">→</div>
           <div class="node key"><span class="role">Source of truth</span><span class="name">Grist · UAT Checklists</span><span class="sub">UAT_Meta · UAT_Steps</span></div>
@@ -200,16 +200,15 @@
         <ol class="steps">
           <li><b>As a person:</b> sign in at <span class="mono">grist.openelis-global.org</span> and edit the
             <code>UAT_Steps</code> table like a spreadsheet — one row per step.</li>
-          <li><b>As an agent (Claude Code):</b> connect the native Grist MCP once, then ask in plain language
+          <li><b>As an agent:</b> use the authenticated Grist REST API with the authoring skill, then ask in plain language
             (“add a step to the amr checklist covering X”).</li>
         </ol>
-<pre><span class="cm"># CLI — connect with a Grist API key</span>
-claude mcp add --transport http grist \
-  https://grist.openelis-global.org/api/mcp \
-  --header "Authorization: Bearer &lt;grist-api-key&gt;"</pre>
-        <p style="color:var(--muted);font-size:13.5px;margin:12px 0 0"><b>On claude.ai (web):</b> add
-          <span class="mono">grist.openelis-global.org/api/mcp</span> as a custom connector and sign in — the OAuth
-          handshake registers the client for you, no key to paste.</p>
+<pre><span class="cm"># Agent REST read</span>
+export GRIST_API_ROOT=https://grist.openelis-global.org/api/docs/&lt;doc-id&gt;
+curl -H "Authorization: Bearer $GRIST_API_KEY" \
+  "$GRIST_API_ROOT/tables/UAT_Stories/records"</pre>
+        <p style="color:var(--muted);font-size:13.5px;margin:12px 0 0">The API key stays in an approved
+          agent or operator environment. It is never exposed to the browser or committed to the repository.</p>
       </div>
 
       <div class="card">
@@ -237,7 +236,7 @@ claude mcp add --transport http grist \
           <div class="sec-tag">Drive the workflow</div>
           <div class="cl-row"><span class="mk todo">····</span><span class="t">Record an isolate on the received specimen</span></div>
           <div class="cl-row"><span class="mk todo">····</span><span class="t">Enter an AST result using the seeded breakpoints</span></div>
-          <div class="cl-row"><span class="mk todo">····</span><span class="t">Check the S/I/R interpretation reaches the patient report<small>authored via MCP — flags the highest-value gap</small></span></div>
+          <div class="cl-row"><span class="mk todo">····</span><span class="t">Check the S/I/R interpretation reaches the patient report<small>authored via REST — flags the highest-value gap</small></span></div>
           <div class="sec-tag">Shared-specimen TB case · Overall impression</div>
           <div class="cl-row"><span class="mk todo">····</span><span class="t">Find the sibling TB case on the same specimen; reflect on gaps</span></div>
         </div>
@@ -262,7 +261,7 @@ claude mcp add --transport http grist \
       <div><div class="lbl">Umbrella router</div><div class="val">nginx, Host-based dispatch, Let’s Encrypt per subdomain</div></div>
       <div><div class="lbl">amr</div><div class="val">Microbiology MVP stack + review overlay</div></div>
       <div><div class="lbl">analyzers</div><div class="val">Analyzer Types &amp; Mapping + harness + overlay</div></div>
-      <div><div class="lbl">grist</div><div class="val">Grist full edition · native MCP at <code>/api/mcp</code></div></div>
+      <div><div class="lbl">grist</div><div class="val">Open-source Grist · authenticated REST API</div></div>
       <div><div class="lbl">Live read</div><div class="val">Slim service reshapes Grist rows → widget JSON (30s cache)</div></div>
       <div><div class="lbl">Checklist contract</div><div class="val">Each step needs a stable <code>step_key</code> and a <code>required</code> flag; the revision is a content hash</div></div>
       <div><div class="lbl">Author auth</div><div class="val">Grist API key (CLI) or OAuth sign-in (claude.ai web)</div></div>
@@ -276,7 +275,7 @@ claude mcp add --transport http grist \
       <p style="margin:0 0 10px"><b>Its own repo:</b> <code>github.com/DIGI-UW/openelis-review-tooling</code> —
         independent of OpenELIS-Global-2, so it iterates without the product repo's CI or review gates.</p>
       <p style="margin:0">Inside it, the reviewer widget is a <b>standalone, backend-free plugin</b>: one framework-free
-        file you drop onto any page with a <code>&lt;script&gt;</code> tag. Grist + native MCP is one optional way to
+        file you drop onto any page with a <code>&lt;script&gt;</code> tag. Grist + REST is one optional way to
         author its checklists; the deploy scripts stand up the demo.</p>
     </div>
   </section>

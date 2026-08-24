@@ -45,9 +45,8 @@ they always could. Treat unlisted as "not advertised", not as "protected", and
 keep genuinely sensitive material out of the document.
 
 This service has no authoring endpoint and no caller tokens. Humans author in the
-Grist UI; agents author through Grist's native MCP endpoint:
-
-`https://grist.openelis-global.org/api/mcp`
+Grist UI; agents author through Grist's authenticated REST API under
+`https://grist.openelis-global.org/api/docs/<doc-id>/tables/<table>/records`.
 
 The Grist API key mounted into this service is server-side read access used only
 to transform the document for the anonymous review overlay.

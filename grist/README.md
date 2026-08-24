@@ -1,8 +1,8 @@
 # Grist authoring layer for the UAT checklists
 
-Light self-hosted [Grist](https://www.getgrist.com/) that owns the **authoring**
+Light self-hosted open-source [Grist](https://www.getgrist.com/) that owns the **authoring**
 side of the reviewer overlay: people edit UAT steps in the spreadsheet UI and
-agents edit the same rows through Grist's native `/api/mcp`.
+agents edit the same rows through Grist's authenticated REST API.
 
 Feedback remains client-side download → Claude. The public read transformer
 serves schema-v2 checklist JSON with a deterministic revision.
@@ -12,7 +12,7 @@ serves schema-v2 checklist JSON with a deterministic revision.
 ```
 widget/examples/uat-*.json ──initial seed──▶ Grist ──live read──▶ review overlay
                                             ▲
-                                     UI or native MCP
+                                       UI or REST
 ```
 
 Grist is the source of truth once seeded. The read-only adapter builds served

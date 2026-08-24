@@ -235,6 +235,6 @@ prompt silently loses half of their review.
 
 The widget doesn't care how the checklist is produced — any JSON matching the schema
 works. In this repo, the `grist/` tooling is one way to author them collaboratively
-(humans in a Grist spreadsheet, or agents via Grist's native MCP) and serve them live;
+(humans in a Grist spreadsheet, or agents via Grist's REST API) and serve them live;
 see the repo root README. But the widget stands on its own with a static or inline
 checklist.

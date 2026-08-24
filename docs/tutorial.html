@@ -162,7 +162,7 @@
         <text class="svg-f svg-mono" x="83" y="63" font-size="11" text-anchor="middle">in the Grist UI</text>
         <rect class="svg-box" x="8" y="86" width="150" height="46" rx="10"/>
         <text class="svg-l svg-mono" x="83" y="107" font-size="13" text-anchor="middle" font-weight="600">An agent</text>
-        <text class="svg-f svg-mono" x="83" y="123" font-size="11" text-anchor="middle">over /api/mcp</text>
+        <text class="svg-f svg-mono" x="83" y="123" font-size="11" text-anchor="middle">over REST</text>
         <path class="svg-arrow" d="M158,49 C190,49 190,72 214,76" marker-end="url(#ah)"/>
         <path class="svg-arrow" d="M158,109 C190,109 190,86 214,82" marker-end="url(#ah)"/>
 
@@ -296,15 +296,15 @@
         </div>
 
         <div id="p1b" hidden>
-          <p>Connect the authoring MCP once, then just ask — “add a step to
+          <p>Use the authenticated REST API with the authoring skill, then just ask — “add a step to
             <span class="v-label">My Feature (OGC-1234)</span> covering the new export screen”.</p>
-          <div class="code"><button class="copy" data-copy="c1">Copy</button><pre id="c1"><span class="cm"># Claude Code CLI</span>
-claude mcp add --transport http grist \
-  https://<span class="v-host tok">grist.openelis-global.org</span>/api/mcp \
-  --header "Authorization: Bearer &lt;grist-api-key&gt;"</pre></div>
-          <p class="hint">On claude.ai, add that same URL as a custom connector and sign in — no key to
-            paste. There is a bundled <a href="https://github.com/DIGI-UW/openelis-review-tooling/tree/main/skills/uat-authoring">uat-authoring skill</a>
-            that teaches an agent these rules, so it reads before writing and verifies after.</p>
+          <div class="code"><button class="copy" data-copy="c1">Copy</button><pre id="c1"><span class="cm"># Agent REST read</span>
+export GRIST_API_ROOT=https://<span class="v-host tok">grist.openelis-global.org</span>/api/docs/&lt;doc-id&gt;
+curl -H "Authorization: Bearer $GRIST_API_KEY" \
+  "$GRIST_API_ROOT/tables/UAT_Stories/records"</pre></div>
+          <p class="hint">Keep the API key in the approved agent or operator environment. The bundled
+            <a href="https://github.com/DIGI-UW/openelis-review-tooling/tree/main/skills/uat-authoring">uat-authoring skill</a>
+            teaches an agent to read before writing and verify after.</p>
         </div>
       </section>
 

@@ -4,16 +4,38 @@ import test from "node:test";
 
 const read = (path) => readFile(new URL(`../${path}`, import.meta.url), "utf8");
 
-test("agent and operator docs preserve the native MCP boundary", async () => {
+test("agent and operator docs preserve the open REST authoring boundary", async () => {
   const root = await read("AGENTS.md");
   const contract = await read("docs/AGENTS.md");
   const operations = await read("docs/OPERATIONS.md");
-  const readService = await read("grist/mcp/README.md");
+  const readService = await read("grist/uat-read/README.md");
 
-  assert.match(root, /native MCP at `\/api\/mcp`/);
+  assert.match(root, /Grist REST API/);
   assert.match(contract, /Source of truth:\*\* a Grist document/);
+  assert.match(contract, /Authoring — Grist REST API/);
   assert.match(operations, /no publish step/i);
   assert.match(readService, /no authoring endpoint/);
+  for (const text of [root, contract, operations, readService]) {
+    assert.doesNotMatch(text, /native MCP|\/api\/mcp|full.edition/i);
+  }
+});
+
+test("Grist runs the open-source image without proprietary sidecars or settings", async () => {
+  const compose = await read("grist/docker-compose.grist.yml");
+  const bootstrap = await read("grist/bootstrap.sh");
+
+  assert.match(compose, /image: gristlabs\/grist-oss@sha256:[a-f0-9]{64}/);
+  assert.doesNotMatch(compose, /gristlabs\/grist-oss:latest/);
+  assert.match(compose, /grist-data:\/persist/);
+  assert.doesNotMatch(
+    compose,
+    /GRIST_MCP_ENABLED|GRIST_ACTIVATION|GRIST_ENABLE_OIDC_SERVER|GRIST_ENABLE_OIDC_DCR|GRIST_OIDC_CIMD_ALLOWED_HOSTS|REDIS_URL/,
+  );
+  assert.doesNotMatch(compose, /^\s{2}redis:\s*$/m);
+  assert.doesNotMatch(bootstrap, /edition.*enterprise/i);
+  assert.match(bootstrap, /rm -f \/persist\/config\.json/);
+  assert.match(bootstrap, /compose up -d --remove-orphans grist dex/);
+  assert.doesNotMatch(bootstrap, /compose up -d grist dex redis/);
 });
 
 test("REST checklist authoring requires explicit stable keys", async () => {
@@ -23,7 +45,10 @@ test("REST checklist authoring requires explicit stable keys", async () => {
 
   assert.match(contract, /REST creates must send[\s\S]*`story_key` and `step_key`/);
   assert.match(skill, /REST creates must provide stable keys explicitly/);
-  assert.match(skill, /REST create MUST include an unused stable `story_key`/);
+  assert.match(
+    skill,
+    /REST create MUST\s+include an unused stable `story_key`/,
+  );
   assert.match(schema, /REST creates must send it explicitly/);
 });
 
@@ -43,9 +68,9 @@ test("remote deploy commands never carry Grist or Dex secret values", async () =
   assert.doesNotMatch(localEnv, /^DEX_/m);
   assert.match(hostEnv, /^DEX_GRIST_CLIENT_SECRET=/m);
   assert.match(hostEnv, /^DEX_REVIEWER_PASSWORD_HASH=/m);
-  assert.match(hostEnv, /^GRIST_ACTIVATION=/m);
+  assert.doesNotMatch(hostEnv, /^GRIST_ACTIVATION=/m);
   const compose = await read("grist/docker-compose.grist.yml");
-  assert.match(compose, /GRIST_ACTIVATION=\$\{GRIST_ACTIVATION:-\}/);
+  assert.doesNotMatch(compose, /GRIST_ACTIVATION/);
   assert.match(bootstrap, /run_node check-access/);
   assert.match(
     bootstrap,
@@ -217,8 +242,8 @@ test("the checklist service image ships every module the service imports", async
   // files it copies, so a module added beside server.mjs is absent from the
   // image and the container dies at import. Nothing here builds the image, so
   // nothing here would notice.
-  const server = await read("grist/mcp/server.mjs");
-  const dockerfile = await read("grist/mcp/Dockerfile");
+  const server = await read("grist/uat-read/server.mjs");
+  const dockerfile = await read("grist/uat-read/Dockerfile");
   const imports = [...server.matchAll(/from\s+"\.\/([^"]+)"/g)].map(
     (match) => match[1],
   );
@@ -235,7 +260,7 @@ test("the checklist service image ships every module the service imports", async
       !relative.includes("/") && /COPY[^\n]*\*\.mjs/.test(dockerfile);
     assert.ok(
       byName || byGlob,
-      `grist/mcp/Dockerfile must copy ${relative} — without it the service cannot start`,
+      `grist/uat-read/Dockerfile must copy ${relative} — without it the service cannot start`,
     );
   }
 });

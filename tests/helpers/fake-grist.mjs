@@ -21,20 +21,6 @@ export function fakeGristDoc(seed = {}) {
     name: "UAT Checklists",
     access: seed.access || "owners",
     directAccess: seed.directAccess || seed.access || "owners",
-    activationForbidden: Boolean(seed.activationForbidden),
-    activation: structuredClone(
-      seed.activation || {
-        installationId: "installation-FAKE",
-        planName: "trial",
-        keyPrefix: null,
-        trial: {
-          days: 30,
-          expirationDate: "2099-01-31T00:00:00.000Z",
-          daysLeft: 30,
-        },
-        needKey: false,
-      },
-    ),
     tables: structuredClone(seed.tables || {}),
     // Every request the tool made, in order, so a test can assert on sequence
     // rather than only on the state left behind.
@@ -153,20 +139,6 @@ export async function startFakeGrist(doc) {
 
       if (path === "/api/profile/user" && req.method === "GET") {
         return send(200, { id: 5, email: "admin@example.test" });
-      }
-
-      if (path === "/api/orgs/openelis" && req.method === "GET") {
-        return send(200, {
-          billingAccount: {
-            inGoodStanding: true,
-            product: { name: "team", features: { readOnlyDocs: false } },
-          },
-        });
-      }
-
-      if (path === "/api/activation/status" && req.method === "GET") {
-        if (doc.activationForbidden) return send(403, { error: "Access denied" });
-        return send(200, doc.activation);
       }
 
       if (path === `/api/docs/${doc.id}` && req.method === "GET") {

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { parseBackends, verifyTlsFor } from "../grist/mcp/backends.mjs";
+import { parseBackends, verifyTlsFor } from "../grist/uat-read/backends.mjs";
 
 test("reads the instance and the URL either side of the first =", () => {
   const { backends, malformed } = parseBackends(

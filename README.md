@@ -1,13 +1,13 @@
 # OpenELIS Review Tooling
 
 A home for the tooling behind the OpenELIS UAT review loop — a standalone reviewer
-widget, a Grist-backed authoring layer (with native MCP), and the demo deployment
+widget, a Grist-backed authoring layer with REST automation, and the demo deployment
 that ties them together. It **targets** OpenELIS-Global-2 demo builds but is not part
 of that repo, so it can iterate on its own.
 
 ## The loop, in three lines
 - **Author** — humans edit checklists in a Grist spreadsheet, or agents author them
-  over Grist's native MCP. See [`docs/AGENTS.md`](docs/AGENTS.md).
+  through Grist's REST API. See [`docs/AGENTS.md`](docs/AGENTS.md).
 - **Review** — a lightweight overlay on each demo site loads the checklist and
   captures pass / fail / n-a + notes.
 - **Feedback** — the reviewer downloads a Markdown + JSON report and pastes it into
@@ -33,7 +33,7 @@ Two URLs, no build, no redeploy — a script tag or one nginx line:
 |---|---|
 | [`widget/`](widget/) | The reviewer overlay as a **standalone, backend-free drop-in plugin**. Grab-and-go — no OE2, no build, no server needed. |
 | [`integration/`](integration/) | Copy-paste ways to attach the overlay to an **existing** deployment (config, not code). |
-| `grist/` | The authoring backend: Grist as source of truth + native MCP, plus the slim read-only `/uat` transformer. |
+| `grist/` | The authoring backend: open-source Grist as source of truth + REST API, plus the slim read-only `/uat` transformer. |
 | `router/`, `amr/`, `analyzers/`, `scripts/`, `deploy.sh` | The demo deployment: an umbrella nginx router splitting subdomains, additive Compose overlays on the OE2 app builds, and Let's Encrypt certs. |
 | `docs/` | [`AGENTS.md`](docs/AGENTS.md) (agent contract), [`OPERATIONS.md`](docs/OPERATIONS.md) (runtime contract), and collaborator guides. |
 
@@ -49,7 +49,7 @@ reverse proxy, each with its own Let's Encrypt cert, plus the Grist authoring st
 |---|---|
 | `amr.openelis-global.org` | Microbiology MVP (OGC-782) + review overlay |
 | `analyzers.openelis-global.org` | Analyzer Types & Mapping + harness (OGC-1054) + review overlay |
-| `grist.openelis-global.org` | Grist authoring (native MCP at `/api/mcp`) |
+| `grist.openelis-global.org` | Grist Community authoring UI and REST API |
 
 The two OpenELIS stacks bind **no host ports** — the router reaches them only by
 Docker-network alias. Isolation is by Compose **project name** (`-p`), explicit
@@ -81,6 +81,13 @@ at an exact pushed SHA:
 ./deploy.sh app logs analyzers --since 10m --tail 400
 ./deploy.sh app logs analyzers --errors
 ./deploy.sh app verify analyzers
+```
+
+Shared Grist/runtime changes use the same checked-out review-tooling revision:
+
+```bash
+./deploy.sh review deploy --ref <sha> --scope all
+./deploy.sh grist up
 ```
 
 The targeted path rebuilds and replaces only the selected app's services. For
@@ -131,10 +138,9 @@ stable `/Microbiology/worklist` route.
 - **Renaming harness containers** requires updating `astm-simulator`'s
   `BRIDGE_CONTAINER_NAME` / `MOCK_CONTAINER_NAME`.
 - **Two separate LE certs**, not one multi-SAN — renewals/failures stay decoupled.
-- **Full-edition Grist** is selected by `/persist/config.json`
-  (`{"version":"1","edition":"enterprise"}`). This starts a 30-day evaluation;
-  a valid `GRIST_ACTIVATION` is required afterward. Delete the marker to revert
-  to writable community Grist, which does not provide native MCP.
+- **Grist is Community-only** — the deployment uses `gristlabs/grist-oss` with
+  the existing persistent volume. Agent authoring uses the same open REST API as
+  lifecycle automation; no evaluation or activation key is involved.
 
 ## License
 MIT — see [LICENSE](LICENSE).

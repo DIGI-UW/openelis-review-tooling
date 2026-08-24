@@ -111,6 +111,18 @@ test("targeted app deployment accepts only an exact SHA and explicit scope", () 
   assert.doesNotMatch(deployScript, /reconcile-access/);
 });
 
+test("targeted Grist deployment uses the checked-out bootstrap only", () => {
+  assert.match(deployScript, /cmd_grist_up\(\)/);
+  assert.match(deployScript, /up\) cmd_grist_up "\$@"/);
+  const gristUp = deployScript.slice(
+    deployScript.indexOf("cmd_grist_up()"),
+    deployScript.indexOf("cmd_grist_apply()"),
+  );
+  assert.match(gristUp, /require_aws/);
+  assert.match(gristUp, /sudo -u '\$OS_USER' bash grist\/bootstrap\.sh up/);
+  assert.doesNotMatch(gristUp, /cmd_deploy|cmd_app|docker compose/);
+});
+
 test("targeted app status resolves and validates the requested instance", () => {
   assert.match(
     deployScript,

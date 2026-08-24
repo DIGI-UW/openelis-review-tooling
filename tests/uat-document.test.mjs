@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { buildUatDocument } from "../grist/mcp/uat-document.mjs";
+import { buildUatDocument } from "../grist/uat-read/uat-document.mjs";
 
 const meta = {
   title: "Analyzer review",

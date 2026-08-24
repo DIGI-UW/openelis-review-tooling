@@ -55,20 +55,22 @@ count (checkbox / `true`).
 > passed" while a step had quietly vanished. Always run the check below after
 > editing.
 
-### As an agent (Claude)
-Connect the authoring MCP once, then ask in plain language — *"add a checklist for
-OGC-1234 covering the new sample-storage screens"*.
+### As an agent
+Use the authenticated Grist REST API and the bundled authoring skill, then ask in
+plain language — *"add a checklist for OGC-1234 covering the new sample-storage
+screens"*.
 
 ```bash
-# Claude Code CLI
-claude mcp add --transport http grist https://grist.openelis-global.org/api/mcp \
-  --header "Authorization: Bearer <grist-api-key>"
+export GRIST_API_ROOT=https://grist.openelis-global.org/api/docs/hvZ4rzsyGJuqggkZBko8gc
+curl --fail-with-body --silent --show-error \
+  -H "Authorization: Bearer $GRIST_API_KEY" \
+  "$GRIST_API_ROOT/tables/UAT_Stories/records"
 ```
 
-On claude.ai (web), add `https://grist.openelis-global.org/api/mcp` as a custom
-connector and sign in — no key to paste.
+Keep the API key in an approved secret store or process environment; never put
+it in a checklist, browser, committed file, or log.
 
-Agent context, tools, and the data model: [`AGENTS.md`](AGENTS.md). There is also a
+Agent context and the data model: [`AGENTS.md`](AGENTS.md). There is also a
 bundled [`uat-authoring` skill](../skills/uat-authoring/) that teaches an agent these
 rules — it reads before writing and verifies after.
 

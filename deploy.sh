@@ -38,7 +38,8 @@
 #   ./deploy.sh review reload-router [--instance amr] [--domain <host>]
 #                                   # re-render nginx from the template, router only
 #   ./deploy.sh data seed amr --fixture microbiology-mvp --story AMR-S33
-#   ./deploy.sh grist check-access # prove the server/MCP author can write UAT
+#   ./deploy.sh grist up           # reconcile the Grist runtime from this checkout
+#   ./deploy.sh grist check-access # prove the server-side REST author can write UAT
 #   ./deploy.sh up-to-certs --yes   # configure -> deploy -> certs -> seed
 set -euo pipefail
 
@@ -224,7 +225,7 @@ amr_sha=\$(repo_git "$AMR_DIR" rev-parse HEAD)
 analyzers_sha=\$(repo_git "$ANALYZERS_DIR" rev-parse HEAD)
 deployment_id=\$(date -u +%Y%m%dT%H%M%SZ)-\${harness_sha:0:12}
 
-echo "[deploy] Grist, Dex, Redis, and UAT read service up"
+echo "[deploy] open-source Grist, Dex, and UAT read service up"
 ENV_FILE="$EDGE_DIR/.env" REVIEW_DIR="$EDGE_DIR/widget/examples" \\
   bash "$EDGE_DIR/grist/bootstrap.sh" up
 
@@ -716,6 +717,18 @@ cmd_review() {
 # The document's schema, from the checkout on the box. Reuses the harness's own
 # bootstrap, so the runtime that runs is the one the repository ships rather than
 # whatever a caller happened to copy over.
+cmd_grist_up() {
+  shift || true
+  [ "$#" -eq 0 ] || die "grist up takes no arguments"
+  require_aws
+  log "reconciling the open-source Grist runtime"
+  ssm_run "set -euo pipefail
+router_workdir=\$(docker inspect -f '{{index .Config.Labels \"com.docker.compose.project.working_dir\"}}' oe-edge-router)
+edge_dir=\${router_workdir%/router}
+cd \"\$edge_dir\"
+sudo -u '$OS_USER' bash grist/bootstrap.sh up"
+}
+
 cmd_grist_apply() {
   shift || true
   require_aws
@@ -743,9 +756,10 @@ sudo -u '$OS_USER' bash grist/bootstrap.sh check-access"
 cmd_grist() {
   local action="${1:-}"
   case "$action" in
+    up) cmd_grist_up "$@" ;;
     apply) cmd_grist_apply "$@" ;;
     check-access) cmd_grist_check_access "$@" ;;
-    *) die "unknown grist action '$action' (apply|check-access)" ;;
+    *) die "unknown grist action '$action' (up|apply|check-access)" ;;
   esac
 }
 
@@ -839,7 +853,7 @@ fi
 # The read service bakes its source into the image, so a deploy that reused a
 # cached image looks healthy while serving old code. Compare the two.
 img=$(docker exec oe-edge-grist-uat-read md5sum /app/uat-document.mjs 2>/dev/null | cut -d" " -f1)
-src=$(md5sum grist/mcp/uat-document.mjs 2>/dev/null | cut -d" " -f1)
+src=$(md5sum grist/uat-read/uat-document.mjs 2>/dev/null | cut -d" " -f1)
 if [ -n "$img" ]; then
   if [ "$img" = "$src" ]; then
     echo "uat-read image: matches checkout"
