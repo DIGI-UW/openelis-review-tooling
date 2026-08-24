@@ -108,7 +108,7 @@ test("targeted deployment bootstraps a missing declared instance", () => {
   assert.match(appDeployScript, /docker-compose\.override\.yml/);
   assert.match(
     appDeployScript,
-    /compose up -d --build certs db\.openelis\.org oe\.openelis\.org fhir\.openelis\.org frontend\.openelis\.org/,
+    /compose up -d --build certs db\.openelis\.org fhir\.openelis\.org "\$\{services\[@\]\}"/,
   );
   assert.match(
     appDeployScript,
@@ -126,6 +126,31 @@ test("targeted app deployment publishes only truthful branch provenance", () => 
   assert.match(appDeployScript, /"appBranch":"\$published_branch"/);
 });
 
+test("targeted app deployment normalizes clean initialized submodules", () => {
+  const normalizeCall = 'normalize_initialized_submodules "$APP_DIR"';
+  const firstNormalize = appDeployScript.indexOf(normalizeCall);
+  const dirtyGuard = appDeployScript.indexOf(
+    'if ! repo_git "$APP_DIR" diff --quiet',
+  );
+  const checkout = appDeployScript.indexOf(
+    'repo_git "$APP_DIR" checkout --detach FETCH_HEAD',
+  );
+  const secondNormalize = appDeployScript.indexOf(normalizeCall, checkout);
+
+  assert.match(
+    appDeployScript,
+    /normalize_initialized_submodules\(\).*submodule foreach.*git diff --quiet.*git diff --cached --quiet.*submodule update --depth 1/s,
+  );
+  assert.ok(
+    firstNormalize > -1 && firstNormalize < dirtyGuard,
+    "clean initialized submodules must match the current checkout before the dirty guard",
+  );
+  assert.ok(
+    secondNormalize > checkout,
+    "initialized submodules must follow the exact deployed checkout",
+  );
+});
+
 test("targeted app deployment preserves unrelated review infrastructure", () => {
   assert.match(
     appDeployScript,
@@ -139,7 +164,7 @@ test("targeted app deployment preserves unrelated review infrastructure", () => 
   assert.doesNotMatch(appDeployScript, /docker compose -p analyzers/);
   assert.match(
     appDeployScript,
-    /if \[ "\$bootstrap" = false \]; then\s+candidate_started=true\s+write_status verifying\s+compose up -d --no-deps --force-recreate/s,
+    /if \[ "\$bootstrap" = false \]; then\s+candidate_started=true\s+write_status verifying[\s\S]*compose up -d --no-deps --force-recreate/,
   );
 });
 
@@ -178,6 +203,35 @@ test("targeted analyzer deployment reuses its active Compose chain", () => {
     appDeployScript,
     /docker compose -p "\$INSTANCE" "\$\{COMPOSE_FILES\[@\]\}"/,
   );
+});
+
+test("analyzer app deployment includes the pinned Bridge and mock runtime", () => {
+  assert.match(
+    appDeployScript,
+    /tools\/openelis-analyzer-bridge tools\/analyzer-mock-server/,
+    "the exact analyzer runtime submodules must be initialized from the deployed OpenELIS commit",
+  );
+  assert.match(
+    appDeployScript,
+    /\[ "\$INSTANCE" = analyzers \].*openelis-analyzer-bridge.*astm-simulator/s,
+    "an analyzer app deployment must select both runtime services",
+  );
+  assert.match(
+    appDeployScript,
+    /BRIDGE_CONTAINER="\$INSTANCE-openelis-analyzer-bridge".*MOCK_CONTAINER="\$INSTANCE-openelis-astm-simulator".*docker exec "\$BRIDGE_CONTAINER".*docker inspect.*"\$MOCK_CONTAINER"/s,
+    "runtime containers must participate in health verification and rollback",
+  );
+  assert.match(
+    appRollbackScript,
+    /BRIDGE_CONTAINER="\$INSTANCE-openelis-analyzer-bridge".*MOCK_CONTAINER="\$INSTANCE-openelis-astm-simulator".*docker exec "\$BRIDGE_CONTAINER".*docker inspect.*"\$MOCK_CONTAINER"/s,
+    "explicit rollback must restore and verify the runtime images with the OpenELIS images",
+  );
+  const appVerify = deployScript.slice(
+    deployScript.indexOf("cmd_app_verify()"),
+    deployScript.indexOf("cmd_app_rollback()"),
+  );
+  assert.match(appVerify, /analyzers-openelis-analyzer-bridge/);
+  assert.match(appVerify, /analyzers-openelis-astm-simulator/);
 });
 
 test("targeted lifecycle resolves the active Compose paths from the running app", () => {

@@ -115,8 +115,7 @@ reconciles Grist and rebuilds both OpenELIS review targets plus the router. It
 must not be presented as a single-instance or low-risk application deployment.
 
 Targeted application delivery uses an exact pushed SHA and leaves the other
-OpenELIS stacks, router, Grist, databases, FHIR, and analyzer harness services
-untouched:
+OpenELIS stacks, router, Grist, databases, and FHIR services untouched:
 
 ```text
 ./deploy.sh infra bootstrap|status|upgrade
@@ -128,6 +127,10 @@ untouched:
 ./deploy.sh review reload-router [--instance amr] [--domain <host>]
 ./deploy.sh data seed <instance> --fixture <name>
 ```
+
+For `analyzers`, app scope also rebuilds and verifies the Analyzer Bridge and
+analyzer mock revisions pinned by the selected OpenELIS commit. It does not
+restart AMR, phrases, the router, Grist, or their data services.
 
 For a targeted app deployment, `target.json` records the branch only when one
 remote branch head exactly matches the deployed SHA. If that association is
