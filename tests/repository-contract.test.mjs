@@ -20,6 +20,13 @@ test("agent and operator docs preserve the open REST authoring boundary", async 
   }
 });
 
+test("CI installs the renamed checklist read service", async () => {
+  const workflow = await read(".github/workflows/ci.yml");
+
+  assert.match(workflow, /npm ci --prefix grist\/uat-read/);
+  assert.doesNotMatch(workflow, /grist\/mcp/);
+});
+
 test("Grist runs the open-source image without proprietary sidecars or settings", async () => {
   const compose = await read("grist/docker-compose.grist.yml");
   const bootstrap = await read("grist/bootstrap.sh");

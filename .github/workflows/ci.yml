@@ -15,10 +15,10 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      # The submission tests run grist/mcp/server.mjs for real, and it has its own
+      # The submission tests run grist/uat-read/server.mjs for real, and it has its own
       # dependencies. Without this the service dies at import and every one of
       # those tests fails as a connection error.
-      - run: npm ci --prefix grist/mcp
+      - run: npm ci --prefix grist/uat-read
       - run: npm test
       - run: npx playwright install --with-deps chromium
       - run: npm run test:widget
