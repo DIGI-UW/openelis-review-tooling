@@ -242,6 +242,13 @@ test("targeted app deployment normalizes clean initialized submodules", () => {
   );
 });
 
+test("targeted analyzer deployment initializes only current submodules", () => {
+  assert.match(
+    appDeployScript,
+    /if \[ "\$INSTANCE" = analyzers \]; then\s+repo_git "\$APP_DIR" submodule update --init --depth 1 dataexport \\\s+tools\/openelis-analyzer-bridge tools\/analyzer-mock-server/,
+  );
+});
+
 test("targeted app deployment preserves unrelated review infrastructure", () => {
   assert.match(
     appDeployScript,

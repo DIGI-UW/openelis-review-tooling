@@ -219,7 +219,7 @@ case "$matching_branch_count" in
     ;;
 esac
 if [ "$INSTANCE" = analyzers ]; then
-  repo_git "$APP_DIR" submodule update --init --depth 1 dataexport plugins \
+  repo_git "$APP_DIR" submodule update --init --depth 1 dataexport \
     tools/openelis-analyzer-bridge tools/analyzer-mock-server
 else
   repo_git "$APP_DIR" submodule update --init --depth 1 dataexport plugins
