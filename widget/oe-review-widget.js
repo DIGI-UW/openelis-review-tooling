@@ -1358,6 +1358,43 @@
     })(document.body, 0);
     return found;
   }
+  function pageActions() {
+    var found = [];
+    var selectors = [
+      "button:not([disabled])",
+      "a[href]",
+      "input:not([type=hidden]):not([disabled])",
+      "select:not([disabled])",
+      "textarea:not([disabled])",
+      "[role=button]:not([aria-disabled=true])",
+      "[role=link]",
+      "[role=menuitem]",
+    ].join(",");
+    var actions = document.querySelectorAll(selectors);
+    for (var i = 0; i < actions.length; i++) {
+      var action = actions[i];
+      var style = getComputedStyle(action);
+      if (
+        style.display === "none" ||
+        style.visibility === "hidden" ||
+        style.pointerEvents === "none"
+      ) {
+        continue;
+      }
+      var rect = action.getBoundingClientRect();
+      if (
+        rect.width > 0 &&
+        rect.height > 0 &&
+        rect.bottom > 0 &&
+        rect.right > 0 &&
+        rect.top < window.innerHeight &&
+        rect.left < window.innerWidth
+      ) {
+        found.push(rect);
+      }
+    }
+    return found;
+  }
   function overlapArea(a, b) {
     var x =
       Math.min(a.left + a.width, b.left + b.width) - Math.max(a.left, b.left);
@@ -1386,11 +1423,14 @@
   }
   var EDGE_GAP = 64;
   function autoAnchor() {
-    if (!ui || state.minimized) return "right";
-    var width = ui.panel.offsetWidth;
-    var height = ui.panel.offsetHeight;
+    var subject = state.minimized
+      ? wrap.querySelector(".tab")
+      : ui && ui.panel;
+    if (!subject) return "right";
+    var width = subject.offsetWidth;
+    var height = subject.offsetHeight;
     if (!width || !height) return "right";
-    var blockers = obstacles();
+    var blockers = state.minimized ? pageActions() : obstacles();
     var best = "right";
     var bestOverlap = Infinity;
     for (var i = 0; i < ANCHORS.length; i++) {
@@ -1414,7 +1454,7 @@
         wrap.className = "wrap standalone open";
       return;
     }
-    var anchor = prefs.anchor || autoAnchor();
+    var anchor = state.minimized ? autoAnchor() : prefs.anchor || autoAnchor();
     // The open panel becomes a bottom sheet on a narrow screen; the launcher stays
     // a corner pill, because a full-width bar at the bottom lands underneath
     // whatever the application pins there.
