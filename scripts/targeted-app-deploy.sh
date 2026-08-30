@@ -156,7 +156,7 @@ case "$matching_branch_count" in
     echo "[app-deploy] exact SHA $app_sha is not a unique remote branch head; publishing SHA-only provenance"
     ;;
 esac
-repo_git "$APP_DIR" submodule update --init --depth 1 dataexport plugins
+repo_git "$APP_DIR" submodule update --init --depth 1 dataexport
 
 if [ -n "$running_configs" ]; then
   IFS=',' read -r -a active_compose_files <<<"$running_configs"

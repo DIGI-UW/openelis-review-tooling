@@ -50,46 +50,30 @@ test("remote repository operations run as the checkout owner", () => {
   assert.match(deployScript, /repo_git "\$ANALYZERS_DIR" rev-parse HEAD/);
 });
 
-test("tracked runtime markers are normalized before the dirty-worktree guard", () => {
-  const normalizeMarker = deployScript.indexOf(
-    'normalize_runtime_markers "\\$dir"',
-  );
+test("checkout sync refuses tracked changes before fetching", () => {
   const dirtyCheck = deployScript.indexOf(
     'if ! repo_git "\\$dir" diff --quiet',
   );
+  const fetch = deployScript.indexOf(
+    'repo_git "\\$dir" fetch --depth 1 origin "\\$br"',
+  );
 
-  assert.match(
-    deployScript,
-    /chmod 0644 "\\\$marker"/,
-    "the tracked plugin marker must retain its repository file mode",
-  );
-  assert.ok(normalizeMarker > -1, "checkout sync must normalize runtime markers");
-  assert.ok(
-    dirtyCheck > normalizeMarker,
-    "normalization must happen before checking for tracked changes",
-  );
+  assert.ok(dirtyCheck > -1, "checkout sync must guard tracked changes");
+  assert.ok(fetch > dirtyCheck, "the dirty check must happen before fetching");
 });
 
-test("analyzer deployment prepares only the generic runtime plugins", () => {
+test("deployment uses only current OpenELIS and analyzer runtime submodules", () => {
   assert.match(
     deployScript,
-    /submodule update --init --depth 1 dataexport plugins tools\/openelis-analyzer-bridge tools\/analyzer-mock-server/,
+    /sync_checkout "\$AMR_DIR" "\$AMR_BRANCH" "\$APP_REPO"\nrepo_git "\$AMR_DIR" submodule update --init --depth 1 dataexport/,
   );
   assert.match(
     deployScript,
-    /prepare_analyzer_plugin_volume "\$ANALYZERS_DIR"/,
+    /sync_checkout "\$ANALYZERS_DIR" "\$ANALYZERS_BRANCH" "\$APP_REPO"\nrepo_git "\$ANALYZERS_DIR" submodule update --init --depth 1 dataexport tools\/openelis-analyzer-bridge tools\/analyzer-mock-server/,
   );
   assert.match(
-    deployScript,
-    /find "\\\$destination" -maxdepth 1 -type f -name '\*\.jar' -delete/,
-  );
-  assert.match(
-    deployScript,
-    /verify_analyzer_plugin_registry/,
-  );
-  assert.match(
-    deployScript,
-    /expected active generic analyzer registry 3:ASTM,FILE,HL7/,
+    appDeployScript,
+    /repo_git "\$APP_DIR" submodule update --init --depth 1 dataexport\n/,
   );
 });
 test("targeted app deployment accepts only an exact SHA and explicit scope", () => {

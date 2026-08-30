@@ -166,18 +166,10 @@ repo_git() {
   shift
   sudo -u "\$REMOTE_USER" git -c safe.directory="\$dir" -C "\$dir" "\$@"
 }
-normalize_runtime_markers() {
-  local dir="\$1" marker
-  marker="\$dir/volume/plugins/.gitignore"
-  if [ -f "\$marker" ]; then
-    chmod 0644 "\$marker"
-  fi
-}
 sync_checkout() { # dir branch repo
   local dir="\$1" br="\$2" repo="\$3"
   if [ -d "\$dir/.git" ]; then
     sudo chown -R "$OS_USER":"$OS_USER" "\$dir" 2>/dev/null || true
-    normalize_runtime_markers "\$dir"
     if ! repo_git "\$dir" diff --quiet || ! repo_git "\$dir" diff --cached --quiet; then
       echo "[deploy] refusing to overwrite tracked changes in \$dir" >&2
       repo_git "\$dir" status --short >&2
@@ -189,21 +181,13 @@ sync_checkout() { # dir branch repo
     sudo mkdir -p "\$dir" && sudo chown "$OS_USER":"$OS_USER" "\$dir"
     sudo -u "\$REMOTE_USER" git clone --depth 1 --single-branch --branch "\$br" "\$repo" "\$dir"
   fi
-  repo_git "\$dir" submodule update --init --depth 1 dataexport plugins tools/openelis-analyzer-bridge tools/analyzer-mock-server \\
-    || die "submodule init failed in \$dir (the plugin registry check depends on it)"
   echo "[deploy] \$dir -> \$br @\$(repo_git "\$dir" rev-parse --short HEAD)"
-}
-prepare_analyzer_plugin_volume() {
-  local app_dir="\$1" destination
-  destination="\$app_dir/volume/plugins"
-  mkdir -p "\$destination"
-  find "\$destination" -maxdepth 1 -type f -name '*.jar' -delete
-  echo "[deploy] cleared analyzer runtime plugin volume; the app image will seed shipped generic handlers"
 }
 sync_checkout "$EDGE_DIR" "$HARNESS_BRANCH" "$HARNESS_REPO"
 sync_checkout "$AMR_DIR" "$AMR_BRANCH" "$APP_REPO"
+repo_git "$AMR_DIR" submodule update --init --depth 1 dataexport || die "submodule init failed in $AMR_DIR"
 sync_checkout "$ANALYZERS_DIR" "$ANALYZERS_BRANCH" "$APP_REPO"
-prepare_analyzer_plugin_volume "$ANALYZERS_DIR"
+repo_git "$ANALYZERS_DIR" submodule update --init --depth 1 dataexport tools/openelis-analyzer-bridge tools/analyzer-mock-server || die "submodule init failed in $ANALYZERS_DIR"
 [ -f "$EDGE_DIR/.env" ] || {
   echo "[deploy] $EDGE_DIR/.env is missing; provision box-side Grist/Dex secrets before deployment" >&2
   exit 1
@@ -265,21 +249,6 @@ if [ "\$healthy" != true ]; then
   echo "[deploy] health verification failed; ready deployment metadata was not changed" >&2
   exit 1
 fi
-
-verify_analyzer_plugin_registry() {
-  local registry
-  registry=\$(docker exec analyzers-openelisglobal-database psql -U clinlims -d clinlims -t -A -c \
-    "SELECT count(*) || ':' || string_agg(protocol, ',' ORDER BY protocol)
-       FROM clinlims.analyzer_type
-      WHERE is_active IS TRUE
-        AND is_generic_plugin IS TRUE;")
-  if [ "\$registry" != "3:ASTM,FILE,HL7" ]; then
-    echo "[deploy] expected active generic analyzer registry 3:ASTM,FILE,HL7; found '\$registry'" >&2
-    exit 1
-  fi
-  echo "[deploy] verified active generic analyzer registry: \$registry"
-}
-verify_analyzer_plugin_registry
 
 publish_target() {
   local instance branch app_sha deployed_at tmp
