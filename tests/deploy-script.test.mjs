@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 
@@ -12,10 +13,20 @@ const appRollbackScript = readFileSync(
   `${repoRoot}/scripts/targeted-app-rollback.sh`,
   "utf8",
 );
+const analyzerRuntimeDeployScript = readFileSync(
+  `${repoRoot}/scripts/targeted-analyzer-runtime-deploy.sh`,
+  "utf8",
+);
 const phrasesOverride = readFileSync(
   `${repoRoot}/phrases/docker-compose.override.yml`,
   "utf8",
 );
+
+test("deployment entrypoint parses as Bash", () => {
+  assert.doesNotThrow(() =>
+    execFileSync("bash", ["-n", `${repoRoot}/deploy.sh`]),
+  );
+});
 
 test("AWS preflight distinguishes refresh failures from endpoint failures", () => {
   assert.match(deployScript, /AWS credentials could not be refreshed/);
@@ -88,6 +99,19 @@ test("targeted app deployment accepts only an exact SHA and explicit scope", () 
   assert.match(deployScript, /app deploy phrases --ref <sha>/);
   assert.match(deployScript, /review deploy --ref <sha> --scope widget/);
   assert.match(deployScript, /data seed amr --fixture microbiology-mvp/);
+});
+
+test("targeted analyzer fixture setup uses only the existing analyzer harness", () => {
+  const start = deployScript.indexOf("cmd_data_seed() {");
+  const end = deployScript.indexOf("\ncmd_data() {", start);
+  const dataSeedCommand = deployScript.slice(start, end);
+
+  assert.match(dataSeedCommand, /analyzers:analyzer-mvp/);
+  assert.match(dataSeedCommand, /projects\/analyzer-harness\/seed-analyzers\.sh/);
+  assert.match(dataSeedCommand, /projects\/analyzer-harness\/seed-mvp-traffic\.sh/);
+  assert.match(dataSeedCommand, /BASE_URL=https:\/\/\$ANALYZERS_DOMAIN/);
+  assert.match(dataSeedCommand, /MOCK_URL=\$MOCK_URL/);
+  assert.doesNotMatch(dataSeedCommand, /cmd_seed/);
 });
 
 test("phrases is an isolated first-class OpenELIS review instance", () => {
@@ -180,6 +204,83 @@ test("targeted analyzer deployment reuses its active Compose chain", () => {
   );
 });
 
+test("targeted analyzer runtime deployment is exact and analyzer-only", () => {
+  assert.match(
+    deployScript,
+    /analyzer-runtime deploy --ref <sha>/,
+  );
+  assert.match(
+    deployScript,
+    /cmd_analyzer_runtime_deploy/,
+  );
+  assert.match(
+    analyzerRuntimeDeployScript,
+    /repo_git "\$APP_DIR" rev-parse HEAD/,
+  );
+  assert.match(
+    analyzerRuntimeDeployScript,
+    /submodule update --init --depth 1/,
+  );
+  assert.match(
+    analyzerRuntimeDeployScript,
+    /tools\/openelis-analyzer-bridge tools\/analyzer-mock-server/,
+  );
+  assert.match(
+    analyzerRuntimeDeployScript,
+    /openelis-analyzer-bridge.*astm-simulator/s,
+  );
+  assert.match(
+    analyzerRuntimeDeployScript,
+    /compose build "\$\{services\[@\]\}"/,
+  );
+  assert.ok(
+    analyzerRuntimeDeployScript.lastIndexOf("verify_ready_target") <
+      analyzerRuntimeDeployScript.indexOf(
+        'compose build "${services[@]}"',
+      ),
+  );
+  assert.match(
+    analyzerRuntimeDeployScript,
+    /compose up -d --no-deps --force-recreate "\$\{services\[@\]\}"/,
+  );
+  assert.doesNotMatch(
+    analyzerRuntimeDeployScript,
+    /\bamr\b|grist\/bootstrap|oe-edge-router|db\.openelis\.org|fhir\.openelis\.org|frontend\.openelis\.org/,
+  );
+});
+
+test("analyzer runtime deployment publishes exact component provenance after verification", () => {
+  assert.match(
+    analyzerRuntimeDeployScript,
+    /analyzers-openelis-analyzer-bridge.*healthcheck\.sh/s,
+  );
+  assert.match(
+    analyzerRuntimeDeployScript,
+    /analyzers-openelis-astm-simulator.*healthy/s,
+  );
+  assert.match(
+    analyzerRuntimeDeployScript,
+    /"bridgeSha": bridge_sha/,
+  );
+  assert.match(
+    analyzerRuntimeDeployScript,
+    /"mockSha": mock_sha/,
+  );
+  assert.match(
+    analyzerRuntimeDeployScript,
+    /"profileCatalogSha": bridge_sha/,
+  );
+  assert.ok(
+    analyzerRuntimeDeployScript.indexOf('"bridgeSha": bridge_sha') >
+      analyzerRuntimeDeployScript.indexOf("verify_runtime"),
+  );
+  assert.ok(
+    analyzerRuntimeDeployScript.indexOf('mv "$target_tmp" "$TARGET_FILE"') >
+      analyzerRuntimeDeployScript.indexOf("write_status ready passed"),
+  );
+  assert.match(analyzerRuntimeDeployScript, /restore_previous_images/);
+});
+
 test("targeted lifecycle resolves the active Compose paths from the running app", () => {
   for (const script of [appDeployScript, appRollbackScript]) {
     assert.match(script, /com\.docker\.compose\.project\.working_dir/);
@@ -192,7 +293,12 @@ test("targeted lifecycle resolves the active Compose paths from the running app"
 });
 
 test("full and targeted deployment runners share an exclusive host lock", () => {
-  for (const script of [deployScript, appDeployScript, appRollbackScript]) {
+  for (const script of [
+    deployScript,
+    appDeployScript,
+    appRollbackScript,
+    analyzerRuntimeDeployScript,
+  ]) {
     assert.match(script, /\/var\/lock\/openelis-review-deploy\.lock/);
     assert.match(script, /flock -n 9/);
   }

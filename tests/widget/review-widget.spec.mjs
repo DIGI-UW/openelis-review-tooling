@@ -104,11 +104,17 @@ test("keys answers by stable step key and includes provenance in reports", async
   expect(json.checklistRevision).toBe("revision-two");
   expect(json.deploymentId).toBe("deploy-analyzers-001");
   expect(json.build.appSha).toBe("abc123");
+  expect(json.build.bridgeSha).toBe("bridge789");
+  expect(json.build.mockSha).toBe("mock012");
+  expect(json.build.profileCatalogSha).toBe("bridge789");
   expect(json.checklist[0].steps[0].key).toBe("AN-QC-001");
   expect(json.checklist[0].steps[0].markedAt).toBeTruthy();
   expect(json.checklist[0].steps[0].actualUrl).toContain("127.0.0.1");
   expect(report.md).toContain("route: /analyzers/types");
   expect(report.md).toContain("page: http://127.0.0.1:");
+  expect(report.md).toContain("Analyzer Bridge: `bridge789`");
+  expect(report.md).toContain("Analyzer mock: `mock012`");
+  expect(report.md).toContain("Profile catalog: `bridge789`");
 });
 
 test("refresh preserves reordered answers and marks changed instructions stale", async ({

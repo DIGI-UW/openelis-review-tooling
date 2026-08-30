@@ -2853,6 +2853,15 @@
           (build.deployedAt || "unknown") +
           ")",
       );
+      if (build.bridgeSha) {
+        lines.push("- Analyzer Bridge: `" + build.bridgeSha + "`");
+      }
+      if (build.mockSha) {
+        lines.push("- Analyzer mock: `" + build.mockSha + "`");
+      }
+      if (build.profileCatalogSha) {
+        lines.push("- Profile catalog: `" + build.profileCatalogSha + "`");
+      }
     }
     lines.push("");
     lines.push("## Checklist");

@@ -33,9 +33,13 @@
 #   ./deploy.sh app status <instance> [--deployment <id>]
 #   ./deploy.sh app verify <instance>
 #   ./deploy.sh app rollback <instance>
+#   ./deploy.sh analyzer-runtime deploy --ref <sha>
+#   ./deploy.sh analyzer-runtime status [--deployment <id>]
+#   ./deploy.sh analyzer-runtime verify
 #   ./deploy.sh review deploy --ref <sha> --scope widget|service|all
 #   ./deploy.sh review reload-router [--instance amr] [--domain <host>]
 #                                   # re-render nginx from the template, router only
+#   ./deploy.sh data seed analyzers --fixture analyzer-mvp
 #   ./deploy.sh data seed amr --fixture microbiology-mvp
 #   ./deploy.sh up-to-certs --yes   # configure -> deploy -> certs -> seed
 set -euo pipefail
@@ -539,6 +543,84 @@ cmd_app() {
   esac
 }
 
+cmd_analyzer_runtime_deploy() {
+  local ref="" deployment_id deployment_dir remote_runner remote_log
+  shift || true
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --ref) ref="${2:-}"; shift 2 ;;
+      *) die "unknown analyzer-runtime deploy argument '$1'" ;;
+    esac
+  done
+  validate_sha "$ref"
+  require_aws
+  deployment_id="runtime-$(date -u +%Y%m%dT%H%M%SZ)-${ref:0:12}"
+  deployment_dir="$EDGE_DIR/runtime/deployments/$deployment_id"
+  remote_runner="/home/$OS_USER/oe-analyzer-runtime-deploy-$deployment_id.sh"
+  remote_log="/home/$OS_USER/oe-analyzer-runtime-deploy-$deployment_id.log"
+  log "launching analyzer-only Bridge/mock deploy from exact OpenELIS SHA $ref"
+  ssm_run "mkdir -p '$deployment_dir'
+cat > '$remote_runner' <<'RUNNEREOF'
+APP_DIR='$ANALYZERS_DIR'
+EDGE_DIR='$EDGE_DIR'
+APP_REF='$ref'
+APP_DOMAIN='$ANALYZERS_DOMAIN'
+REMOTE_USER='$OS_USER'
+DEPLOYMENT_ID='$deployment_id'
+DEPLOYMENT_DIR='$deployment_dir'
+$(cat "$HERE/scripts/targeted-analyzer-runtime-deploy.sh")
+RUNNEREOF
+chmod 0700 '$remote_runner'
+nohup bash '$remote_runner' > '$remote_log' 2>&1 </dev/null &
+echo '$deployment_id'" || die "failed to launch analyzer runtime deployment"
+  log "deployment launched: $deployment_id"
+  log "status: ./deploy.sh analyzer-runtime status --deployment $deployment_id"
+}
+
+cmd_analyzer_runtime_status() {
+  local deployment_id=""
+  shift || true
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --deployment) deployment_id="${2:-}"; shift 2 ;;
+      *) die "unknown analyzer-runtime status argument '$1'" ;;
+    esac
+  done
+  require_aws
+  ssm_run "deployment_id='$deployment_id'
+edge_dir='$EDGE_DIR'
+if [ -z \"\$deployment_id\" ]; then
+  latest=\$(find \"\$edge_dir/runtime/deployments\" -mindepth 1 -maxdepth 1 -type d -name 'runtime-*' 2>/dev/null | sort | tail -1)
+  deployment_id=\${latest##*/}
+fi
+[ -n \"\$deployment_id\" ] || { echo 'no analyzer runtime deployments found'; exit 1; }
+status=\"\$edge_dir/runtime/deployments/\$deployment_id/status.json\"
+log='/home/$OS_USER/oe-analyzer-runtime-deploy-'\"\$deployment_id\"'.log'
+echo \"deployment=\$deployment_id\"
+cat \"\$status\" 2>/dev/null || echo '{\"state\":\"launching\"}'
+echo
+tail -12 \"\$log\" 2>/dev/null || true"
+}
+
+cmd_analyzer_runtime_verify() {
+  require_aws
+  curl -fsSk "https://$ANALYZERS_DOMAIN/__review/target.json"
+  echo
+  ssm_run "docker exec analyzers-openelis-analyzer-bridge /app/healthcheck.sh >/dev/null
+[ \"\$(docker inspect -f '{{.State.Health.Status}}' analyzers-openelis-astm-simulator)\" = healthy ]
+echo 'analyzer Bridge and mock are healthy'"
+}
+
+cmd_analyzer_runtime() {
+  local action="${1:-}"
+  case "$action" in
+    deploy) cmd_analyzer_runtime_deploy "$@" ;;
+    status) cmd_analyzer_runtime_status "$@" ;;
+    verify) cmd_analyzer_runtime_verify ;;
+    *) die "unknown analyzer-runtime action '$action' (deploy|status|verify)" ;;
+  esac
+}
+
 cmd_review_deploy() {
   local ref="" scope=""
   shift || true
@@ -701,9 +783,18 @@ cmd_data_seed() {
   done
   validate_instance "$instance"
   case "$instance:$fixture" in
+    analyzers:analyzer-mvp) ;;
     amr:microbiology-mvp | phrases:macro-library) ;;
-    *) die "supported data fixtures are amr:microbiology-mvp and phrases:macro-library" ;;
+    *) die "supported data fixtures are analyzers:analyzer-mvp, amr:microbiology-mvp, and phrases:macro-library" ;;
   esac
+  if [ "$instance:$fixture" = "analyzers:analyzer-mvp" ]; then
+    require_aws
+    log "seeding the analyzer acceptance fixture without touching AMR"
+    ssm_run "cd '$ANALYZERS_DIR'
+BASE_URL=https://$ANALYZERS_DOMAIN MOCK_URL=$MOCK_URL bash projects/analyzer-harness/seed-analyzers.sh
+BASE_URL=https://$ANALYZERS_DOMAIN MOCK_URL=$MOCK_URL bash projects/analyzer-harness/seed-mvp-traffic.sh"
+    return
+  fi
   select_instance_config "$instance"
   require_aws
   log "seeding $instance fixture $fixture"
@@ -745,8 +836,8 @@ cmd_drift() {
   echo "   drift:"
   # Built with a quoted heredoc so nothing expands locally: every $ below is for
   # the remote shell.
-  local script
-  script="$(cat <<'DRIFT'
+  local script=""
+  IFS= read -r -d '' script <<'DRIFT' || true
 cd EDGE_DIR_PLACEHOLDER 2>/dev/null || { echo "checkout missing"; exit 0; }
 # SSM runs as root and the fetch below writes loose objects. Fetching as root
 # leaves root-owned fanout directories under .git/objects that the deploy path —
@@ -780,7 +871,6 @@ if [ -n "$img" ]; then
   fi
 fi
 DRIFT
-)"
   script="${script//EDGE_DIR_PLACEHOLDER/$EDGE_DIR}"
   script="${script//BRANCH_PLACEHOLDER/$HARNESS_BRANCH}"
   script="${script//OS_USER_PLACEHOLDER/$OS_USER}"
@@ -804,12 +894,13 @@ main() {
     certs) cmd_certs ;;
     seed) cmd_seed ;;
     app) cmd_app "$@" ;;
+    analyzer-runtime) cmd_analyzer_runtime "$@" ;;
     review) cmd_review "$@" ;;
     data) cmd_data "$@" ;;
     grist) cmd_grist "$@" ;;
     up-to-certs) cmd_up_to_certs "$@" ;;
-    help|-h|--help) sed -n '2,30p' "$0" | sed 's/^# \{0,1\}//' ;;
-    *) die "unknown subcommand '$sub' (status|connect|configure|deploy|certs|seed|app|review|data|grist|up-to-certs|help)" ;;
+    help|-h|--help) sed -n '2,44p' "$0" | sed 's/^# \{0,1\}//' ;;
+    *) die "unknown subcommand '$sub' (status|connect|configure|deploy|certs|seed|app|analyzer-runtime|review|data|grist|up-to-certs|help)" ;;
   esac
 }
 main "$@"

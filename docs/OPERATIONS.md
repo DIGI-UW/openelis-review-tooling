@@ -124,6 +124,10 @@ untouched:
 ./deploy.sh app status <instance> [--deployment <id>]
 ./deploy.sh app verify <instance>
 ./deploy.sh app rollback <instance>
+./deploy.sh analyzer-runtime deploy --ref <exact-openelis-sha>
+./deploy.sh analyzer-runtime status [--deployment <id>]
+./deploy.sh analyzer-runtime verify
+./deploy.sh data seed analyzers --fixture analyzer-mvp
 ./deploy.sh review deploy --ref <sha> --scope widget
 ./deploy.sh review reload-router [--instance amr] [--domain <host>]
 ./deploy.sh data seed <instance> --fixture <name>
@@ -182,6 +186,19 @@ The review-widget scope checks out an exact harness SHA under the same lock.
 Because the widget is a read-only router bind mount, no application or router
 container restart is required. The command verifies the live script before
 updating each ready target's `harnessSha`.
+
+The analyzer runtime command runs only after the matching analyzer application
+SHA is ready. It resolves Bridge and mock revisions from that OpenELIS commit's
+gitlinks, rebuilds and recreates only `openelis-analyzer-bridge` and
+`astm-simulator`, verifies both, and then adds `bridgeSha`, `mockSha`, and
+`profileCatalogSha` to the existing ready target. Failure restores the previous
+two images and leaves ready target metadata unchanged. It does not touch AMR,
+Grist, the router, OpenELIS application services, databases, or FHIR.
+
+The targeted analyzer fixture command reuses the checked-out OpenELIS harness's
+`seed-analyzers.sh` and `seed-mvp-traffic.sh`. It reconciles the priority
+analyzer instances and prepares the visible acceptance traffic through the mock,
+Bridge, and supported OpenELIS APIs. It does not seed or restart AMR.
 
 The Macro Library review is a dedicated `phrases` Grist instance. Do not place
 its stories under `amr` with a host filter: submissions are authenticated against
