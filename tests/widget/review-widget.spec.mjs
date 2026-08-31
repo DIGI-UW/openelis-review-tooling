@@ -57,26 +57,44 @@ test("mounts while the host application is still loading", async ({ page }) => {
   }
 });
 
-test("keeps the minimized launcher clear of page actions", async ({ page }) => {
+test("keeps the minimized launcher clear of page content and actions", async ({
+  page,
+}) => {
   await page.goto("/");
+  await page.evaluate(() => {
+    const table = document.createElement("table");
+    Object.assign(table.style, {
+      position: "fixed",
+      left: "0",
+      right: "0",
+      bottom: "64px",
+      width: "100%",
+      height: "48px",
+    });
+    const row = table.insertRow();
+    const cell = row.insertCell();
+    cell.textContent = "Bridge connection configured";
+    document.body.append(table);
+  });
   const launcher = page
     .locator("#oe-review-host")
     .getByRole("button", { name: "Review" });
-  const pageActions = [
+  const pageContent = [
     page.getByRole("button", { name: "Save" }),
     page.getByRole("button", { name: "Analyzer row actions" }),
+    page.getByRole("cell", { name: "Bridge connection configured" }),
   ];
   const launcherBox = await launcher.boundingBox();
 
   expect(launcherBox).not.toBeNull();
-  for (const pageAction of pageActions) {
-    const actionBox = await pageAction.boundingBox();
-    expect(actionBox).not.toBeNull();
+  for (const pageElement of pageContent) {
+    const elementBox = await pageElement.boundingBox();
+    expect(elementBox).not.toBeNull();
     const overlaps =
-      launcherBox.x < actionBox.x + actionBox.width &&
-      launcherBox.x + launcherBox.width > actionBox.x &&
-      launcherBox.y < actionBox.y + actionBox.height &&
-      launcherBox.y + launcherBox.height > actionBox.y;
+      launcherBox.x < elementBox.x + elementBox.width &&
+      launcherBox.x + launcherBox.width > elementBox.x &&
+      launcherBox.y < elementBox.y + elementBox.height &&
+      launcherBox.y + launcherBox.height > elementBox.y;
     expect(overlaps).toBe(false);
   }
 });

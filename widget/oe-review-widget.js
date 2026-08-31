@@ -1372,6 +1372,11 @@
       "[role=button]",
       "[role=link]",
       "[role=menuitem]",
+      "td",
+      "th",
+      "[role=cell]",
+      "[role=columnheader]",
+      "[role=rowheader]",
     ].join(",");
     var actions = document.querySelectorAll(selectors);
     for (var i = 0; i < actions.length; i++) {
