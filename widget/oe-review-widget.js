@@ -1366,6 +1366,7 @@
       "input:not([type=hidden]):not([disabled])",
       "select:not([disabled])",
       "textarea:not([disabled])",
+      "label[for]",
       "[role=button]:not([aria-disabled=true])",
       "[role=link]",
       "[role=menuitem]",

@@ -81,29 +81,38 @@ test("keeps the minimized launcher clear of page actions", async ({ page }) => {
   }
 });
 
-test("raises the minimized launcher above a full-width action row", async ({
+test("raises the minimized launcher above a Carbon-style action row", async ({
   page,
 }) => {
   await page.goto("/");
   await page.evaluate(() => {
-    const action = document.createElement("button");
-    action.id = "full-width-action";
-    action.textContent = "Full-width page action";
-    Object.assign(action.style, {
+    const input = document.createElement("input");
+    input.id = "carbon-action";
+    input.type = "checkbox";
+    Object.assign(input.style, {
+      position: "fixed",
+      width: "1px",
+      height: "1px",
+      overflow: "hidden",
+    });
+    const label = document.createElement("label");
+    label.htmlFor = input.id;
+    label.textContent = "Carbon-style page action";
+    Object.assign(label.style, {
       position: "fixed",
       left: "0",
       right: "0",
       bottom: "64px",
       height: "48px",
     });
-    document.body.appendChild(action);
+    document.body.append(input, label);
     window.dispatchEvent(new Event("resize"));
   });
 
   const launcher = page
     .locator("#oe-review-host")
     .getByRole("button", { name: "Review" });
-  const action = page.getByRole("button", { name: "Full-width page action" });
+  const action = page.getByText("Carbon-style page action");
 
   await expect
     .poll(async () => {
