@@ -81,6 +81,45 @@ test("keeps the minimized launcher clear of page actions", async ({ page }) => {
   }
 });
 
+test("raises the minimized launcher above a full-width action row", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await page.evaluate(() => {
+    const action = document.createElement("button");
+    action.id = "full-width-action";
+    action.textContent = "Full-width page action";
+    Object.assign(action.style, {
+      position: "fixed",
+      left: "0",
+      right: "0",
+      bottom: "64px",
+      height: "48px",
+    });
+    document.body.appendChild(action);
+    window.dispatchEvent(new Event("resize"));
+  });
+
+  const launcher = page
+    .locator("#oe-review-host")
+    .getByRole("button", { name: "Review" });
+  const action = page.getByRole("button", { name: "Full-width page action" });
+
+  await expect
+    .poll(async () => {
+      const launcherBox = await launcher.boundingBox();
+      const actionBox = await action.boundingBox();
+      if (!launcherBox || !actionBox) return true;
+      return (
+        launcherBox.x < actionBox.x + actionBox.width &&
+        launcherBox.x + launcherBox.width > actionBox.x &&
+        launcherBox.y < actionBox.y + actionBox.height &&
+        launcherBox.y + launcherBox.height > actionBox.y
+      );
+    })
+    .toBe(false);
+});
+
 test("keys answers by stable step key and includes provenance in reports", async ({
   page,
 }) => {

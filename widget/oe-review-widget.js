@@ -1402,8 +1402,8 @@
       Math.min(a.top + a.height, b.top + b.height) - Math.max(a.top, b.top);
     return x > 0 && y > 0 ? x * y : 0;
   }
-  function candidateRect(anchor, width, height) {
-    var top = window.innerHeight - EDGE_GAP - height;
+  function candidateRect(anchor, width, height, bottomGap) {
+    var top = window.innerHeight - (bottomGap || EDGE_GAP) - height;
     if (anchor === "right") {
       return {
         left: window.innerWidth - 16 - width,
@@ -1422,6 +1422,36 @@
     };
   }
   var EDGE_GAP = 64;
+  var PLACEMENT_GAP = 16;
+  function autoLauncherPlacement() {
+    var subject = wrap.querySelector(".tab");
+    if (!subject) return { anchor: "right", bottom: EDGE_GAP };
+    var width = subject.offsetWidth;
+    var height = subject.offsetHeight;
+    if (!width || !height)
+      return { anchor: "right", bottom: EDGE_GAP };
+    var blockers = pageActions();
+    var best = { anchor: "right", bottom: EDGE_GAP };
+    var bestOverlap = Infinity;
+    for (
+      var bottom = EDGE_GAP;
+      bottom + height <= window.innerHeight - PLACEMENT_GAP;
+      bottom += height + PLACEMENT_GAP
+    ) {
+      for (var i = 0; i < ANCHORS.length; i++) {
+        var rect = candidateRect(ANCHORS[i], width, height, bottom);
+        var total = blockers.reduce(function (sum, blocker) {
+          return sum + overlapArea(rect, blocker);
+        }, 0);
+        if (total === 0) return { anchor: ANCHORS[i], bottom: bottom };
+        if (total < bestOverlap) {
+          bestOverlap = total;
+          best = { anchor: ANCHORS[i], bottom: bottom };
+        }
+      }
+    }
+    return best;
+  }
   function autoAnchor() {
     var subject = state.minimized
       ? wrap.querySelector(".tab")
@@ -1454,7 +1484,9 @@
         wrap.className = "wrap standalone open";
       return;
     }
-    var anchor = state.minimized ? autoAnchor() : prefs.anchor || autoAnchor();
+    var placement = state.minimized ? autoLauncherPlacement() : null;
+    var anchor = placement ? placement.anchor : prefs.anchor || autoAnchor();
+    wrap.style.bottom = placement ? placement.bottom + "px" : "";
     // The open panel becomes a bottom sheet on a narrow screen; the launcher stays
     // a corner pill, because a full-width bar at the bottom lands underneath
     // whatever the application pins there.
