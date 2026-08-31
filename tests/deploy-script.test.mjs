@@ -356,6 +356,22 @@ test("failed candidates and explicit rollback restore saved images", () => {
   assert.match(appRollbackScript, /previous-target\.json/);
 });
 
+test("failed app deployment restores the previous checkout and managed submodules", () => {
+  assert.match(appDeployScript, /restore_previous_checkout\(\)/);
+  assert.match(
+    appDeployScript,
+    /repo_git "\$APP_DIR" checkout --detach "\$previous_app_sha"/,
+  );
+  assert.match(
+    appDeployScript,
+    /restore_submodules=\("dataexport"\).*tools\/openelis-analyzer-bridge.*tools\/analyzer-mock-server/s,
+  );
+  assert.match(
+    appDeployScript,
+    /restore_previous_images\s+restore_previous_checkout\s+write_status failed failed/s,
+  );
+});
+
 test("concurrent SSM commands cannot overwrite each other's scripts", () => {
   assert.doesNotMatch(deployScript, /\/tmp\/deploy-cmd\.sh/);
   assert.equal(
