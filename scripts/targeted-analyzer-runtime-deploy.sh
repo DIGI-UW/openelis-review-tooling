@@ -134,14 +134,28 @@ app_sha="$(repo_git "$APP_DIR" rev-parse HEAD)"
   echo "analyzers checkout is $app_sha, expected $APP_REF; deploy the application first" >&2
   exit 1
 }
-if ! repo_git "$APP_DIR" diff --quiet || ! repo_git "$APP_DIR" diff --cached --quiet; then
-  echo "refusing to update submodules in a dirty analyzers checkout" >&2
+if ! repo_git "$APP_DIR" diff --quiet --ignore-submodules=all ||
+  ! repo_git "$APP_DIR" diff --cached --quiet --ignore-submodules=all; then
+  echo "refusing to update submodules in an analyzers checkout with source changes" >&2
   repo_git "$APP_DIR" status --short >&2
   exit 1
 fi
 
 repo_git "$APP_DIR" submodule update --init --depth 1 \
   tools/openelis-analyzer-bridge tools/analyzer-mock-server
+if ! repo_git "$APP_DIR" diff --quiet || ! repo_git "$APP_DIR" diff --cached --quiet; then
+  echo "unexpected changes remain after analyzer submodule update" >&2
+  repo_git "$APP_DIR" status --short >&2
+  exit 1
+fi
+for submodule in tools/openelis-analyzer-bridge tools/analyzer-mock-server; do
+  if ! repo_git "$APP_DIR/$submodule" diff --quiet ||
+    ! repo_git "$APP_DIR/$submodule" diff --cached --quiet; then
+    echo "companion checkout is dirty after analyzer submodule update: $submodule" >&2
+    repo_git "$APP_DIR/$submodule" status --short >&2
+    exit 1
+  fi
+done
 bridge_sha="$(repo_git "$APP_DIR" rev-parse HEAD:tools/openelis-analyzer-bridge)"
 mock_sha="$(repo_git "$APP_DIR" rev-parse HEAD:tools/analyzer-mock-server)"
 [ "$(repo_git "$APP_DIR/tools/openelis-analyzer-bridge" rev-parse HEAD)" = "$bridge_sha" ]

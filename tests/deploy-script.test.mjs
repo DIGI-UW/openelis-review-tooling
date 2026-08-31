@@ -95,6 +95,10 @@ test("targeted analyzer fixture setup uses only the existing analyzer harness", 
   assert.match(dataSeedCommand, /projects\/analyzer-harness\/seed-mvp-traffic\.sh/);
   assert.match(dataSeedCommand, /BASE_URL=https:\/\/\$ANALYZERS_DOMAIN/);
   assert.match(dataSeedCommand, /render_mock_url_setup "\$MOCK_URL"/);
+  assert.match(dataSeedCommand, /render_bridge_admin_setup/);
+  assert.match(dataSeedCommand, /BRIDGE_ADMIN_URL=\\"\\\$bridge_admin_url\\"/);
+  assert.match(dataSeedCommand, /BRIDGE_USER=\\"\\\$bridge_user\\"/);
+  assert.match(dataSeedCommand, /BRIDGE_PASS=\\"\\\$bridge_pass\\"/);
 
   const resolverStart = deployScript.indexOf("render_mock_url_setup() {");
   const resolverEnd = deployScript.indexOf("\n}", resolverStart) + 2;
@@ -103,8 +107,29 @@ test("targeted analyzer fixture setup uses only the existing analyzer harness", 
     mockResolver,
     /docker inspect -f .*analyzers-openelis-astm-simulator/s,
   );
+  assert.match(
+    mockResolver,
+    /index \.NetworkSettings\.Networks "analyzers_analyzer-net"/,
+  );
   assert.match(mockResolver, /mock_url="http:\/\/\$mock_ip:8080"/);
   assert.match(mockResolver, /curl -fsS "\$mock_url\/health"/);
+
+  const bridgeResolverStart = deployScript.indexOf(
+    "render_bridge_admin_setup() {",
+  );
+  const bridgeResolverEnd =
+    deployScript.indexOf("\n}", bridgeResolverStart) + 2;
+  const bridgeResolver = deployScript.slice(
+    bridgeResolverStart,
+    bridgeResolverEnd,
+  );
+  assert.match(
+    bridgeResolver,
+    /index \.NetworkSettings\.Networks "analyzers_analyzer-net"/,
+  );
+  assert.match(bridgeResolver, /bridge_admin_url="https:\/\/\$bridge_ip:8443"/);
+  assert.match(bridgeResolver, /BRIDGE_SECURITY_USERNAME/);
+  assert.match(bridgeResolver, /BRIDGE_SECURITY_PASSWORD/);
   assert.doesNotMatch(dataSeedCommand, /cmd_seed/);
   assert.doesNotMatch(deployScript, /172\.21\.1\.100/);
 });
@@ -241,6 +266,36 @@ test("targeted analyzer runtime deployment is exact and analyzer-only", () => {
   assert.doesNotMatch(
     analyzerRuntimeDeployScript,
     /\bamr\b|grist\/bootstrap|oe-edge-router|db\.openelis\.org|fhir\.openelis\.org|frontend\.openelis\.org/,
+  );
+});
+
+test("analyzer runtime deployment permits only the expected gitlink handoff", () => {
+  const sourceCleanCheck = analyzerRuntimeDeployScript.indexOf(
+    'diff --quiet --ignore-submodules=all',
+  );
+  const submoduleUpdate = analyzerRuntimeDeployScript.indexOf(
+    'submodule update --init --depth 1',
+  );
+  const exactCheckoutCheck = analyzerRuntimeDeployScript.indexOf(
+    'unexpected changes remain after analyzer submodule update',
+  );
+
+  assert.ok(sourceCleanCheck > -1, "preflight must still guard OpenELIS source");
+  assert.ok(
+    submoduleUpdate > sourceCleanCheck,
+    "exact companion gitlinks must be applied after source preflight",
+  );
+  assert.ok(
+    exactCheckoutCheck > submoduleUpdate,
+    "the complete checkout must be clean after applying companion gitlinks",
+  );
+  assert.match(
+    analyzerRuntimeDeployScript,
+    /for submodule in tools\/openelis-analyzer-bridge tools\/analyzer-mock-server/,
+  );
+  assert.match(
+    analyzerRuntimeDeployScript,
+    /companion checkout is dirty after analyzer submodule update/,
   );
 });
 

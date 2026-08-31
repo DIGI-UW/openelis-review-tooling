@@ -140,7 +140,7 @@ render_mock_url_setup() {
   printf 'mock_url=%s\n' "$configured_q"
   cat <<'REMOTE'
 if [ -z "$mock_url" ]; then
-  mock_ip=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{println .IPAddress}}{{end}}' analyzers-openelis-astm-simulator | awk 'NF { print; exit }')
+  mock_ip=$(docker inspect -f '{{with index .NetworkSettings.Networks "analyzers_analyzer-net"}}{{.IPAddress}}{{end}}' analyzers-openelis-astm-simulator)
   if [ -z "$mock_ip" ]; then
     echo 'could not resolve the analyzer mock container address' >&2
     exit 1
@@ -148,6 +148,25 @@ if [ -z "$mock_url" ]; then
   mock_url="http://$mock_ip:8080"
 fi
 curl -fsS "$mock_url/health" >/dev/null
+REMOTE
+}
+
+render_bridge_admin_setup() {
+  cat <<'REMOTE'
+bridge_ip=$(docker inspect -f '{{with index .NetworkSettings.Networks "analyzers_analyzer-net"}}{{.IPAddress}}{{end}}' analyzers-openelis-analyzer-bridge)
+if [ -z "$bridge_ip" ]; then
+  echo 'could not resolve the analyzer Bridge container address' >&2
+  exit 1
+fi
+bridge_admin_url="https://$bridge_ip:8443"
+bridge_env=$(docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' analyzers-openelis-analyzer-bridge)
+bridge_user=$(printf '%s\n' "$bridge_env" | sed -n 's/^BRIDGE_SECURITY_USERNAME=//p' | head -n 1)
+bridge_pass=$(printf '%s\n' "$bridge_env" | sed -n 's/^BRIDGE_SECURITY_PASSWORD=//p' | head -n 1)
+if [ -z "$bridge_user" ] || [ -z "$bridge_pass" ]; then
+  echo 'could not read analyzer Bridge admin credentials from the running container' >&2
+  exit 1
+fi
+curl -skfsS -u "$bridge_user:$bridge_pass" "$bridge_admin_url/actuator/health" >/dev/null
 REMOTE
 }
 
@@ -780,9 +799,12 @@ cmd_data_seed() {
     log "seeding the analyzer acceptance fixture without touching AMR"
     ssm_run "set -euo pipefail
 $(render_mock_url_setup "$MOCK_URL")
+$(render_bridge_admin_setup)
 cd '$ANALYZERS_DIR'
 BASE_URL=https://$ANALYZERS_DOMAIN MOCK_URL=\"\$mock_url\" bash projects/analyzer-harness/seed-analyzers.sh
-BASE_URL=https://$ANALYZERS_DOMAIN MOCK_URL=\"\$mock_url\" bash projects/analyzer-harness/seed-mvp-traffic.sh"
+BASE_URL=https://$ANALYZERS_DOMAIN MOCK_URL=\"\$mock_url\" \
+BRIDGE_ADMIN_URL=\"\$bridge_admin_url\" BRIDGE_USER=\"\$bridge_user\" BRIDGE_PASS=\"\$bridge_pass\" \
+bash projects/analyzer-harness/seed-mvp-traffic.sh"
     return
   fi
   select_instance_config "$instance"
