@@ -70,10 +70,9 @@ DEPLOY_TIMEOUT="${DEPLOY_TIMEOUT:-3000}"
 REMOTE_RUNNER="/home/$OS_USER/oe-dual-deploy.run.sh"
 REMOTE_LOG="/home/$OS_USER/oe-dual-deploy.log"
 DONE_MARK="OE_DUAL_DEPLOY_DONE_OK"
-# astm-simulator's static analyzer-net IP (docker-compose.analyzer-test.yml IPAM,
-# unchanged by the analyzers override — only the "default" network is remapped).
-# The host can always reach this directly; it's never published as a host port.
-MOCK_URL="${MOCK_URL:-http://172.21.1.100:8080}"
+# Optional operator override. When omitted, analyzer fixture commands resolve the
+# mock container from the running Compose project instead of assuming a Docker IP.
+MOCK_URL="${MOCK_URL:-}"
 
 C_I=$'\033[1;36m'; C_W=$'\033[1;33m'; C_E=$'\033[1;31m'; C_0=$'\033[0m'
 log()  { printf '%s>> %s%s\n' "$C_I" "$*" "$C_0"; }
@@ -133,6 +132,23 @@ ssm_fire() {
     --document-name "AWS-RunShellScript" \
     --parameters "commands=[\"tmp=\$(mktemp /tmp/deploy-cmd.XXXXXX) || exit 1; echo $b64 | base64 -d > \$tmp && bash \$tmp; status=\$?; rm -f \$tmp; exit \$status\"]" \
     --query "Command.CommandId" --output text 2>&1
+}
+
+render_mock_url_setup() {
+  local configured_q
+  printf -v configured_q '%q' "${1:-}"
+  printf 'mock_url=%s\n' "$configured_q"
+  cat <<'REMOTE'
+if [ -z "$mock_url" ]; then
+  mock_ip=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{println .IPAddress}}{{end}}' analyzers-openelis-astm-simulator | awk 'NF { print; exit }')
+  if [ -z "$mock_ip" ]; then
+    echo 'could not resolve the analyzer mock container address' >&2
+    exit 1
+  fi
+  mock_url="http://$mock_ip:8080"
+fi
+curl -fsS "$mock_url/health" >/dev/null
+REMOTE
 }
 
 # ---- SSH: interactive `connect` only. Needs the caller's current IP allowed
@@ -339,7 +355,10 @@ cmd_certs() {
 cmd_seed() {
   require_aws
   log "seeding analyzers.openelis-global.org (9-device fleet via the harness's own seed script)"
-  ssm_run "cd $ANALYZERS_DIR/projects/analyzer-harness && BASE_URL=https://$ANALYZERS_DOMAIN MOCK_URL=$MOCK_URL DB_CONTAINER=analyzers-openelisglobal-database ./seed-analyzers.sh" \
+  ssm_run "set -euo pipefail
+$(render_mock_url_setup "$MOCK_URL")
+cd '$ANALYZERS_DIR/projects/analyzer-harness'
+BASE_URL=https://$ANALYZERS_DOMAIN MOCK_URL=\"\$mock_url\" DB_CONTAINER=analyzers-openelisglobal-database ./seed-analyzers.sh" \
     || warn "analyzer seed failed — see output above"
   log "seeding amr.openelis-global.org (microbiology worklist and classification cases)"
   ssm_run "cat > /tmp/seed-microbiology.sh <<'SEEDEOF'
@@ -759,9 +778,11 @@ cmd_data_seed() {
   if [ "$instance:$fixture" = "analyzers:analyzer-mvp" ]; then
     require_aws
     log "seeding the analyzer acceptance fixture without touching AMR"
-    ssm_run "cd '$ANALYZERS_DIR'
-BASE_URL=https://$ANALYZERS_DOMAIN MOCK_URL=$MOCK_URL bash projects/analyzer-harness/seed-analyzers.sh
-BASE_URL=https://$ANALYZERS_DOMAIN MOCK_URL=$MOCK_URL bash projects/analyzer-harness/seed-mvp-traffic.sh"
+    ssm_run "set -euo pipefail
+$(render_mock_url_setup "$MOCK_URL")
+cd '$ANALYZERS_DIR'
+BASE_URL=https://$ANALYZERS_DOMAIN MOCK_URL=\"\$mock_url\" bash projects/analyzer-harness/seed-analyzers.sh
+BASE_URL=https://$ANALYZERS_DOMAIN MOCK_URL=\"\$mock_url\" bash projects/analyzer-harness/seed-mvp-traffic.sh"
     return
   fi
   select_instance_config "$instance"

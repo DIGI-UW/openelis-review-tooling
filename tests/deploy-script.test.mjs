@@ -94,8 +94,19 @@ test("targeted analyzer fixture setup uses only the existing analyzer harness", 
   assert.match(dataSeedCommand, /projects\/analyzer-harness\/seed-analyzers\.sh/);
   assert.match(dataSeedCommand, /projects\/analyzer-harness\/seed-mvp-traffic\.sh/);
   assert.match(dataSeedCommand, /BASE_URL=https:\/\/\$ANALYZERS_DOMAIN/);
-  assert.match(dataSeedCommand, /MOCK_URL=\$MOCK_URL/);
+  assert.match(dataSeedCommand, /render_mock_url_setup "\$MOCK_URL"/);
+
+  const resolverStart = deployScript.indexOf("render_mock_url_setup() {");
+  const resolverEnd = deployScript.indexOf("\n}", resolverStart) + 2;
+  const mockResolver = deployScript.slice(resolverStart, resolverEnd);
+  assert.match(
+    mockResolver,
+    /docker inspect -f .*analyzers-openelis-astm-simulator/s,
+  );
+  assert.match(mockResolver, /mock_url="http:\/\/\$mock_ip:8080"/);
+  assert.match(mockResolver, /curl -fsS "\$mock_url\/health"/);
   assert.doesNotMatch(dataSeedCommand, /cmd_seed/);
+  assert.doesNotMatch(deployScript, /172\.21\.1\.100/);
 });
 
 test("phrases is an isolated first-class OpenELIS review instance", () => {
