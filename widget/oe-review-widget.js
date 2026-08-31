@@ -1363,13 +1363,13 @@
   function pageActions() {
     var found = [];
     var selectors = [
-      "button:not([disabled])",
+      "button",
       "a[href]",
-      "input:not([type=hidden]):not([disabled])",
-      "select:not([disabled])",
-      "textarea:not([disabled])",
+      "input:not([type=hidden])",
+      "select",
+      "textarea",
       "label[for]",
-      "[role=button]:not([aria-disabled=true])",
+      "[role=button]",
       "[role=link]",
       "[role=menuitem]",
     ].join(",");
@@ -1379,8 +1379,7 @@
       var style = getComputedStyle(action);
       if (
         style.display === "none" ||
-        style.visibility === "hidden" ||
-        style.pointerEvents === "none"
+        style.visibility === "hidden"
       ) {
         continue;
       }

@@ -89,6 +89,7 @@ test("raises the minimized launcher above a Carbon-style action row", async ({
     const input = document.createElement("input");
     input.id = "carbon-action";
     input.type = "checkbox";
+    input.disabled = true;
     Object.assign(input.style, {
       position: "fixed",
       width: "1px",
@@ -104,6 +105,7 @@ test("raises the minimized launcher above a Carbon-style action row", async ({
       right: "0",
       bottom: "64px",
       height: "48px",
+      pointerEvents: "none",
     });
     document.body.append(input, label);
   });
