@@ -802,10 +802,24 @@ $(render_mock_url_setup "$MOCK_URL")
 $(render_bridge_admin_setup)
 cd '$ANALYZERS_DIR'
 BASE_URL=https://$ANALYZERS_DOMAIN MOCK_URL=\"\$mock_url\" bash projects/analyzer-harness/seed-analyzers.sh
-echo 'Clearing transient analyzer story results...'
-docker exec analyzers-openelisglobal-database \
-  psql -v ON_ERROR_STOP=1 -U clinlims -d clinlims -c \
-  'DELETE FROM clinlims.qc_result; DELETE FROM clinlims.analyzer_results;'
+echo 'Clearing analyzer story results...'
+docker exec -i analyzers-openelisglobal-database \
+  psql -v ON_ERROR_STOP=1 -U clinlims -d clinlims <<'ANALYZER_RESET_SQL'
+DELETE FROM clinlims.result
+WHERE analysis_id IN (
+  SELECT analysis.id
+  FROM clinlims.analysis
+  JOIN clinlims.sample_item ON analysis.sampitem_id = sample_item.id
+  JOIN clinlims.sample ON sample_item.samp_id = sample.id
+  WHERE sample.accession_number IN (
+    'DEV01261000000000001',
+    'DEV01263000000000001',
+    'DEV01263000000000002'
+  )
+);
+DELETE FROM clinlims.qc_result;
+DELETE FROM clinlims.analyzer_results;
+ANALYZER_RESET_SQL
 BASE_URL=https://$ANALYZERS_DOMAIN MOCK_URL=\"\$mock_url\" \
 BRIDGE_ADMIN_URL=\"\$bridge_admin_url\" BRIDGE_USER=\"\$bridge_user\" BRIDGE_PASS=\"\$bridge_pass\" \
 bash projects/analyzer-harness/seed-mvp-traffic.sh"

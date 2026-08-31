@@ -105,11 +105,22 @@ test("targeted analyzer fixture setup uses only the existing analyzer harness", 
   assert.match(dataSeedCommand, /BRIDGE_PASS=\\"\\\$bridge_pass\\"/);
   assert.match(dataSeedCommand, /DELETE FROM clinlims\.qc_result;/);
   assert.match(dataSeedCommand, /DELETE FROM clinlims\.analyzer_results;/);
+  assert.match(dataSeedCommand, /DELETE FROM clinlims\.result/);
+  assert.match(dataSeedCommand, /WHERE analysis_id IN/);
+  assert.match(dataSeedCommand, /DEV01261000000000001/);
+  assert.match(dataSeedCommand, /DEV01263000000000001/);
+  assert.match(dataSeedCommand, /DEV01263000000000002/);
+  assert.doesNotMatch(dataSeedCommand, /DELETE FROM clinlims\.result;/);
   assert.doesNotMatch(dataSeedCommand, /DELETE FROM clinlims\.qc_statistics;/);
   assert.ok(
     dataSeedCommand.indexOf("DELETE FROM clinlims.qc_result;") <
       dataSeedCommand.indexOf("seed-mvp-traffic.sh"),
     "transient analyzer story rows must be cleared before traffic is seeded",
+  );
+  assert.ok(
+    dataSeedCommand.indexOf("DELETE FROM clinlims.result") <
+      dataSeedCommand.indexOf("seed-mvp-traffic.sh"),
+    "accepted fixture results must be cleared before traffic is seeded",
   );
 
   const resolverStart = deployScript.indexOf("render_mock_url_setup() {");
