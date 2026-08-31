@@ -802,6 +802,10 @@ $(render_mock_url_setup "$MOCK_URL")
 $(render_bridge_admin_setup)
 cd '$ANALYZERS_DIR'
 BASE_URL=https://$ANALYZERS_DOMAIN MOCK_URL=\"\$mock_url\" bash projects/analyzer-harness/seed-analyzers.sh
+echo 'Clearing transient analyzer story results...'
+docker exec analyzers-openelisglobal-database \
+  psql -v ON_ERROR_STOP=1 -U clinlims -d clinlims -c \
+  'DELETE FROM clinlims.qc_result; DELETE FROM clinlims.analyzer_results;'
 BASE_URL=https://$ANALYZERS_DOMAIN MOCK_URL=\"\$mock_url\" \
 BRIDGE_ADMIN_URL=\"\$bridge_admin_url\" BRIDGE_USER=\"\$bridge_user\" BRIDGE_PASS=\"\$bridge_pass\" \
 bash projects/analyzer-harness/seed-mvp-traffic.sh"
