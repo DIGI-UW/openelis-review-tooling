@@ -534,6 +534,8 @@
     window.addEventListener("resize", scheduleReposition);
     window.addEventListener("popstate", scheduleReposition);
     window.addEventListener("storage", adoptOtherWindow);
+    var pageObserver = new MutationObserver(scheduleReposition);
+    pageObserver.observe(document.body, { childList: true, subtree: true });
     if (STANDALONE) {
       markPoppedOut(true);
       // pagehide rather than beforeunload: it is the one the browser guarantees on

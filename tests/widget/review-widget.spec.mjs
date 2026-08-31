@@ -106,7 +106,6 @@ test("raises the minimized launcher above a Carbon-style action row", async ({
       height: "48px",
     });
     document.body.append(input, label);
-    window.dispatchEvent(new Event("resize"));
   });
 
   const launcher = page
