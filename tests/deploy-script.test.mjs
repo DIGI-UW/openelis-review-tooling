@@ -21,6 +21,10 @@ const phrasesOverride = readFileSync(
   `${repoRoot}/phrases/docker-compose.override.yml`,
   "utf8",
 );
+const analyzersOverride = readFileSync(
+  `${repoRoot}/analyzers/docker-compose.override.yml`,
+  "utf8",
+);
 
 test("deployment entrypoint parses as Bash", () => {
   assert.doesNotThrow(() =>
@@ -132,6 +136,26 @@ test("targeted analyzer fixture setup uses only the existing analyzer harness", 
   assert.match(bridgeResolver, /BRIDGE_SECURITY_PASSWORD/);
   assert.doesNotMatch(dataSeedCommand, /cmd_seed/);
   assert.doesNotMatch(deployScript, /172\.21\.1\.100/);
+});
+
+test("analyzer review deployment requires one host-provided Bridge credential", () => {
+  assert.match(
+    analyzersOverride,
+    /ANALYZER_BRIDGE_USERNAME=\$\{BRIDGE_SECURITY_USERNAME:\?/,
+  );
+  assert.match(
+    analyzersOverride,
+    /ANALYZER_BRIDGE_PASSWORD=\$\{BRIDGE_SECURITY_PASSWORD:\?/,
+  );
+  assert.match(
+    analyzersOverride,
+    /BRIDGE_SECURITY_USERNAME=\$\{BRIDGE_SECURITY_USERNAME:\?/,
+  );
+  assert.match(
+    analyzersOverride,
+    /BRIDGE_SECURITY_PASSWORD=\$\{BRIDGE_SECURITY_PASSWORD:\?/,
+  );
+  assert.doesNotMatch(analyzersOverride, /=bridge|=changeme/);
 });
 
 test("phrases is an isolated first-class OpenELIS review instance", () => {
