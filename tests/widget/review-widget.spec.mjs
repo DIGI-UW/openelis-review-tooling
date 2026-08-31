@@ -62,19 +62,18 @@ test("keeps the minimized launcher clear of page content and actions", async ({
 }) => {
   await page.goto("/");
   await page.evaluate(() => {
+    const spacer = document.createElement("div");
+    spacer.id = "late-layout-spacer";
+    spacer.style.height = "850px";
     const table = document.createElement("table");
     Object.assign(table.style, {
-      position: "fixed",
-      left: "0",
-      right: "0",
-      bottom: "64px",
       width: "100%",
       height: "48px",
     });
     const row = table.insertRow();
     const cell = row.insertCell();
     cell.textContent = "Bridge connection configured";
-    document.body.append(table);
+    document.body.append(spacer, table);
   });
   const launcher = page
     .locator("#oe-review-host")
@@ -84,18 +83,31 @@ test("keeps the minimized launcher clear of page content and actions", async ({
     page.getByRole("button", { name: "Analyzer row actions" }),
     page.getByRole("cell", { name: "Bridge connection configured" }),
   ];
-  const launcherBox = await launcher.boundingBox();
 
-  expect(launcherBox).not.toBeNull();
+  await page.evaluate(
+    () =>
+      new Promise((resolve) =>
+        requestAnimationFrame(() => requestAnimationFrame(resolve)),
+      ),
+  );
+  await page.evaluate(() => {
+    document.getElementById("late-layout-spacer").style.height = "560px";
+  });
+
   for (const pageElement of pageContent) {
-    const elementBox = await pageElement.boundingBox();
-    expect(elementBox).not.toBeNull();
-    const overlaps =
-      launcherBox.x < elementBox.x + elementBox.width &&
-      launcherBox.x + launcherBox.width > elementBox.x &&
-      launcherBox.y < elementBox.y + elementBox.height &&
-      launcherBox.y + launcherBox.height > elementBox.y;
-    expect(overlaps).toBe(false);
+    await expect
+      .poll(async () => {
+        const launcherBox = await launcher.boundingBox();
+        const elementBox = await pageElement.boundingBox();
+        if (!launcherBox || !elementBox) return true;
+        return (
+          launcherBox.x < elementBox.x + elementBox.width &&
+          launcherBox.x + launcherBox.width > elementBox.x &&
+          launcherBox.y < elementBox.y + elementBox.height &&
+          launcherBox.y + launcherBox.height > elementBox.y
+        );
+      })
+      .toBe(false);
   }
 });
 
