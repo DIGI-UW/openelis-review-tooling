@@ -109,6 +109,37 @@ test("keeps the minimized launcher clear of page content and actions", async ({
       })
       .toBe(false);
   }
+
+  await page.evaluate(() => {
+    const launcher = document
+      .getElementById("oe-review-host")
+      .shadowRoot.querySelector(".tab")
+      .getBoundingClientRect();
+    const legend = document.createElement("b");
+    legend.textContent = "Sample or Order is nonconforming";
+    Object.assign(legend.style, {
+      position: "fixed",
+      left: `${launcher.left}px`,
+      top: `${launcher.top}px`,
+      width: "320px",
+      height: `${launcher.height}px`,
+    });
+    document.body.append(legend);
+  });
+  const legend = page.getByText("Sample or Order is nonconforming");
+  await expect
+    .poll(async () => {
+      const launcherBox = await launcher.boundingBox();
+      const legendBox = await legend.boundingBox();
+      if (!launcherBox || !legendBox) return true;
+      return (
+        launcherBox.x < legendBox.x + legendBox.width &&
+        launcherBox.x + launcherBox.width > legendBox.x &&
+        launcherBox.y < legendBox.y + legendBox.height &&
+        launcherBox.y + launcherBox.height > legendBox.y
+      );
+    })
+    .toBe(false);
 });
 
 test("raises the minimized launcher above a Carbon-style action row", async ({

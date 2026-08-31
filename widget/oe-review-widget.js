@@ -1406,6 +1406,40 @@
         found.push(rect);
       }
     }
+    var textWalker = document.createTreeWalker(
+      document.body,
+      NodeFilter.SHOW_TEXT,
+    );
+    while (textWalker.nextNode()) {
+      var textNode = textWalker.currentNode;
+      if (!textNode.nodeValue.trim()) continue;
+      var textParent = textNode.parentElement;
+      if (
+        !textParent ||
+        /^(SCRIPT|STYLE|NOSCRIPT|TEMPLATE)$/.test(textParent.tagName)
+      )
+        continue;
+      var textStyle = getComputedStyle(textParent);
+      if (
+        textStyle.display === "none" ||
+        textStyle.visibility === "hidden"
+      ) {
+        continue;
+      }
+      var range = document.createRange();
+      range.selectNodeContents(textNode);
+      var textRect = range.getBoundingClientRect();
+      if (
+        textRect.width > 0 &&
+        textRect.height > 0 &&
+        textRect.bottom > 0 &&
+        textRect.right > 0 &&
+        textRect.top < window.innerHeight &&
+        textRect.left < window.innerWidth
+      ) {
+        found.push(textRect);
+      }
+    }
     return found;
   }
   function overlapArea(a, b) {
