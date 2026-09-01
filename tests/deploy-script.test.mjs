@@ -103,6 +103,19 @@ test("targeted analyzer fixture setup uses only the existing analyzer harness", 
   assert.match(dataSeedCommand, /BRIDGE_ADMIN_URL=\\"\\\$bridge_admin_url\\"/);
   assert.match(dataSeedCommand, /BRIDGE_USER=\\"\\\$bridge_user\\"/);
   assert.match(dataSeedCommand, /BRIDGE_PASS=\\"\\\$bridge_pass\\"/);
+  assert.match(
+    dataSeedCommand,
+    /docker exec analyzers-openelis-analyzer-bridge id -u/,
+  );
+  assert.match(
+    dataSeedCommand,
+    /docker exec analyzers-openelis-analyzer-bridge id -g/,
+  );
+  assert.match(
+    dataSeedCommand,
+    /docker exec -u 0 analyzers-openelis-analyzer-bridge \\\s+chown -R/,
+  );
+  assert.match(dataSeedCommand, /\/data\/analyzer-imports/);
   assert.match(dataSeedCommand, /DELETE FROM clinlims\.qc_result;/);
   assert.match(dataSeedCommand, /DELETE FROM clinlims\.analyzer_results;/);
   assert.match(dataSeedCommand, /DELETE FROM clinlims\.result/);
@@ -121,6 +134,11 @@ test("targeted analyzer fixture setup uses only the existing analyzer harness", 
     dataSeedCommand.indexOf("DELETE FROM clinlims.result") <
       dataSeedCommand.indexOf("seed-mvp-traffic.sh"),
     "accepted fixture results must be cleared before traffic is seeded",
+  );
+  assert.ok(
+    dataSeedCommand.indexOf("chown -R") <
+      dataSeedCommand.indexOf("seed-mvp-traffic.sh"),
+    "Bridge must own the shared import directory before fixture reset",
   );
 
   const resolverStart = deployScript.indexOf("render_mock_url_setup() {");

@@ -820,6 +820,10 @@ WHERE analysis_id IN (
 DELETE FROM clinlims.qc_result;
 DELETE FROM clinlims.analyzer_results;
 ANALYZER_RESET_SQL
+bridge_uid=\$(docker exec analyzers-openelis-analyzer-bridge id -u)
+bridge_gid=\$(docker exec analyzers-openelis-analyzer-bridge id -g)
+docker exec -u 0 analyzers-openelis-analyzer-bridge \
+  chown -R "\$bridge_uid:\$bridge_gid" /data/analyzer-imports
 BASE_URL=https://$ANALYZERS_DOMAIN MOCK_URL=\"\$mock_url\" \
 BRIDGE_ADMIN_URL=\"\$bridge_admin_url\" BRIDGE_USER=\"\$bridge_user\" BRIDGE_PASS=\"\$bridge_pass\" \
 bash projects/analyzer-harness/seed-mvp-traffic.sh"
