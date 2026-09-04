@@ -11,7 +11,7 @@ OpenELIS features against a structured checklist, and lets humans _or_ agents
 author those checklists from one source of truth.
 
 - **Source of truth:** a Grist document ("UAT Checklists"). Humans edit it in the
-  Grist UI; agents edit it over Grist's native MCP. Neither clobbers the other
+  Grist UI; agents edit it over Grist's REST API. Neither clobbers the other
   (edits target specific rows).
 - **Delivery:** a reviewer overlay injected into each demo site reads the
   checklist live from Grist and captures pass/fail/na + freeform feedback.
@@ -22,20 +22,16 @@ Three instances today: `amr` (Microbiology MVP, OGC-782), `analyzers` (Analyzer
 Types & Mapping, OGC-1054), and `phrases` (Macro Library, OGC-788). Each has its
 own application session-verification backend and review identity.
 
-## Authoring — native Grist MCP
+## Authoring — Grist REST API
 
-- **Endpoint:** `https://grist.openelis-global.org/api/mcp` (Streamable HTTP MCP)
+- **Endpoint root:** `https://grist.openelis-global.org/api/docs/hvZ4rzsyGJuqggkZBko8gc`
 - **Auth:** a Grist API key as `Authorization: Bearer <key>`. The key is box-side
   at `/home/ubuntu/oe-grist/.api-key` (admin user; full access — treat as secret).
-- **Connect (Claude Code CLI):**
-  ```bash
-  claude mcp add --transport http grist https://grist.openelis-global.org/api/mcp \
-    --header "Authorization: Bearer <grist-api-key>"
-  ```
-- **Connect (claude.ai web):** add `https://grist.openelis-global.org/api/mcp` as a
-  custom connector and sign in — no key to paste. Grist runs its own OIDC server
-  with dynamic client registration + PKCE, so the client auto-registers; the flow is
-  connector → Grist → Dex sign-in → consent → token.
+- **Boundary:** the key belongs only in an approved agent/operator environment.
+  Never put it in a browser, checklist row, committed file, log, or command output.
+- **Operations:** use `GET`, `POST`, `PATCH`, and `DELETE` on
+  `/tables/<table>/records`. Reads and writes target the same rows the Grist UI
+  displays; there is no second authoring store or publish step.
 
 ### The data model
 
@@ -70,34 +66,59 @@ do, expect, route`.
   and verify the public checklist after writing; a computed `problems` cell may
   lag the create that should have populated a key.
 
-### Tools you'll use (of 38 `grist_*` tools)
+### REST operations
 
-`grist_list_docs`, `grist_get_tables`, `grist_get_table_columns`,
-`grist_query_document` (SQL SELECT), `grist_list_records`, `grist_add_records`,
-`grist_update_records`, `grist_remove_records`.
+Read before you write so you append or update instead of duplicating a row:
 
-Read before you write — pull current rows so you append/update rather than
-duplicate:
-
-```
-grist_query_document(doc_id, "SELECT y.id story, y.story_key, y.title, s.step_order,
-  s.step_key, s.\"do\" FROM UAT_Steps s JOIN UAT_Stories y ON y.id = s.story
-  JOIN UAT_Meta m ON m.id = y.instance WHERE m.instance='amr'
-  ORDER BY y.story_order, s.step_order")
+```bash
+curl --fail-with-body --silent --show-error \
+  -H "Authorization: Bearer $GRIST_API_KEY" \
+  "$GRIST_API_ROOT/tables/UAT_Stories/records"
+curl --fail-with-body --silent --show-error \
+  -H "Authorization: Bearer $GRIST_API_KEY" \
+  "$GRIST_API_ROOT/tables/UAT_Steps/records"
 ```
 
-Add a step — `story` is the `UAT_Stories` **row id** the query above returned,
+Filter the returned records by the `instance`, `story_key`, and `step_key`
+fields in a structured JSON parser. Never scrape the Grist UI or infer a row id
+from its position.
+
+Add a step — `story` is the `UAT_Stories` **row id** the records above returned,
 not its title:
 
+```json
+{
+  "records": [{
+    "fields": {
+      "instance": "amr",
+      "story": 3,
+      "step_key": "AMR-008",
+      "required": true,
+      "step_order": 2,
+      "do": "...the action the reviewer performs...",
+      "expect": "...the expected result / what to flag if wrong...",
+      "route": "/Microbiology/worklist"
+    }
+  }]
+}
 ```
-grist_add_records(doc_id, "UAT_Steps", [{
-  instance: "amr", story: 3,
-  step_key: "AMR-008", required: true, step_order: 2,
-  do: "…the action the reviewer performs…",
-  expect: "…the expected result / what to flag if wrong…",
-  route: "/Microbiology/worklist"
-}])
+
+Send that body with `POST` to
+`$GRIST_API_ROOT/tables/UAT_Steps/records`. Updates use `PATCH` and include each
+record's numeric `id`; deletes use `DELETE` with `records: [<id>]`.
+
+From an authorized review-tooling checkout, prefer the scoped wrapper for a
+complete story. It uses the server-side API key, applies the story and its exact
+step set by stable keys, and leaves every sibling story alone:
+
+```bash
+./deploy.sh grist apply-story --file story.json
 ```
+
+The JSON file has `instance`, one `story` object, and a non-empty `steps` array.
+The story requires `story_key`, `title`, and `story_order`; every step requires
+`step_key`, `required`, `step_order`, and `do`. Include `expect` and `route` when
+the reviewer needs them.
 
 Write UAT steps as **verifiable checks** — a `do` a reviewer performs and an
 `expect` they judge against. A missing feature is a legitimate step: the reviewer
@@ -118,14 +139,19 @@ and reviewer-executable walkthrough prove that it can be used.
 The reviewer overlay on each demo site fetches
 `/__review/uat-<instance>.json`. The umbrella router proxies that to a small
 box-side read service that reshapes live Grist rows into the widget's JSON
-(30-second serve-stale cache). So an edit in Grist or via MCP shows up in the
+(30-second serve-stale cache). So an edit in Grist or via REST shows up in the
 overlay within ~30s — no publish step.
 The panel also refreshes whenever it opens and has an explicit refresh action.
 
-## Feedback — the report
+## Feedback — the submission and report
 
-The reviewer marks each step (pass/fail/na) + optional notes, then downloads
-`oe-review-<instance>-<timestamp>.md` and `.json`. The Markdown carries a
+The reviewer marks each step (pass/fail/na) + optional notes and enters their
+required name. **Submit review** writes the answers to Grist with both the
+application-verified login and the separately entered reviewer name. The server
+derives the login from the application session and rejects a blank reviewer
+name; neither value substitutes for the other.
+
+The reviewer can also download `oe-review-<instance>-<timestamp>.md`. The report carries a
 per-section checklist with `[PASS]/[FAIL]/[N/A]/[----]` boxes, a summary line,
 and freeform feedback. Both formats include the checklist revision, verified
 deployment ID, application and harness SHAs, stable step keys, marked
@@ -140,12 +166,14 @@ issues; don't file them unless asked.
 
 ## Gotchas
 
-- Native MCP is **authed with a full-access key** — never expose it to a browser
+- The REST API is **authed with a full-access key** — never expose it to a browser
   or an untrusted client. The widget read path is the only anonymous surface, and
-  it is read-only.
-- Grist runs the **full edition**, activated by `/persist/config.json`
-  (`{"version":"1","edition":"enterprise"}`) + `GRIST_MCP_ENABLED=true`. Removing
-  that file reverts to community (rollback-safe; data untouched).
+  it is read-only. Verify the server-side identity with
+  `./deploy.sh grist check-access`; `viewers` is not ready for authoring.
+- Grist runs the exclusively open-source `gristlabs/grist-oss` image. Human OIDC
+  sign-in and the REST API are Community features; no activation, enterprise
+  edition marker, proprietary OAuth server, or Redis sidecar is part of this
+  deployment.
 - Runtime secrets live in the untracked `${EDGE_DIR}/.env`; never put their
   values in Git or an SSM command body.
 - `bootstrap.sh up` migrates schema and seeds only missing instances. Never use

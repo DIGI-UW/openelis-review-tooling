@@ -228,12 +228,12 @@ export const SCHEMA = {
       login: {
         type: "Text",
         description:
-          "Who handed it in, as the application's session named them. This is the attributable one: display names are not unique, and this is the only field here the reviewer could not have typed.",
+          "The authenticated application login that handed it in. The reviewer cannot type or replace this value.",
       },
       reviewer: {
         type: "Text",
         description:
-          "Their name as it read at the time, for reading rather than for matching on.",
+          "The required name entered by the person performing the review. This remains separate from the authenticated application login because demo accounts may be shared.",
       },
       submitted_at: {
         type: "DateTime:UTC",

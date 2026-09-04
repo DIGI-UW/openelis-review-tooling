@@ -47,7 +47,7 @@ done
 
 cd "$workdir"
 # --no-deps keeps the rebuild to the service that changed; without it Compose
-# recreates Grist, Dex and Redis alongside it.
+# recreates Grist and Dex alongside it.
 sudo -u "$REMOTE_USER" docker compose -p "$project" "${compose_args[@]}" \
   up -d --no-deps --build "$SERVICE"
 

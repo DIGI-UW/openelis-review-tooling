@@ -31,6 +31,7 @@
 #   ./deploy.sh app deploy analyzers --ref <sha> --scope frontend|backend|app
 #   ./deploy.sh app deploy phrases --ref <sha> --scope app
 #   ./deploy.sh app status <instance> [--deployment <id>]
+#   ./deploy.sh app logs <instance> [--since <duration>] [--tail <lines>] [--errors]
 #   ./deploy.sh app verify <instance>
 #   ./deploy.sh app rollback <instance>
 #   ./deploy.sh analyzer-runtime deploy --ref <sha>
@@ -39,8 +40,11 @@
 #   ./deploy.sh review deploy --ref <sha> --scope widget|service|all
 #   ./deploy.sh review reload-router [--instance amr] [--domain <host>]
 #                                   # re-render nginx from the template, router only
+#   ./deploy.sh data seed amr --fixture microbiology-mvp --story AMR-S33
 #   ./deploy.sh data seed analyzers --fixture analyzer-mvp
-#   ./deploy.sh data seed amr --fixture microbiology-mvp
+#   ./deploy.sh grist up           # reconcile the Grist runtime from this checkout
+#   ./deploy.sh grist apply-story --file <story.json>
+#   ./deploy.sh grist check-access # prove the server-side REST author can write UAT
 #   ./deploy.sh up-to-certs --yes   # configure -> deploy -> certs -> seed
 set -euo pipefail
 
@@ -57,6 +61,7 @@ fi
 : "${AMR_DOMAIN:?}" "${ANALYZERS_DOMAIN:?}" "${PHRASES_DOMAIN:?}" "${GRIST_DOMAIN:?}"
 : "${AMR_BRANCH:?}" "${ANALYZERS_BRANCH:?}" "${PHRASES_BRANCH:?}"
 : "${EDGE_DIR:?}" "${AMR_DIR:?}" "${ANALYZERS_DIR:?}" "${PHRASES_DIR:?}" "${LETSENCRYPT_EMAIL:?}"
+export AWS_PROFILE="${AWS_PROFILE:-default}"
 SSH_KEY_EXPANDED="${SSH_KEY/#\~/$HOME}"
 # Two repos: this harness (cloned into EDGE_DIR) and the OpenELIS app it builds
 # (cloned into the instance-specific directories). They are separate checkouts.
@@ -80,14 +85,21 @@ warn() { printf '%s!! %s%s\n' "$C_W" "$*" "$C_0" >&2; }
 die()  { printf '%s!! %s%s\n' "$C_E" "$*" "$C_0" >&2; exit 1; }
 
 require_aws() {
-  local output
+  local output profile_region
+  profile_region="$(aws configure get region --profile "$AWS_PROFILE" 2>/dev/null || true)"
+  if [ -z "$profile_region" ]; then
+    die "AWS profile '$AWS_PROFILE' has no configured region. Run: aws configure set region '$REGION' --profile '$AWS_PROFILE'"
+  fi
+  if [ "$profile_region" != "$REGION" ]; then
+    die "AWS profile '$AWS_PROFILE' uses $profile_region but this deployment uses $REGION. AWS login refresh is region-bound. Run: aws configure set region '$REGION' --profile '$AWS_PROFILE'; then aws login --profile '$AWS_PROFILE' --region '$REGION'"
+  fi
   if output="$(aws sts get-caller-identity --region "$REGION" 2>&1)"; then
     return 0
   fi
 
   case "$output" in
     *InvalidGrantException*|*CreateOAuth2Token*|*ExpiredToken*|*InvalidClientTokenId*|*UnrecognizedClientException*)
-      die "AWS credentials could not be refreshed — run 'aws login' once, then retry"
+      die "AWS credentials could not be refreshed for profile '$AWS_PROFILE' in $REGION. Run: aws login --profile '$AWS_PROFILE' --region '$REGION'"
       ;;
     *"Could not connect to the endpoint URL"*|*"Connection was closed"*|*"Name or service not known"*|*"SSL validation failed"*)
       die "AWS endpoint is unreachable; the login may still be valid — check network/sandbox access, then retry"
@@ -237,7 +249,7 @@ amr_sha=\$(repo_git "$AMR_DIR" rev-parse HEAD)
 analyzers_sha=\$(repo_git "$ANALYZERS_DIR" rev-parse HEAD)
 deployment_id=\$(date -u +%Y%m%dT%H%M%SZ)-\${harness_sha:0:12}
 
-echo "[deploy] Grist, Dex, Redis, and UAT read service up"
+echo "[deploy] open-source Grist, Dex, and UAT read service up"
 ENV_FILE="$EDGE_DIR/.env" REVIEW_DIR="$EDGE_DIR/widget/examples" \\
   bash "$EDGE_DIR/grist/bootstrap.sh" up
 
@@ -486,22 +498,57 @@ running_configs=\$(docker inspect -f '{{index .Config.Labels \"com.docker.compos
 running_override=\$(printf '%s' \"\$running_configs\" | tr ',' '\n' | awk -v instance=\"\$instance\" '\$0 ~ \"/\" instance \"/docker-compose\\\\.override\\\\.yml$\" { print; exit }')
 edge_dir='$EDGE_DIR'
 [ -z \"\$running_override\" ] || edge_dir=\${running_override%/\$instance/docker-compose.override.yml}
+target=\"\$edge_dir/runtime/target-\$instance.json\"
 if [ -z \"\$deployment_id\" ]; then
-  latest=\$(find \"\$edge_dir/runtime/deployments\" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sort | tail -1)
-  deployment_id=\${latest##*/}
+  [ -f \"\$target\" ] || { echo \"no ready deployment found for \$instance\"; exit 1; }
+  target_instance=\$(sed -n 's/.*\"instance\":\"\\([^\"]*\\)\".*/\\1/p' \"\$target\")
+  [ \"\$target_instance\" = \"\$instance\" ] || { echo \"target record belongs to \$target_instance, not \$instance\"; exit 1; }
+  deployment_id=\$(sed -n 's/.*\"deploymentId\":\"\\([^\"]*\\)\".*/\\1/p' \"\$target\")
 fi
-[ -n \"\$deployment_id\" ] || { echo 'no targeted deployments found'; exit 1; }
+[ -n \"\$deployment_id\" ] || { echo \"no deployment id found for \$instance\"; exit 1; }
 status=\"\$edge_dir/runtime/deployments/\$deployment_id/status.json\"
 log='/home/$OS_USER/oe-app-deploy-'\"\$deployment_id\"'.log'
 echo \"deployment=\$deployment_id\"
-cat \"\$status\" 2>/dev/null || echo '{\"state\":\"launching\"}'
+if [ -f \"\$status\" ]; then
+  status_instance=\$(sed -n 's/.*\"instance\":\"\\([^\"]*\\)\".*/\\1/p' \"\$status\")
+  [ \"\$status_instance\" = \"\$instance\" ] || { echo \"deployment \$deployment_id belongs to \$status_instance, not \$instance\"; exit 1; }
+  cat \"\$status\"
+else
+  echo '{\"state\":\"launching\"}'
+fi
 echo
 tail -12 \"\$log\" 2>/dev/null || true"
 }
 
-cmd_app_verify() {
-  local instance="${1:-}"
+cmd_app_logs() {
+  local instance="${1:-}" since="10m" tail_lines="400" errors=false
+  shift || true
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --since) since="${2:-}"; shift 2 ;;
+      --tail) tail_lines="${2:-}"; shift 2 ;;
+      --errors) errors=true; shift ;;
+      *) die "unknown app logs argument '$1'" ;;
+    esac
+  done
   select_instance_config "$instance"
+  [[ "$since" =~ ^[1-9][0-9]*[smhd]$ ]] || die "--since must be a positive duration such as 10m or 2h"
+  [[ "$tail_lines" =~ ^[1-9][0-9]*$ ]] || die "--tail must be a positive line count"
+  [ "$tail_lines" -le 5000 ] || die "--tail must not exceed 5000 lines"
+  require_aws
+  if [ "$errors" = true ]; then
+    ssm_run "docker exec '$instance-openelisglobal-webapp' sh -c 'for file in /var/lib/openelis-global/logs/openELIS.log /var/lib/openelis-global/logs/error-backup-*.log.gz; do [ -f \"\$file\" ] || continue; case \"\$file\" in *.gz) gzip -cd \"\$file\" ;; *) cat \"\$file\" ;; esac; done | grep -E -C 25 \"ERROR|Exception|Caused by|filter-options|MicroWhonet\" || true'"
+    return
+  fi
+  ssm_run "docker logs --since '$since' --tail '$tail_lines' '$instance-openelisglobal-webapp' 2>&1"
+}
+
+cmd_app_verify() {
+  local instance="${1:-}" runtime_containers=""
+  select_instance_config "$instance"
+  if [ "$instance" = analyzers ]; then
+    runtime_containers="'analyzers-openelis-analyzer-bridge' 'analyzers-openelis-astm-simulator'"
+  fi
   require_aws
   log "verified target metadata"
   curl -fsSk "https://$SELECTED_APP_DOMAIN/__review/target.json"
@@ -511,7 +558,7 @@ cmd_app_verify() {
   printf '   %s -> HTTP %s\n' "$SELECTED_APP_SMOKE_PATH" \
     "$(curl -sk -o /dev/null -w '%{http_code}' --max-time 15 "https://$SELECTED_APP_DOMAIN$SELECTED_APP_SMOKE_PATH")"
   ssm_run "docker inspect -f '{{.Name}}: running={{.State.Running}} health={{if .State.Health}}{{.State.Health.Status}}{{else}}n/a{{end}} image={{.Image}} started={{.State.StartedAt}}' \
-    '$instance-openelisglobal-webapp' '$instance-openelisglobal-front-end'"
+    '$instance-openelisglobal-webapp' '$instance-openelisglobal-front-end' $runtime_containers"
 }
 
 cmd_app_rollback() {
@@ -544,9 +591,10 @@ cmd_app() {
   case "$action" in
     deploy) cmd_app_deploy "$@" ;;
     status) cmd_app_status "$@" ;;
+    logs) cmd_app_logs "$@" ;;
     verify) cmd_app_verify "$@" ;;
     rollback) cmd_app_rollback "$@" ;;
-    *) die "unknown app action '$action' (deploy|status|verify|rollback)" ;;
+    *) die "unknown app action '$action' (deploy|status|logs|verify|rollback)" ;;
   esac
 }
 
@@ -759,6 +807,18 @@ cmd_review() {
 # The document's schema, from the checkout on the box. Reuses the harness's own
 # bootstrap, so the runtime that runs is the one the repository ships rather than
 # whatever a caller happened to copy over.
+cmd_grist_up() {
+  shift || true
+  [ "$#" -eq 0 ] || die "grist up takes no arguments"
+  require_aws
+  log "reconciling the open-source Grist runtime"
+  ssm_run "set -euo pipefail
+router_workdir=\$(docker inspect -f '{{index .Config.Labels \"com.docker.compose.project.working_dir\"}}' oe-edge-router)
+edge_dir=\${router_workdir%/router}
+cd \"\$edge_dir\"
+sudo -u '$OS_USER' bash grist/bootstrap.sh up"
+}
+
 cmd_grist_apply() {
   shift || true
   require_aws
@@ -771,20 +831,57 @@ cd \"\$edge_dir\"
 sudo -u '$OS_USER' bash grist/bootstrap.sh apply $flags"
 }
 
+cmd_grist_apply_story() {
+  shift || true
+  if [ "${1:-}" != "--file" ] || [ -z "${2:-}" ] || [ "$#" -ne 2 ]; then
+    die "grist apply-story requires --file <story.json>"
+  fi
+  local file="$2" payload
+  [ -f "$file" ] || die "story file not found: $file"
+  payload="$(base64 <"$file" | tr -d '\n')"
+  require_aws
+  log "applying one Grist UAT story from $file"
+  ssm_run "set -euo pipefail
+router_workdir=\$(docker inspect -f '{{index .Config.Labels \"com.docker.compose.project.working_dir\"}}' oe-edge-router)
+edge_dir=\${router_workdir%/router}
+story_file=\$(sudo -u '$OS_USER' mktemp /tmp/uat-story.XXXXXX.json)
+trap 'rm -f \"\$story_file\"' EXIT
+printf '%s' '$payload' | base64 -d | sudo -u '$OS_USER' tee \"\$story_file\" >/dev/null
+cd \"\$edge_dir\"
+sudo -u '$OS_USER' bash grist/bootstrap.sh apply-story \"\$story_file\""
+}
+
+cmd_grist_check_access() {
+  shift || true
+  [ "$#" -eq 0 ] || die "grist check-access takes no arguments"
+  require_aws
+  log "checking the Grist authoring identity"
+  ssm_run "set -euo pipefail
+router_workdir=\$(docker inspect -f '{{index .Config.Labels \"com.docker.compose.project.working_dir\"}}' oe-edge-router)
+edge_dir=\${router_workdir%/router}
+cd \"\$edge_dir\"
+sudo -u '$OS_USER' bash grist/bootstrap.sh check-access"
+}
+
 cmd_grist() {
   local action="${1:-}"
   case "$action" in
+    up) cmd_grist_up "$@" ;;
     apply) cmd_grist_apply "$@" ;;
-    *) die "unknown grist action '$action' (apply)" ;;
+    apply-story) cmd_grist_apply_story "$@" ;;
+    check-access) cmd_grist_check_access "$@" ;;
+    *) die "unknown grist action '$action' (up|apply|apply-story|check-access)" ;;
   esac
 }
 
 cmd_data_seed() {
-  local instance="${1:-}" fixture=""
+  local instance="${1:-}" fixture="" story story_values=""
+  local stories=()
   shift || true
   while [ "$#" -gt 0 ]; do
     case "$1" in
       --fixture) fixture="${2:-}"; shift 2 ;;
+      --story) stories+=("${2:-}"); shift 2 ;;
       *) die "unknown data seed argument '$1'" ;;
     esac
   done
@@ -794,6 +891,13 @@ cmd_data_seed() {
     amr:microbiology-mvp | phrases:macro-library) ;;
     *) die "supported data fixtures are analyzers:analyzer-mvp, amr:microbiology-mvp, and phrases:macro-library" ;;
   esac
+  if [ "${#stories[@]}" -gt 0 ]; then
+    [ "$instance" = "amr" ] || die "--story is supported only for the AMR microbiology fixture"
+    for story in "${stories[@]}"; do
+      [[ "$story" =~ ^AMR-S[0-9]{2}$ ]] || die "invalid AMR story key '$story'"
+    done
+    story_values="${stories[*]}"
+  fi
   if [ "$instance:$fixture" = "analyzers:analyzer-mvp" ]; then
     require_aws
     log "seeding the analyzer acceptance fixture without touching AMR"
@@ -836,7 +940,7 @@ bash projects/analyzer-harness/seed-mvp-traffic.sh"
 $(cat "$HERE/scripts/seed-microbiology.sh")
 SEEDEOF
 chmod +x /tmp/seed-microbiology.sh
-BASE_URL=https://$SELECTED_APP_DOMAIN /tmp/seed-microbiology.sh"
+FIXTURE_STORIES='$story_values' BASE_URL=https://$SELECTED_APP_DOMAIN /tmp/seed-microbiology.sh"
 }
 
 cmd_data() {
@@ -896,7 +1000,7 @@ fi
 # The read service bakes its source into the image, so a deploy that reused a
 # cached image looks healthy while serving old code. Compare the two.
 img=$(docker exec oe-edge-grist-uat-read md5sum /app/uat-document.mjs 2>/dev/null | cut -d" " -f1)
-src=$(md5sum grist/mcp/uat-document.mjs 2>/dev/null | cut -d" " -f1)
+src=$(md5sum grist/uat-read/uat-document.mjs 2>/dev/null | cut -d" " -f1)
 if [ -n "$img" ]; then
   if [ "$img" = "$src" ]; then
     echo "uat-read image: matches checkout"

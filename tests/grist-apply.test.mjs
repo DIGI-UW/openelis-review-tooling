@@ -11,7 +11,7 @@
 
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { mkdtemp, readFile, readdir } from "node:fs/promises";
+import { mkdtemp, readFile, readdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -37,6 +37,67 @@ async function apply(doc, args = [], env = {}) {
     await grist.stop();
   }
 }
+
+async function checkAccess(doc, env = {}) {
+  const grist = await startFakeGrist(doc);
+  try {
+    return await run("node", [SYNC, "check-access"], {
+      env: {
+        ...process.env,
+        GRIST_URL: grist.url,
+        GRIST_KEY: "test-key",
+        ...env,
+      },
+    });
+  } finally {
+    await grist.stop();
+  }
+}
+
+async function applyStory(doc, payload) {
+  const dir = await mkdtemp(join(tmpdir(), "uat-story-"));
+  const path = join(dir, "story.json");
+  await writeFile(path, JSON.stringify(payload));
+  const grist = await startFakeGrist(doc);
+  try {
+    return await run("node", [SYNC, "apply-story", path], {
+      env: {
+        ...process.env,
+        GRIST_URL: grist.url,
+        GRIST_KEY: "test-key",
+      },
+    });
+  } finally {
+    await grist.stop();
+  }
+}
+
+test("check-access requires the server authoring identity to own the document", async () => {
+  const owner = fakeGristDoc({ access: "owners" });
+  const { stdout, stderr } = await checkAccess(owner, {
+    GRIST_ADMIN_EMAIL: "admin@example.test",
+  });
+  assert.match(stdout, /UAT Checklists.*owners/);
+  assert.match(
+    stderr,
+    /authenticated user 5, shared user 5, direct owners, inherited owners/,
+  );
+  assert.doesNotMatch(stderr, /activation|product|readOnlyDocs/i);
+  assert.doesNotMatch(owner.calls.join("\n"), /activation|\/api\/orgs\/openelis$/i);
+
+  const viewer = fakeGristDoc({ access: "viewers" });
+  await assert.rejects(
+    checkAccess(viewer, { GRIST_ADMIN_EMAIL: "admin@example.test" }),
+    (error) => {
+      assert.match(
+        error.stderr,
+        /authenticated user 5, shared user 5, direct viewers, inherited owners/,
+      );
+      assert.match(error.stderr, /expected owners, received viewers/);
+      return true;
+    },
+  );
+});
 
 // A document as it was before stories existed: steps carrying their group as a
 // repeated title, which is the only state the migration has to work from.
@@ -194,6 +255,67 @@ test("a story ends up pointing at its review, not at the name it was typed as", 
       "instance is the review's row id",
     );
   }
+});
+
+test("apply-story creates and then reconciles one stable story without touching its siblings", async () => {
+  const doc = legacyDoc();
+  await apply(doc);
+  const siblingCount = doc.tables.UAT_Stories.records.length;
+  const payload = {
+    instance: "amr",
+    story: {
+      story_key: "AMR-S33",
+      title: "Carry reviewed AST scope into WHONET",
+      story_order: 27,
+      version: "1.0",
+      hosts: "amr.openelis-global.org",
+    },
+    steps: [
+      {
+        step_key: "AMR-109",
+        required: true,
+        step_order: 0,
+        do: "Open the reviewed AST worklist.",
+        expect: "The reviewed scope is visible.",
+        route: "/Microbiology/worklist",
+      },
+      {
+        step_key: "AMR-110",
+        required: true,
+        step_order: 1,
+        do: "Carry the scope into WHONET.",
+        expect: "The WHONET filters match.",
+        route: "/Microbiology/whonet",
+      },
+    ],
+  };
+
+  await applyStory(doc, payload);
+  const created = doc.tables.UAT_Stories.records.find(
+    (record) => record.fields.story_key === "AMR-S33",
+  );
+  assert.ok(created);
+  assert.equal(created.fields.instance, 1, "story references the review row");
+  assert.equal(doc.tables.UAT_Stories.records.length, siblingCount + 1);
+  assert.deepEqual(
+    doc.tables.UAT_Steps.records
+      .filter((record) => record.fields.story === created.id)
+      .map((record) => record.fields.step_key),
+    ["AMR-109", "AMR-110"],
+  );
+
+  payload.story.title = "Updated WHONET scope";
+  payload.steps = [{ ...payload.steps[0], do: "Open the final reviewed AST scope." }];
+  await applyStory(doc, payload);
+  assert.equal(created.fields.title, "Updated WHONET scope");
+  assert.deepEqual(
+    doc.tables.UAT_Steps.records
+      .filter((record) => record.fields.story === created.id)
+      .map((record) => [record.fields.step_key, record.fields.do]),
+    [["AMR-109", "Open the final reviewed AST scope."]],
+    "the story is exact: changed steps update and removed steps do not linger",
+  );
+  assert.equal(doc.tables.UAT_Stories.records.length, siblingCount + 1);
 });
 
 test("apply is idempotent — a second run changes nothing", async () => {

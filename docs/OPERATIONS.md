@@ -8,9 +8,8 @@ describes the current system, including state intentionally kept outside Git.
 | Compose project | Component                | Purpose                                                   | Durable state                                       |
 | --------------- | ------------------------ | --------------------------------------------------------- | --------------------------------------------------- |
 | `oe-edge`       | `oe-edge-router`         | TLS, host routing, widget injection, live checklist proxy | Let's Encrypt files and self-signed fallback volume |
-| `oe-grist`      | `oe-edge-grist`          | Human checklist authoring and native MCP at `/api/mcp`    | `oe-grist_grist-data`                               |
+| `oe-grist`      | `oe-edge-grist`          | Human checklist authoring and authenticated REST API      | `oe-grist_grist-data`                               |
 | `oe-grist`      | `oe-edge-dex`            | Grist sign-in                                             | Configuration in Git; secrets supplied at runtime   |
-| `oe-grist`      | `oe-edge-redis`          | Native MCP OAuth token state                              | None; users reauthenticate after loss               |
 | `oe-grist`      | `oe-edge-grist-uat-read` | Public, read-only Grist-to-widget adapter                 | Server-side Grist API key mounted read-only         |
 | `amr`           | OpenELIS AMR stack       | Microbiology review target                                | OpenELIS database and application volumes           |
 | `analyzers`     | OpenELIS analyzer stack  | Analyzer review target                                    | OpenELIS database and application volumes           |
@@ -27,7 +26,7 @@ The operator has two untracked environment files:
 - A local `.env`, copied from `.env.example`, for AWS coordinates, branches,
   domains, and host paths used by `deploy.sh`.
 - `${EDGE_DIR}/.env` on the host, provisioned from `grist/.env.example`, for the
-  Grist/Dex runtime and its two secret values.
+  Grist/Dex runtime and its credentials.
 
 The deploy command never embeds the host-side secret values in an SSM command
 body. Provision `${EDGE_DIR}/.env` through an approved operator channel before
@@ -45,7 +44,20 @@ the first deployment.
 | `DEX_REVIEWER_PASSWORD_HASH`                                  | Demo reviewer login hash             | Yes                                              |
 
 AWS credentials remain in the operator's normal AWS CLI session. They are
-never copied into `.env`, Grist, the widget, or MCP.
+never copied into `.env`, Grist, the widget, or the authoring API.
+
+The configured `AWS_PROFILE` region must match `REGION`. Console-login
+credentials are short-lived and the CLI refreshes them through the regional
+AWS Sign-In endpoint that issued the session. Before the first deployment, or
+after changing regions, configure and log in once with matching values:
+
+```bash
+aws configure set region us-west-2 --profile default
+aws login --profile default --region us-west-2
+```
+
+`deploy.sh` rejects a mismatched profile before making a deployment request so
+an initially valid 15-minute credential cannot fail later during a long build.
 
 ## Protected State
 
@@ -54,7 +66,7 @@ The Git checkout is replaceable. These paths are not:
 - `${EDGE_DIR}/.env`: host-side Grist/Dex runtime configuration and secrets;
 - `${GRIST_STATE_DIR}/.api-key`: full-access Grist API key used only by the
   server-side read adapter;
-- Docker volume `oe-grist_grist-data`: Grist documents and full-edition marker;
+- Docker volume `oe-grist_grist-data`: Grist documents and account data;
 - `router/letsencrypt/`: certificate lineages;
 - OpenELIS database volumes for `amr`, `analyzers`, and `phrases`.
 
@@ -77,12 +89,18 @@ cp grist/.env.example .env
 # Replace every placeholder before provisioning this file to ${EDGE_DIR}/.env.
 ./grist/bootstrap.sh up
 ./grist/bootstrap.sh status
+./grist/bootstrap.sh check-access
 ```
 
-`up` activates the full edition in its persistent volume, starts
-Grist/Dex/Redis, preserves or creates the server-side API key, migrates missing
-columns, seeds only instances absent from Grist, and starts the read adapter.
-Routine runs do not clear authored rows.
+`check-access` fails unless the server-side Grist identity owns the UAT
+document. Run it before relying on REST authoring; a read-only server identity
+is not a healthy authoring setup.
+
+`up` starts the exclusively open-source `gristlabs/grist-oss` image and Dex,
+reuses the named persistent volume, preserves or creates the server-side API
+key, and verifies document ownership before changing the UAT document. It then
+migrates missing columns, seeds only instances absent from Grist, and starts the
+read adapter. Routine runs do not clear authored rows.
 
 For a deliberate replacement of the committed example instances:
 
@@ -91,7 +109,7 @@ For a deliberate replacement of the committed example instances:
 ```
 
 This explicit command replaces rows for the committed example instances.
-Humans normally edit Grist directly and agents use native MCP; both paths become
+Humans normally edit Grist directly and agents use REST; both paths become
 live without a publish step.
 
 ## Review Identity
@@ -115,13 +133,13 @@ reconciles Grist and rebuilds both OpenELIS review targets plus the router. It
 must not be presented as a single-instance or low-risk application deployment.
 
 Targeted application delivery uses an exact pushed SHA and leaves the other
-OpenELIS stacks, router, Grist, databases, FHIR, and analyzer harness services
-untouched:
+OpenELIS stacks, router, Grist, databases, and FHIR services untouched:
 
 ```text
 ./deploy.sh infra bootstrap|status|upgrade
 ./deploy.sh app deploy <instance> --ref <sha> --scope frontend|backend|app
 ./deploy.sh app status <instance> [--deployment <id>]
+./deploy.sh app logs <instance> [--since <duration>] [--tail <lines>] [--errors]
 ./deploy.sh app verify <instance>
 ./deploy.sh app rollback <instance>
 ./deploy.sh analyzer-runtime deploy --ref <exact-openelis-sha>
@@ -130,8 +148,14 @@ untouched:
 ./deploy.sh data seed analyzers --fixture analyzer-mvp
 ./deploy.sh review deploy --ref <sha> --scope widget
 ./deploy.sh review reload-router [--instance amr] [--domain <host>]
+./deploy.sh grist up
+./deploy.sh grist apply-story --file <story.json>
 ./deploy.sh data seed <instance> --fixture <name>
 ```
+
+For `analyzers`, app scope also rebuilds and verifies the Analyzer Bridge and
+analyzer mock revisions pinned by the selected OpenELIS commit. It does not
+restart AMR, phrases, the router, Grist, or their data services.
 
 For a targeted app deployment, `target.json` records the branch only when one
 remote branch head exactly matches the deployed SHA. If that association is
@@ -159,6 +183,7 @@ Deploying a change that touches all three therefore goes:
 
 ```text
 ./deploy.sh review deploy --ref <sha> --scope all   # moves the checkout, then the widget + service
+./deploy.sh grist up                                # reconciles Grist/Dex from that checkout
 ./deploy.sh grist apply --dry-run                   # read the plan against the moved checkout
 ./deploy.sh grist apply
 ./deploy.sh review reload-router                    # last: the route needs the service behind it

@@ -27,14 +27,23 @@ http {
     # refusing to start on an unresolvable upstream).
     resolver 127.0.0.11 valid=10s ipv6=off;
 
+    # Frontend responses arrive uncompressed so the router can inject the review
+    # widget into HTML. Recompress them here; otherwise the same setting also sends
+    # multi-megabyte JavaScript and CSS bundles to reviewers uncompressed.
+    gzip on;
+    gzip_proxied any;
+    gzip_vary on;
+    gzip_min_length 1024;
+    gzip_types application/javascript application/json image/svg+xml text/css text/javascript;
+
     # WebSocket upgrade passthrough (Grist relies on it).
     map $http_upgrade $connection_upgrade {
         default upgrade;
         ""      close;
     }
 
-    # Server-side cache for the live UAT checklist reads (GET /uat via the MCP
-    # bridge). Lets a brief Grist/MCP hiccup serve the last good checklist to the
+    # Server-side cache for the live UAT checklist reads (GET /uat via the read
+    # adapter). Lets a brief Grist hiccup serve the last good checklist to the
     # reviewer overlay instead of failing it.
     proxy_cache_path /var/cache/nginx/uat levels=1:2 keys_zone=uat_cache:1m max_size=16m inactive=30m;
 
@@ -65,6 +74,7 @@ http {
     # -------------------------------------------------------------------------
     server {
         listen 443 ssl;
+        http2 on;
         server_name ${PHRASES_DOMAIN};
 
         ssl_certificate     ${PHRASES_CERT};
@@ -147,6 +157,7 @@ http {
     # -------------------------------------------------------------------------
     server {
         listen 443 ssl;
+        http2 on;
         server_name ${AMR_DOMAIN};
 
         ssl_certificate     ${AMR_CERT};
@@ -170,8 +181,8 @@ http {
         }
 
         # Live UAT checklist: the widget requests /__review/uat-<inst>.json; serve
-        # it from Grist (via the MCP bridge) instead of the static file, so edits
-        # in Grist/MCP appear immediately. Regex wins over the prefix above.
+        # it from Grist (via the read adapter) instead of the static file, so edits
+        # in Grist appear immediately. Regex wins over the prefix above.
         location ~ ^/__review/uat-(?<uat_instance>[a-z0-9_-]+)\.json$ {
             set $uat_up "uat-read";
             proxy_pass http://$uat_up:8585/uat/$uat_instance.json;
@@ -250,6 +261,7 @@ http {
     # -------------------------------------------------------------------------
     server {
         listen 443 ssl;
+        http2 on;
         server_name ${ANALYZERS_DOMAIN};
 
         ssl_certificate     ${ANALYZERS_CERT};
@@ -336,11 +348,12 @@ http {
     }
 
     # -------------------------------------------------------------------------
-    # grist.openelis-global.org -> Grist UAT authoring UI and native MCP.
+    # grist.openelis-global.org -> Grist UAT authoring UI and REST API.
     # Grist authenticates through its OIDC flow against Dex.
     # -------------------------------------------------------------------------
     server {
         listen 443 ssl;
+        http2 on;
         server_name ${GRIST_DOMAIN};
 
         ssl_certificate     ${GRIST_CERT};
@@ -387,7 +400,7 @@ http {
         # These two are what an EXISTING deployment points at to adopt the review
         # overlay: one script tag, no proxy, no frontend build on their side.
         # Both are public and read-only (authoring still requires auth via
-        # Grist's native /api/mcp).
+        # Grist's authenticated REST API).
 
         # The reviewer widget itself, served from this central host so integrators
         # reference a URL instead of vendoring a copy of the file.
@@ -420,8 +433,8 @@ http {
         }
 
         # Grist. Login is Grist's own OIDC flow against Dex — no basic-auth gate;
-        # Grist redirects unauthenticated users to Dex and exposes native MCP at
-        # /api/mcp through this same upstream.
+        # Grist redirects unauthenticated users to Dex and exposes its
+        # authenticated REST API through this same upstream.
         location / {
             set $grist_up "grist";
             proxy_pass http://$grist_up:8484;

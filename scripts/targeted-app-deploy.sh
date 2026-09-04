@@ -33,6 +33,10 @@ COMPOSE_FILES=()
 BACKEND_IMAGE="openelisglobal-webapp.$INSTANCE"
 FRONTEND_IMAGE="frontend.$INSTANCE"
 BACKEND_CONTAINER="$APP_CONTAINER"
+BRIDGE_IMAGE="openelis-analyzer-bridge.$INSTANCE"
+MOCK_IMAGE="openelis-astm-simulator.$INSTANCE"
+BRIDGE_CONTAINER="$INSTANCE-openelis-analyzer-bridge"
+MOCK_CONTAINER="$INSTANCE-openelis-astm-simulator"
 candidate_started=false
 schema_affecting=false
 previous_app_sha=""
@@ -44,6 +48,22 @@ repo_git() {
   local dir="$1"
   shift
   sudo -u "$REMOTE_USER" git -c safe.directory="$dir" -C "$dir" "$@"
+}
+
+normalize_initialized_submodules() {
+  local dir="$1" dirty
+  # shellcheck disable=SC2016 # $sm_path belongs to git submodule foreach's shell.
+  dirty="$(repo_git "$dir" submodule foreach --quiet --recursive '
+    if ! git diff --quiet || ! git diff --cached --quiet; then
+      printf "%s\n" "$sm_path"
+    fi
+  ')"
+  if [ -n "$dirty" ]; then
+    echo "refusing to overwrite tracked changes in initialized submodules:" >&2
+    printf '%s\n' "$dirty" >&2
+    exit 1
+  fi
+  repo_git "$dir" submodule update --depth 1
 }
 
 write_status() {
@@ -64,9 +84,44 @@ selected_services() {
   case "$APP_SCOPE" in
     frontend) printf '%s\n' "frontend.openelis.org" ;;
     backend) printf '%s\n' "oe.openelis.org" ;;
-    app) printf '%s\n' "oe.openelis.org" "frontend.openelis.org" ;;
+    app)
+      if [ "$INSTANCE" = analyzers ]; then
+        printf '%s\n' "openelis-analyzer-bridge" "astm-simulator"
+      fi
+      printf '%s\n' "oe.openelis.org" "frontend.openelis.org"
+      ;;
     *) echo "unsupported app scope: $APP_SCOPE" >&2; return 1 ;;
   esac
+}
+
+wait_for_analyzer_runtime() {
+  [ "$INSTANCE" = analyzers ] && [ "$APP_SCOPE" = app ] || return 0
+  local ready=false
+  for _ in $(seq 1 120); do
+    if docker exec "$BRIDGE_CONTAINER" /app/healthcheck.sh >/dev/null 2>&1; then
+      ready=true
+      break
+    fi
+    sleep 5
+  done
+  [ "$ready" = true ] || {
+    echo "analyzer Bridge did not become ready within 10 minutes" >&2
+    return 1
+  }
+
+  ready=false
+  for _ in $(seq 1 120); do
+    if [ "$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' \
+      "$MOCK_CONTAINER" 2>/dev/null || true)" = healthy ]; then
+      ready=true
+      break
+    fi
+    sleep 5
+  done
+  [ "$ready" = true ] || {
+    echo "analyzer mock did not become healthy within 10 minutes" >&2
+    return 1
+  }
 }
 
 restore_previous_images() {
@@ -85,6 +140,11 @@ restore_previous_images() {
   if [ "$APP_SCOPE" = frontend ] || [ "$APP_SCOPE" = app ]; then
     docker image tag "$FRONTEND_IMAGE:rollback-$DEPLOYMENT_ID" "$FRONTEND_IMAGE:latest"
     services+=("frontend.openelis.org")
+  fi
+  if [ "$INSTANCE" = analyzers ] && [ "$APP_SCOPE" = app ]; then
+    docker image tag "$BRIDGE_IMAGE:rollback-$DEPLOYMENT_ID" "$BRIDGE_IMAGE:latest"
+    docker image tag "$MOCK_IMAGE:rollback-$DEPLOYMENT_ID" "$MOCK_IMAGE:latest"
+    services=("openelis-analyzer-bridge" "astm-simulator" "${services[@]}")
   fi
   compose up -d --no-deps --force-recreate "${services[@]}" || true
 }
@@ -144,6 +204,7 @@ if [ ! -d "$APP_DIR/.git" ]; then
   sudo chown "$REMOTE_USER":"$REMOTE_USER" "$APP_DIR"
   sudo -u "$REMOTE_USER" git clone --no-checkout --filter=blob:none "$APP_REPO" "$APP_DIR"
 fi
+normalize_initialized_submodules "$APP_DIR"
 if ! repo_git "$APP_DIR" diff --quiet || ! repo_git "$APP_DIR" diff --cached --quiet; then
   echo "refusing to overwrite tracked changes in $APP_DIR" >&2
   repo_git "$APP_DIR" status --short >&2
@@ -156,6 +217,7 @@ fi
 [ -f "$TARGET_FILE" ] && cp "$TARGET_FILE" "$PREVIOUS_TARGET"
 repo_git "$APP_DIR" fetch --depth 1 origin "$APP_REF"
 repo_git "$APP_DIR" checkout --detach FETCH_HEAD
+normalize_initialized_submodules "$APP_DIR"
 app_sha="$(repo_git "$APP_DIR" rev-parse HEAD)"
 [ "$app_sha" = "$APP_REF" ] || {
   echo "fetched SHA $app_sha does not match requested SHA $APP_REF" >&2
@@ -178,7 +240,12 @@ case "$matching_branch_count" in
     echo "[app-deploy] exact SHA $app_sha is not a unique remote branch head; publishing SHA-only provenance"
     ;;
 esac
-repo_git "$APP_DIR" submodule update --init --depth 1 dataexport
+if [ "$INSTANCE" = analyzers ]; then
+  repo_git "$APP_DIR" submodule update --init --depth 1 dataexport \
+    tools/openelis-analyzer-bridge tools/analyzer-mock-server
+else
+  repo_git "$APP_DIR" submodule update --init --depth 1 dataexport plugins
+fi
 
 if [ -n "$running_configs" ]; then
   IFS=',' read -r -a active_compose_files <<<"$running_configs"
@@ -219,6 +286,12 @@ if [ "$bootstrap" = false ] && { [ "$APP_SCOPE" = frontend ] || [ "$APP_SCOPE" =
   previous_frontend_image="$(docker inspect -f '{{.Image}}' "$FRONTEND_CONTAINER")"
   docker image tag "$previous_frontend_image" "$FRONTEND_IMAGE:rollback-$DEPLOYMENT_ID"
 fi
+if [ "$bootstrap" = false ] && [ "$INSTANCE" = analyzers ] && [ "$APP_SCOPE" = app ]; then
+  previous_bridge_image="$(docker inspect -f '{{.Image}}' "$BRIDGE_CONTAINER")"
+  previous_mock_image="$(docker inspect -f '{{.Image}}' "$MOCK_CONTAINER")"
+  docker image tag "$previous_bridge_image" "$BRIDGE_IMAGE:rollback-$DEPLOYMENT_ID"
+  docker image tag "$previous_mock_image" "$MOCK_IMAGE:rollback-$DEPLOYMENT_ID"
+fi
 
 mapfile -t services < <(selected_services)
 # mapfile returns 0 even when the process substitution fails, and an empty array
@@ -237,7 +310,8 @@ if [ "$bootstrap" = true ]; then
   docker network create oe-edge 2>/dev/null || true
   candidate_started=true
   write_status verifying
-  compose up -d --build certs db.openelis.org oe.openelis.org fhir.openelis.org frontend.openelis.org
+  compose up -d --build certs db.openelis.org fhir.openelis.org "${services[@]}"
+  wait_for_analyzer_runtime
 else
   compose build "${services[@]}"
 fi
@@ -247,11 +321,21 @@ fi
 if [ "$APP_SCOPE" = frontend ] || [ "$APP_SCOPE" = app ]; then
   docker image tag "$FRONTEND_IMAGE:latest" "$FRONTEND_IMAGE:$app_sha"
 fi
+if [ "$INSTANCE" = analyzers ] && [ "$APP_SCOPE" = app ]; then
+  docker image tag "$BRIDGE_IMAGE:latest" "$BRIDGE_IMAGE:$app_sha"
+  docker image tag "$MOCK_IMAGE:latest" "$MOCK_IMAGE:$app_sha"
+fi
 
 if [ "$bootstrap" = false ]; then
   candidate_started=true
   write_status verifying
-  compose up -d --no-deps --force-recreate "${services[@]}"
+  if [ "$INSTANCE" = analyzers ] && [ "$APP_SCOPE" = app ]; then
+    compose up -d --no-deps --force-recreate openelis-analyzer-bridge astm-simulator
+    wait_for_analyzer_runtime
+    compose up -d --no-deps --force-recreate oe.openelis.org frontend.openelis.org
+  else
+    compose up -d --no-deps --force-recreate "${services[@]}"
+  fi
 fi
 
 if [ "$APP_SCOPE" = backend ] || [ "$APP_SCOPE" = app ]; then
@@ -303,5 +387,9 @@ prune_rollback_tags() {
 }
 prune_rollback_tags "$BACKEND_IMAGE"
 prune_rollback_tags "$FRONTEND_IMAGE"
+if [ "$INSTANCE" = analyzers ] && [ "$APP_SCOPE" = app ]; then
+  prune_rollback_tags "$BRIDGE_IMAGE"
+  prune_rollback_tags "$MOCK_IMAGE"
+fi
 
 echo "[app-deploy] ready: $INSTANCE $app_sha ($APP_SCOPE)"

@@ -1,8 +1,8 @@
 # Grist authoring layer for the UAT checklists
 
-Light self-hosted [Grist](https://www.getgrist.com/) that owns the **authoring**
+Light self-hosted open-source [Grist](https://www.getgrist.com/) that owns the **authoring**
 side of the reviewer overlay: people edit UAT steps in the spreadsheet UI and
-agents edit the same rows through Grist's native `/api/mcp`.
+agents edit the same rows through Grist's authenticated REST API.
 
 Feedback remains client-side download → Claude. The public read transformer
 serves schema-v2 checklist JSON with a deterministic revision.
@@ -12,7 +12,7 @@ serves schema-v2 checklist JSON with a deterministic revision.
 ```
 widget/examples/uat-*.json ──initial seed──▶ Grist ──live read──▶ review overlay
                                             ▲
-                                     UI or native MCP
+                                       UI or REST
 ```
 
 Grist is the source of truth once seeded. The read-only adapter builds served
@@ -26,7 +26,7 @@ not a publish step. The overlay sees changes within the router's short cache.
 | `UAT_Meta`        | instance, title, intro, jira                                                                                 | per-module header            |
 | `UAT_Stories`     | instance, story_key, title, story_order, version, jira, pr, mock, user_story, hosts                          | one row per story            |
 | `UAT_Steps`       | instance, step_key, required, story, step_order, do, expect, route                                           | the checklist                |
-| `UAT_Submissions` | instance, login, reviewer, submitted_at, host, app_sha, checklist_revision                                   | one row per review handed in |
+| `UAT_Submissions` | instance, login, reviewer, submitted_at, host, app_sha, checklist_revision                                   | one row per review; login is authenticated and reviewer is entered |
 | `UAT_Answers`     | review, step_key, story_key, story_title, story_version, story_revision, mark, note, actual_url, step, story | one row per step answered    |
 
 The first three are authored. The last two are written by a submission and are
@@ -78,10 +78,11 @@ bash bootstrap.sh validate
 bash bootstrap.sh up
 bash bootstrap.sh status
 bash bootstrap.sh generate
+bash bootstrap.sh apply-story story.json
 bash bootstrap.sh seed-examples --replace-all
 ```
 
-`grist-sync.mjs` (`apply` | `migrate` | `seed` | `generate` | `publish`) does the API
+`grist-sync.mjs` (`apply` | `apply-story` | `migrate` | `seed` | `generate` | `publish`) does the API
 work; `bootstrap.sh` wraps it with the container lifecycle + the headless API-key
 step.
 

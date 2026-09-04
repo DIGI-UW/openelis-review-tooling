@@ -6,7 +6,7 @@
 //   GET  /healthz                  Liveness.
 //
 // The Grist API key is held here (server-side) and never exposed to callers:
-// the widget reads through GET /uat. Authoring uses Grist's native /api/mcp.
+// the widget reads through GET /uat. Authoring uses Grist's REST API directly.
 //
 // Env: GRIST_URL, GRIST_KEY | GRIST_KEY_FILE, GRIST_ORG, GRIST_DOC_NAME,
 //      PORT, REVIEW_BACKENDS, REVIEW_TLS_INSECURE_HOSTS, SESSION_PATH.
@@ -272,6 +272,10 @@ app.post("/uat/:instance/submissions", async (req, res) => {
       .status(400)
       .json({ error: "a submission needs at least one answered step" });
   }
+  const reviewerName = String((req.body && req.body.reviewer) || "").trim();
+  if (!reviewerName) {
+    return res.status(400).json({ error: "a reviewer name is required" });
+  }
 
   let reviewer;
   try {
@@ -319,7 +323,7 @@ app.post("/uat/:instance/submissions", async (req, res) => {
       {
         instance: review.id,
         login: reviewer.login,
-        reviewer: reviewer.name,
+        reviewer: reviewerName,
         // Grist stores a DateTime as epoch seconds. Taken here rather than from
         // the body: a clock the submitter controls is not a timestamp.
         submitted_at: Math.floor(Date.now() / 1000),
@@ -375,7 +379,10 @@ app.post("/uat/:instance/submissions", async (req, res) => {
       throw e;
     }
 
-    res.status(201).json({ id: submission.id, reviewer });
+    res.status(201).json({
+      id: submission.id,
+      reviewer: { login: reviewer.login, name: reviewerName },
+    });
   } catch (e) {
     console.error(
       `[grist-uat] submission for ${instance}:`,
@@ -390,6 +397,6 @@ app.post("/uat/:instance/submissions", async (req, res) => {
 // lie in exactly the case where somebody needs to read it.
 const server = app.listen(PORT, () =>
   console.error(
-    `[grist-uat] :${server.address().port} — GET /uat/:file (public read); author via Grist /api/mcp`,
+    `[grist-uat] :${server.address().port} — GET /uat/:file (public read); author via Grist REST`,
   ),
 );

@@ -14,7 +14,7 @@
 
 import { mkdirSync, readFileSync, writeFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
-import { buildUatDocument, parseRequired } from "./mcp/uat-document.mjs";
+import { buildUatDocument, parseRequired } from "./uat-read/uat-document.mjs";
 import {
   PAGES,
   SCHEMA,
@@ -29,6 +29,7 @@ const URL = process.env.GRIST_URL || "http://grist:8484";
 const KEY = process.env.GRIST_KEY;
 const ORG = process.env.GRIST_ORG || "openelis";
 const DOC_NAME = process.env.GRIST_DOC_NAME || "UAT Checklists";
+const ADMIN_EMAIL = process.env.GRIST_ADMIN_EMAIL;
 const REVIEW_DIR =
   process.env.REVIEW_DIR ||
   join(import.meta.dirname, "..", "widget", "examples");
@@ -41,7 +42,7 @@ const EXPORT_DIR =
   join(import.meta.dirname, "..", "runtime", "checklists");
 if (!KEY) throw new Error("GRIST_KEY is required");
 
-async function api(path, opts = {}) {
+async function api(path, opts = {}, acceptedStatuses = []) {
   const r = await fetch(URL + path, {
     ...opts,
     headers: {
@@ -51,6 +52,7 @@ async function api(path, opts = {}) {
     },
   });
   const text = await r.text();
+  if (acceptedStatuses.includes(r.status)) return null;
   if (!r.ok)
     throw new Error(`${opts.method || "GET"} ${path} -> ${r.status} ${text}`);
   return text ? JSON.parse(text) : null;
@@ -67,6 +69,30 @@ async function resolveDoc() {
     method: "POST",
     body: JSON.stringify({ name: DOC_NAME }),
   });
+}
+
+async function checkAccess() {
+  const doc = await resolveDoc();
+  const info = await api(`/api/docs/${doc}`);
+  const access = String(info.access || "none");
+  console.log(`${info.name || DOC_NAME} ${doc}: ${access}`);
+  if (ADMIN_EMAIL) {
+    const [profile, sharing] = await Promise.all([
+      api("/api/profile/user"),
+      api(`/api/docs/${doc}/access`),
+    ]);
+    const admin = (sharing.users || []).find(
+      (user) => String(user.email || "") === ADMIN_EMAIL,
+    );
+    console.error(
+      `${ADMIN_EMAIL}: authenticated user ${profile.id || "unknown"}, shared user ${admin?.id || "unknown"}, direct ${admin?.access || "none"}, inherited ${admin?.parentAccess || sharing.maxInheritedRole || "none"}`,
+    );
+  }
+  if (access !== "owners") {
+    throw new Error(
+      `Grist authoring identity must own ${DOC_NAME}; expected owners, received ${access}`,
+    );
+  }
 }
 
 async function ensureTables(doc, { dryRun = false } = {}) {
@@ -370,7 +396,7 @@ async function ensurePages(doc, { dryRun = false, rebuild = false } = {}) {
 
 async function addRecords(doc, table, rows) {
   if (!rows.length) return;
-  await api(`/api/docs/${doc}/tables/${table}/records`, {
+  return await api(`/api/docs/${doc}/tables/${table}/records`, {
     method: "POST",
     body: JSON.stringify({ records: rows.map((fields) => ({ fields })) }),
   });
@@ -538,6 +564,157 @@ async function publish(instances, listed) {
   );
 }
 
+function requiredText(value, name) {
+  const text = String(value || "").trim();
+  if (!text) throw new Error(`${name} is required`);
+  return text;
+}
+
+function validateStoryPayload(payload) {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload))
+    throw new Error("story payload must be an object");
+  const instance = requiredText(payload.instance, "instance");
+  const story = payload.story;
+  if (!story || typeof story !== "object" || Array.isArray(story))
+    throw new Error("story is required");
+  requiredText(story.story_key, "story.story_key");
+  requiredText(story.title, "story.title");
+  if (!Number.isInteger(story.story_order) || story.story_order < 0)
+    throw new Error("story.story_order must be a non-negative integer");
+  if (!Array.isArray(payload.steps) || !payload.steps.length)
+    throw new Error("steps must contain at least one step");
+
+  const keys = new Set();
+  const orders = new Set();
+  for (const [index, step] of payload.steps.entries()) {
+    const key = requiredText(step?.step_key, `steps[${index}].step_key`);
+    if (keys.has(key)) throw new Error(`duplicate step_key ${key}`);
+    keys.add(key);
+    if (!Number.isInteger(step.step_order) || step.step_order < 0)
+      throw new Error(
+        `steps[${index}].step_order must be a non-negative integer`,
+      );
+    if (orders.has(step.step_order))
+      throw new Error(`duplicate step_order ${step.step_order}`);
+    orders.add(step.step_order);
+    if (typeof step.required !== "boolean")
+      throw new Error(`steps[${index}].required must be true or false`);
+    requiredText(step.do, `steps[${index}].do`);
+  }
+  return { instance, story, steps: payload.steps };
+}
+
+async function applyStory(path) {
+  if (!path) throw new Error("apply-story requires a JSON file");
+  const payload = validateStoryPayload(
+    JSON.parse(readFileSync(path, "utf8")),
+  );
+  const doc = await resolveDoc();
+  await ensureTables(doc);
+  const meta = (
+    await api(
+      `/api/docs/${doc}/tables/UAT_Meta/records?filter=${encodeURIComponent(
+        JSON.stringify({ instance: [payload.instance] }),
+      )}`,
+    )
+  ).records;
+  if (meta.length !== 1)
+    throw new Error(
+      `expected one UAT_Meta row for ${payload.instance}, received ${meta.length}`,
+    );
+
+  const storyKey = requiredText(payload.story.story_key, "story.story_key");
+  const storyFields = {
+    instance: meta[0].id,
+    story_key: storyKey,
+    title: requiredText(payload.story.title, "story.title"),
+    story_order: payload.story.story_order,
+    version: String(payload.story.version || "1.0").trim(),
+    jira: String(payload.story.jira || "").trim(),
+    pr: String(payload.story.pr || "").trim(),
+    mock: String(payload.story.mock || "").trim(),
+    user_story: String(payload.story.user_story || ""),
+    hosts: String(payload.story.hosts || ""),
+  };
+  const allStories = (
+    await api(`/api/docs/${doc}/tables/UAT_Stories/records`)
+  ).records;
+  const matchingStories = allStories.filter(
+    (record) =>
+      record.fields.instance === meta[0].id &&
+      String(record.fields.story_key || "").trim() === storyKey,
+  );
+  if (matchingStories.length > 1)
+    throw new Error(`duplicate story_key ${storyKey} in ${payload.instance}`);
+
+  let storyId;
+  if (matchingStories.length) {
+    storyId = matchingStories[0].id;
+    await patchRecords(doc, "UAT_Stories", [
+      { id: storyId, fields: storyFields },
+    ]);
+  } else {
+    const created = await addRecords(doc, "UAT_Stories", [storyFields]);
+    storyId = created.records[0].id;
+  }
+
+  const existingSteps = (
+    await api(
+      `/api/docs/${doc}/tables/UAT_Steps/records?filter=${encodeURIComponent(
+        JSON.stringify({ story: [storyId] }),
+      )}`,
+    )
+  ).records;
+  const byKey = new Map();
+  for (const record of existingSteps) {
+    const key = String(record.fields.step_key || "").trim();
+    if (byKey.has(key)) throw new Error(`duplicate step_key ${key}`);
+    byKey.set(key, record);
+  }
+
+  const keep = new Set();
+  const adds = [];
+  const patches = [];
+  for (const step of payload.steps) {
+    const fields = {
+      instance: payload.instance,
+      story: storyId,
+      step_key: requiredText(step.step_key, "step.step_key"),
+      required: step.required,
+      step_order: step.step_order,
+      do: requiredText(step.do, `step ${step.step_key}.do`),
+      expect: String(step.expect || ""),
+      route: String(step.route || "").trim(),
+    };
+    keep.add(fields.step_key);
+    const existing = byKey.get(fields.step_key);
+    if (existing) patches.push({ id: existing.id, fields });
+    else adds.push(fields);
+  }
+  await patchRecords(doc, "UAT_Steps", patches);
+  await addRecords(doc, "UAT_Steps", adds);
+  const stale = existingSteps
+    .filter((record) => !keep.has(String(record.fields.step_key || "").trim()))
+    .map((record) => record.id);
+  if (stale.length)
+    await userActions(doc, [["BulkRemoveRecord", "UAT_Steps", stale]]);
+
+  const finalSteps = (
+    await api(
+      `/api/docs/${doc}/tables/UAT_Steps/records?filter=${encodeURIComponent(
+        JSON.stringify({ story: [storyId] }),
+      )}`,
+    )
+  ).records;
+  const finalStory = (
+    await api(`/api/docs/${doc}/tables/UAT_Stories/records`)
+  ).records.find((record) => record.id === storyId);
+  buildUatDocument(payload.instance, meta[0].fields, finalSteps, [finalStory]);
+  console.log(
+    `applied ${storyKey}: ${finalSteps.length} steps in ${payload.instance}`,
+  );
+}
+
 const mode = process.argv[2];
 if (mode === "apply") {
   const dryRun = process.argv.includes("--dry-run");
@@ -554,6 +731,8 @@ if (mode === "apply") {
 } else if (mode === "migrate") await migrate();
 else if (mode === "seed") await seed(process.argv.includes("--replace-all"));
 else if (mode === "generate") await generate();
+else if (mode === "check-access") await checkAccess();
+else if (mode === "apply-story") await applyStory(process.argv[3]);
 else if (mode === "publish") {
   const unlist = process.argv.includes("--unlist");
   await publish(
@@ -562,7 +741,7 @@ else if (mode === "publish") {
   );
 } else {
   console.error(
-    "usage: grist-sync.mjs apply [--dry-run] [--rebuild-pages]|migrate|seed [--replace-all]|generate|publish <instance…> [--unlist]",
+    "usage: grist-sync.mjs apply [--dry-run] [--rebuild-pages]|apply-story <file>|migrate|seed [--replace-all]|generate|check-access|publish <instance…> [--unlist]",
   );
   process.exit(1);
 }

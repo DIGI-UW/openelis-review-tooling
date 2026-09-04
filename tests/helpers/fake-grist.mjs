@@ -19,6 +19,8 @@ export function fakeGristDoc(seed = {}) {
   return {
     id: "docFAKE",
     name: "UAT Checklists",
+    access: seed.access || "owners",
+    directAccess: seed.directAccess || seed.access || "owners",
     tables: structuredClone(seed.tables || {}),
     // Every request the tool made, in order, so a test can assert on sequence
     // rather than only on the state left behind.
@@ -133,6 +135,28 @@ export async function startFakeGrist(doc) {
 
       if (path.endsWith("/workspaces")) {
         return send(200, [{ id: 1, docs: [{ id: doc.id, name: doc.name }] }]);
+      }
+
+      if (path === "/api/profile/user" && req.method === "GET") {
+        return send(200, { id: 5, email: "admin@example.test" });
+      }
+
+      if (path === `/api/docs/${doc.id}` && req.method === "GET") {
+        return send(200, { id: doc.id, name: doc.name, access: doc.access });
+      }
+
+      if (path === `/api/docs/${doc.id}/access` && req.method === "GET") {
+        return send(200, {
+          maxInheritedRole: "owners",
+          users: [
+            {
+              email: "admin@example.test",
+              id: 5,
+              access: doc.directAccess,
+              parentAccess: "owners",
+            },
+          ],
+        });
       }
 
       const tablesRoot = `/api/docs/${doc.id}/tables`;

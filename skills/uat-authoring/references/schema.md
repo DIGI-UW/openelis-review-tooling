@@ -137,7 +137,7 @@ step could let a report claim completeness over an incomplete checklist:
 | | |
 |---|---|
 | Authoring (people) | `https://grist.openelis-global.org` — sign in, edit the doc |
-| Authoring (agents) | `https://grist.openelis-global.org/api/mcp` |
+| Authoring (agents) | `https://grist.openelis-global.org/api/docs/hvZ4rzsyGJuqggkZBko8gc` |
 | What reviewers load | `https://grist.openelis-global.org/uat/<instance>.json` |
 | The widget itself | `https://grist.openelis-global.org/oe-review-widget.js` |
 | Docs | `https://grist.openelis-global.org/docs/` |

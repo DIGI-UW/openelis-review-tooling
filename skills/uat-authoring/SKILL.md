@@ -1,6 +1,6 @@
 ---
 name: uat-authoring
-description: Author and edit UAT review checklists for OpenELIS in the central Grist document, over Grist's native MCP. Use this skill whenever the user wants to create, add to, reorder, fix, or review a UAT checklist, acceptance checklist, review script, test script, or reviewer walkthrough — including phrasings like "add a step for X", "set up a review for OGC-1234", "write UAT for this PR", "what should reviewers check", or "the checklist is broken". Also use it when a reviewer's downloaded review report needs triaging into issues. Reach for it even if Grist is never mentioned by name: this is the system of record for OpenELIS review checklists, and hand-editing rows without these rules produces checklists that silently break for every reviewer.
+description: Author and edit UAT review checklists for OpenELIS in the central Grist document through Grist's authenticated REST API. Use this skill whenever the user wants to create, add to, reorder, fix, or review a UAT checklist, acceptance checklist, review script, test script, or reviewer walkthrough — including phrasings like "add a step for X", "set up a review for OGC-1234", "write UAT for this PR", "what should reviewers check", or "the checklist is broken". Also use it when a reviewer's downloaded review report needs triaging into issues. Reach for it even if Grist is never mentioned by name: this is the system of record for OpenELIS review checklists, and hand-editing rows without these rules produces checklists that silently break for every reviewer.
 ---
 
 # Authoring UAT checklists
@@ -14,26 +14,15 @@ existing one**, or **triage a report** a reviewer sent back.
 
 ## Connect
 
-Authoring goes through Grist's native MCP at
-`https://grist.openelis-global.org/api/mcp`. If those tools are not already
-available in the session, tell the user how to connect rather than guessing:
+Authoring goes through Grist's REST API. Obtain the API key through the approved
+operator/agent secret path and keep it in `GRIST_API_KEY`; never print it or put
+it in a committed file. The document API root is:
 
 ```bash
-claude mcp add --transport http grist https://grist.openelis-global.org/api/mcp \
-  --header "Authorization: Bearer <grist-api-key>"
-```
-
-On claude.ai, the same URL added as a custom connector signs in through the
-browser — no key to paste.
-
-Note that `claude mcp add` writes persistent config for *future* sessions; it does
-not give you tools mid-conversation. If you need to author right now and the MCP
-tools are absent, use Grist's REST API with the same key — it is the same data and
-the same rules:
-
-```
-GET|POST|PATCH https://grist.openelis-global.org/api/docs/hvZ4rzsyGJuqggkZBko8gc/tables/UAT_Steps/records
-Authorization: Bearer <grist-api-key>
+export GRIST_API_ROOT=https://grist.openelis-global.org/api/docs/hvZ4rzsyGJuqggkZBko8gc
+curl --fail-with-body --silent --show-error \
+  -H "Authorization: Bearer $GRIST_API_KEY" \
+  "$GRIST_API_ROOT/tables/UAT_Stories/records"
 ```
 
 **If you cannot get a key, stop and say so.** There is no anonymous write path (the
@@ -42,23 +31,33 @@ have created and hand them to the user with what you need to proceed — a fabri
 "done" is far worse than a blocked one, because nobody discovers the checklist is
 missing until a reviewer opens an empty panel.
 
-The document is **"UAT Checklists"** (`hvZ4rzsyGJuqggkZBko8gc`). Tools you'll
-use: `grist_query_document` (SQL SELECT), `grist_add_records`,
-`grist_update_records`, `grist_remove_records`.
+The document is **"UAT Checklists"** (`hvZ4rzsyGJuqggkZBko8gc`). Use structured
+JSON with `GET`, `POST`, `PATCH`, and `DELETE` on
+`$GRIST_API_ROOT/tables/<table>/records`.
+
+When the review-tooling repository and deploy access are available, apply one
+complete story without exposing the key locally:
+
+```bash
+./deploy.sh grist apply-story --file story.json
+```
+
+The file contains `instance`, one `story` object, and its exact `steps` array.
+The command reconciles only that stable `story_key`; omitted steps in that story
+are removed, while sibling stories are untouched.
 
 ## Read before you write
 
 Always pull the current rows first. Checklists are edited by people too, and
 appending blindly duplicates steps or collides with a key someone else added:
 
-```sql
-SELECT y.story_key, y.title, s.id, s.step_key, s.required, s.step_order,
-       s."do", s.expect, s.route
-FROM UAT_Steps s
-JOIN UAT_Stories y ON y.id = s.story
-JOIN UAT_Meta m ON m.id = y.instance
-WHERE m.instance = 'amr'
-ORDER BY y.story_order, s.step_order
+```bash
+curl --fail-with-body --silent --show-error \
+  -H "Authorization: Bearer $GRIST_API_KEY" \
+  "$GRIST_API_ROOT/tables/UAT_Stories/records"
+curl --fail-with-body --silent --show-error \
+  -H "Authorization: Bearer $GRIST_API_KEY" \
+  "$GRIST_API_ROOT/tables/UAT_Steps/records"
 ```
 
 Reading first also tells you which stories exist, so a new step joins one rather
@@ -74,10 +73,7 @@ wrong with a row — a missing or duplicated key, a route that is not a same-ori
 path, a step with no story, a story with no steps. Select it after writing and you
 will know what the endpoint is about to refuse:
 
-```sql
-SELECT step_key, problems FROM UAT_Steps WHERE problems != ''
-SELECT story_key, problems FROM UAT_Stories WHERE problems != ''
-```
+Inspect every returned story and step whose `fields.problems` is non-empty.
 
 ## The rules that actually bite
 
@@ -197,27 +193,26 @@ the `do` describe where to go.
 
 Find the story's row id, then take the next `step_order` inside it:
 
-```sql
-SELECT y.id, y.story_key, y.title FROM UAT_Stories y
-JOIN UAT_Meta m ON m.id = y.instance WHERE m.instance = 'amr'
-```
-
-```
-grist_add_records(doc_id, "UAT_Steps", [{
-  instance: "amr",
-  step_key: "AMR-009",
-  required: true,
-  story: 3,                 // the UAT_Stories row id, not its title
-  step_order: 3,
-  do: "…what the reviewer performs…",
-  expect: "…what should happen, and what to flag if it doesn't…",
-  route: "/Microbiology/worklist"
-}])
+```json
+{
+  "records": [{
+    "fields": {
+      "instance": "amr",
+      "step_key": "AMR-009",
+      "required": true,
+      "story": 3,
+      "step_order": 3,
+      "do": "...what the reviewer performs...",
+      "expect": "...what should happen, and what to flag if it doesn't...",
+      "route": "/Microbiology/worklist"
+    }
+  }]
+}
 ```
 
 A new story needs `instance` (the `UAT_Meta` **row id**), `title` and
-`story_order`. Native MCP or the Grist UI may apply the `story_key` default; a
-REST create MUST include an unused stable `story_key` explicitly. A brand-new
+`story_order`. The Grist UI may apply the `story_key` default; a REST create MUST
+include an unused stable `story_key` explicitly. A brand-new
 checklist needs the `UAT_Meta` row first — `instance`, `title`, `intro`, `jira` —
 because everything else points at it.
 

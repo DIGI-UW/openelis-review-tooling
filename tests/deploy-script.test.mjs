@@ -32,7 +32,15 @@ test("deployment entrypoint parses as Bash", () => {
   );
 });
 
-test("AWS preflight distinguishes refresh failures from endpoint failures", () => {
+test("AWS preflight rejects a login profile from a different region", () => {
+  const requireAws = deployScript.slice(
+    deployScript.indexOf("require_aws()"),
+    deployScript.indexOf("my_ip()"),
+  );
+  assert.match(deployScript, /export AWS_PROFILE="\$\{AWS_PROFILE:-default\}"/);
+  assert.match(requireAws, /aws configure get region --profile "\$AWS_PROFILE"/);
+  assert.match(requireAws, /AWS login refresh is region-bound/);
+  assert.match(requireAws, /aws login --profile '\$AWS_PROFILE' --region '\$REGION'/);
   assert.match(deployScript, /AWS credentials could not be refreshed/);
   assert.match(
     deployScript,
@@ -42,6 +50,8 @@ test("AWS preflight distinguishes refresh failures from endpoint failures", () =
     deployScript,
     /get-caller-identity[^\n]+>\/dev\/null 2>&1 \|\| die "no AWS session/,
   );
+  assert.doesNotMatch(requireAws, /for attempt in 1 2/);
+  assert.doesNotMatch(requireAws, /sleep/);
 });
 
 test("remote repository operations run as the checkout owner", () => {
@@ -66,7 +76,7 @@ test("checkout sync refuses tracked changes before fetching", () => {
   assert.ok(fetch > dirtyCheck, "the dirty check must happen before fetching");
 });
 
-test("deployment uses only current OpenELIS and analyzer runtime submodules", () => {
+test("full deployment initializes the current app-specific submodules", () => {
   assert.match(
     deployScript,
     /sync_checkout "\$AMR_DIR" "\$AMR_BRANCH" "\$APP_REPO"\nrepo_git "\$AMR_DIR" submodule update --init --depth 1 dataexport/,
@@ -75,10 +85,6 @@ test("deployment uses only current OpenELIS and analyzer runtime submodules", ()
     deployScript,
     /sync_checkout "\$ANALYZERS_DIR" "\$ANALYZERS_BRANCH" "\$APP_REPO"\nrepo_git "\$ANALYZERS_DIR" submodule update --init --depth 1 dataexport tools\/openelis-analyzer-bridge tools\/analyzer-mock-server/,
   );
-  assert.match(
-    appDeployScript,
-    /repo_git "\$APP_DIR" submodule update --init --depth 1 dataexport\n/,
-  );
 });
 test("targeted app deployment accepts only an exact SHA and explicit scope", () => {
   assert.match(deployScript, /\^\[0-9a-f\]\{40\}\$/);
@@ -86,7 +92,88 @@ test("targeted app deployment accepts only an exact SHA and explicit scope", () 
   assert.match(deployScript, /app deploy amr --ref <sha>/);
   assert.match(deployScript, /app deploy phrases --ref <sha>/);
   assert.match(deployScript, /review deploy --ref <sha> --scope widget/);
-  assert.match(deployScript, /data seed amr --fixture microbiology-mvp/);
+  assert.match(
+    deployScript,
+    /data seed amr --fixture microbiology-mvp --story AMR-S33/,
+  );
+  assert.match(deployScript, /--story\) stories\+=\("\$\{2:-\}"\)/);
+  assert.match(
+    deployScript,
+    /FIXTURE_STORIES='\$story_values' BASE_URL=https:\/\/\$SELECTED_APP_DOMAIN/,
+  );
+  assert.match(deployScript, /grist check-access/);
+  assert.match(deployScript, /grist\/bootstrap\.sh check-access/);
+  assert.doesNotMatch(deployScript, /reconcile-access/);
+});
+
+test("targeted Grist deployment uses the checked-out bootstrap only", () => {
+  assert.match(deployScript, /cmd_grist_up\(\)/);
+  assert.match(deployScript, /up\) cmd_grist_up "\$@"/);
+  const gristUp = deployScript.slice(
+    deployScript.indexOf("cmd_grist_up()"),
+    deployScript.indexOf("cmd_grist_apply()"),
+  );
+  assert.match(gristUp, /require_aws/);
+  assert.match(gristUp, /sudo -u '\$OS_USER' bash grist\/bootstrap\.sh up/);
+  assert.doesNotMatch(gristUp, /cmd_deploy|cmd_app|docker compose/);
+  assert.match(deployScript, /cmd_grist_apply_story\(\)/);
+  assert.match(deployScript, /apply-story\) cmd_grist_apply_story "\$@"/);
+  assert.match(deployScript, /grist\/bootstrap\.sh apply-story/);
+  const applyStory = deployScript.slice(
+    deployScript.indexOf("cmd_grist_apply_story()"),
+    deployScript.indexOf("cmd_grist_check_access()"),
+  );
+  assert.match(
+    applyStory,
+    /story_file=\\\$\(sudo -u '\$OS_USER' mktemp \/tmp\/uat-story/,
+    "the deployment user must own the staged payload it later reads",
+  );
+  assert.doesNotMatch(
+    applyStory,
+    /story_file=\\\$\(mktemp \/tmp\/uat-story/,
+  );
+  assert.match(
+    applyStory,
+    /base64 -d \| sudo -u '\$OS_USER' tee/,
+    "the deployment user must also write the payload it owns",
+  );
+  assert.doesNotMatch(applyStory, /base64 -d > \\"\\\$story_file\\"/);
+});
+
+test("targeted app status resolves and validates the requested instance", () => {
+  assert.match(
+    deployScript,
+    /target=.*edge_dir\/runtime\/target-.*instance\.json/,
+  );
+  assert.match(
+    deployScript,
+    /target_instance=.*instance.*\n.*target_instance.*=.*instance/s,
+  );
+  assert.match(
+    deployScript,
+    /status_instance=.*instance.*\n.*status_instance.*=.*instance/s,
+  );
+  assert.doesNotMatch(
+    deployScript,
+    /find \\\"\\\\\$edge_dir\/runtime\/deployments\\\".*sort.*tail -1/,
+  );
+});
+
+test("targeted app logs use SSM instead of the legacy SSH path", () => {
+  assert.match(
+    deployScript,
+    /app logs <instance> \[--since <duration>\] \[--tail <lines>\] \[--errors\]/,
+  );
+  assert.match(deployScript, /cmd_app_logs\(\)/);
+  const appLogs = deployScript.slice(
+    deployScript.indexOf("cmd_app_logs()"),
+    deployScript.indexOf("cmd_app_verify()"),
+  );
+  assert.match(appLogs, /require_aws/);
+  assert.match(appLogs, /ssm_run .*docker logs/s);
+  assert.match(appLogs, /openELIS\.log/);
+  assert.match(appLogs, /error-backup-\*/);
+  assert.doesNotMatch(appLogs, /ssh|allow_ssh_ingress/);
 });
 
 test("targeted analyzer fixture setup uses only the existing analyzer harness", () => {
@@ -213,7 +300,7 @@ test("targeted deployment bootstraps a missing declared instance", () => {
   assert.match(appDeployScript, /docker-compose\.override\.yml/);
   assert.match(
     appDeployScript,
-    /compose up -d --build certs db\.openelis\.org oe\.openelis\.org fhir\.openelis\.org frontend\.openelis\.org/,
+    /compose up -d --build certs db\.openelis\.org fhir\.openelis\.org "\$\{services\[@\]\}"/,
   );
   assert.match(
     appDeployScript,
@@ -231,6 +318,38 @@ test("targeted app deployment publishes only truthful branch provenance", () => 
   assert.match(appDeployScript, /"appBranch":"\$published_branch"/);
 });
 
+test("targeted app deployment normalizes clean initialized submodules", () => {
+  const normalizeCall = 'normalize_initialized_submodules "$APP_DIR"';
+  const firstNormalize = appDeployScript.indexOf(normalizeCall);
+  const dirtyGuard = appDeployScript.indexOf(
+    'if ! repo_git "$APP_DIR" diff --quiet',
+  );
+  const checkout = appDeployScript.indexOf(
+    'repo_git "$APP_DIR" checkout --detach FETCH_HEAD',
+  );
+  const secondNormalize = appDeployScript.indexOf(normalizeCall, checkout);
+
+  assert.match(
+    appDeployScript,
+    /normalize_initialized_submodules\(\).*submodule foreach.*git diff --quiet.*git diff --cached --quiet.*submodule update --depth 1/s,
+  );
+  assert.ok(
+    firstNormalize > -1 && firstNormalize < dirtyGuard,
+    "clean initialized submodules must match the current checkout before the dirty guard",
+  );
+  assert.ok(
+    secondNormalize > checkout,
+    "initialized submodules must follow the exact deployed checkout",
+  );
+});
+
+test("targeted analyzer deployment initializes only current submodules", () => {
+  assert.match(
+    appDeployScript,
+    /if \[ "\$INSTANCE" = analyzers \]; then\s+repo_git "\$APP_DIR" submodule update --init --depth 1 dataexport \\\s+tools\/openelis-analyzer-bridge tools\/analyzer-mock-server/,
+  );
+});
+
 test("targeted app deployment preserves unrelated review infrastructure", () => {
   assert.match(
     appDeployScript,
@@ -244,7 +363,7 @@ test("targeted app deployment preserves unrelated review infrastructure", () => 
   assert.doesNotMatch(appDeployScript, /docker compose -p analyzers/);
   assert.match(
     appDeployScript,
-    /if \[ "\$bootstrap" = false \]; then\s+candidate_started=true\s+write_status verifying\s+compose up -d --no-deps --force-recreate/s,
+    /if \[ "\$bootstrap" = false \]; then\s+candidate_started=true\s+write_status verifying[\s\S]*compose up -d --no-deps --force-recreate/,
   );
 });
 
@@ -283,6 +402,35 @@ test("targeted analyzer deployment reuses its active Compose chain", () => {
     appDeployScript,
     /docker compose -p "\$INSTANCE" "\$\{COMPOSE_FILES\[@\]\}"/,
   );
+});
+
+test("analyzer app deployment includes the pinned Bridge and mock runtime", () => {
+  assert.match(
+    appDeployScript,
+    /tools\/openelis-analyzer-bridge tools\/analyzer-mock-server/,
+    "the exact analyzer runtime submodules must be initialized from the deployed OpenELIS commit",
+  );
+  assert.match(
+    appDeployScript,
+    /\[ "\$INSTANCE" = analyzers \].*openelis-analyzer-bridge.*astm-simulator/s,
+    "an analyzer app deployment must select both runtime services",
+  );
+  assert.match(
+    appDeployScript,
+    /BRIDGE_CONTAINER="\$INSTANCE-openelis-analyzer-bridge".*MOCK_CONTAINER="\$INSTANCE-openelis-astm-simulator".*docker exec "\$BRIDGE_CONTAINER".*docker inspect.*"\$MOCK_CONTAINER"/s,
+    "runtime containers must participate in health verification and rollback",
+  );
+  assert.match(
+    appRollbackScript,
+    /BRIDGE_CONTAINER="\$INSTANCE-openelis-analyzer-bridge".*MOCK_CONTAINER="\$INSTANCE-openelis-astm-simulator".*docker exec "\$BRIDGE_CONTAINER".*docker inspect.*"\$MOCK_CONTAINER"/s,
+    "explicit rollback must restore the runtime images with the OpenELIS images",
+  );
+  const appVerify = deployScript.slice(
+    deployScript.indexOf("cmd_app_verify()"),
+    deployScript.indexOf("cmd_app_rollback()"),
+  );
+  assert.match(appVerify, /analyzers-openelis-analyzer-bridge/);
+  assert.match(appVerify, /analyzers-openelis-astm-simulator/);
 });
 
 test("targeted analyzer runtime deployment is exact and analyzer-only", () => {

@@ -63,8 +63,8 @@ copy_runtime_scripts() {
   # import graph that nobody updates: a new import resolves here and is simply
   # absent on the box, where the first thing anyone sees is every command failing.
   cp "$HERE"/*.mjs "$STATE_DIR/"
-  mkdir -p "$STATE_DIR/mcp"
-  cp "$HERE/mcp/uat-document.mjs" "$STATE_DIR/mcp/uat-document.mjs"
+  mkdir -p "$STATE_DIR/uat-read"
+  cp "$HERE/uat-read/uat-document.mjs" "$STATE_DIR/uat-read/uat-document.mjs"
 }
 
 run_node() {
@@ -73,6 +73,7 @@ run_node() {
     -v "$REVIEW_DIR:/review" \
     -e GRIST_KEY="$(cat "$KEYFILE")" \
     -e GRIST_URL=http://grist:8484 \
+    -e GRIST_ADMIN_EMAIL="$GRIST_ADMIN_EMAIL" \
     -e REVIEW_DIR=/review \
     -e EXPORT_DIR=/work/checklists \
     "$NODE_IMG" node /work/grist-sync.mjs "$@"
@@ -127,13 +128,18 @@ cmd_up() {
     docker network create oe-edge >/dev/null
   docker volume inspect "$GRIST_VOL" >/dev/null 2>&1 ||
     docker volume create "$GRIST_VOL" >/dev/null
-  docker run --rm -v "$GRIST_VOL:/persist" alpine:3.20 sh -c \
-    'printf "%s\n" "{\"version\":\"1\",\"edition\":\"enterprise\"}" > /persist/config.json'
+  # Older deployments selected the proprietary edition in this metadata file.
+  # It is not document data; remove only that selector before the OSS image starts.
+  docker run --rm -v "$GRIST_VOL:/persist" alpine:3.20 \
+    rm -f /persist/config.json
 
-  echo ">> starting Grist, Dex, and Redis"
-  compose up -d grist dex redis
+  echo ">> starting open-source Grist and Dex"
+  compose up -d --remove-orphans grist dex
   wait_for_grist
   ensure_api_key
+
+  echo ">> verifying REST authoring identity and document ownership"
+  run_node check-access
 
   echo ">> migrating the UAT schema without clearing authored rows"
   run_node migrate
@@ -142,7 +148,7 @@ cmd_up() {
 
   echo ">> starting the public read-only UAT adapter"
   compose up -d --build uat-read
-  echo ">> Grist is up; UI and native MCP edits are live without a publish step"
+  echo ">> Grist is up; UI and REST edits are live without a publish step"
 }
 
 cmd_status() {
@@ -163,6 +169,31 @@ cmd_generate() {
   copy_runtime_scripts
   run_node generate
   echo ">> diagnostic export complete; live delivery still reads directly from Grist"
+}
+
+cmd_check_access() {
+  require_runtime
+  [ -s "$KEYFILE" ] || die "$KEYFILE is missing; run up first"
+  copy_runtime_scripts
+  run_node check-access
+}
+
+cmd_apply_story() {
+  require_runtime
+  [ "$#" -eq 1 ] || die "apply-story requires one JSON file"
+  [ -f "$1" ] || die "story file not found: $1"
+  [ -s "$KEYFILE" ] || die "$KEYFILE is missing; run up first"
+  copy_runtime_scripts
+  local payload result
+  payload="$(mktemp "$STATE_DIR/uat-story.XXXXXX.json")"
+  install -m 600 "$1" "$payload"
+  if run_node apply-story "/work/$(basename "$payload")"; then
+    rm -f "$payload"
+  else
+    result=$?
+    rm -f "$payload"
+    return "$result"
+  fi
 }
 
 # Listing a story in the public catalog is an act with a consequence, so it has
@@ -192,6 +223,11 @@ main() {
       ;;
     status) cmd_status ;;
     generate) cmd_generate ;;
+    check-access) cmd_check_access ;;
+    apply-story)
+      shift
+      cmd_apply_story "$@"
+      ;;
     publish)
       shift
       cmd_publish "$@"
@@ -208,6 +244,8 @@ Usage:
   ./grist/bootstrap.sh apply [--dry-run] [--rebuild-pages]
   ./grist/bootstrap.sh status
   ./grist/bootstrap.sh generate
+  ./grist/bootstrap.sh check-access
+  ./grist/bootstrap.sh apply-story <file.json>
   ./grist/bootstrap.sh publish <instance…> [--unlist]
   ./grist/bootstrap.sh seed-examples --replace-all
 USAGE

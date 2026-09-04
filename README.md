@@ -1,13 +1,13 @@
 # OpenELIS Review Tooling
 
 A home for the tooling behind the OpenELIS UAT review loop — a standalone reviewer
-widget, a Grist-backed authoring layer (with native MCP), and the demo deployment
+widget, a Grist-backed authoring layer with REST automation, and the demo deployment
 that ties them together. It **targets** OpenELIS-Global-2 demo builds but is not part
 of that repo, so it can iterate on its own.
 
 ## The loop, in three lines
 - **Author** — humans edit checklists in a Grist spreadsheet, or agents author them
-  over Grist's native MCP. See [`docs/AGENTS.md`](docs/AGENTS.md).
+  through Grist's REST API. See [`docs/AGENTS.md`](docs/AGENTS.md).
 - **Review** — a lightweight overlay on each demo site loads the checklist and
   captures pass / fail / n-a + notes.
 - **Feedback** — the reviewer downloads a Markdown + JSON report and pastes it into
@@ -33,7 +33,7 @@ Two URLs, no build, no redeploy — a script tag or one nginx line:
 |---|---|
 | [`widget/`](widget/) | The reviewer overlay as a **standalone, backend-free drop-in plugin**. Grab-and-go — no OE2, no build, no server needed. |
 | [`integration/`](integration/) | Copy-paste ways to attach the overlay to an **existing** deployment (config, not code). |
-| `grist/` | The authoring backend: Grist as source of truth + native MCP, plus the slim read-only `/uat` transformer. |
+| `grist/` | The authoring backend: open-source Grist as source of truth + REST API, plus the slim read-only `/uat` transformer. |
 | `router/`, `amr/`, `analyzers/`, `scripts/`, `deploy.sh` | The demo deployment: an umbrella nginx router splitting subdomains, additive Compose overlays on the OE2 app builds, and Let's Encrypt certs. |
 | `docs/` | [`AGENTS.md`](docs/AGENTS.md) (agent contract), [`OPERATIONS.md`](docs/OPERATIONS.md) (runtime contract), and collaborator guides. |
 
@@ -49,7 +49,7 @@ reverse proxy, each with its own Let's Encrypt cert, plus the Grist authoring st
 |---|---|
 | `amr.openelis-global.org` | Microbiology MVP (OGC-782) + review overlay |
 | `analyzers.openelis-global.org` | Analyzer Types & Mapping + harness (OGC-1054) + review overlay |
-| `grist.openelis-global.org` | Grist authoring (native MCP at `/api/mcp`) |
+| `grist.openelis-global.org` | Grist Community authoring UI and REST API |
 
 The two OpenELIS stacks bind **no host ports** — the router reaches them only by
 Docker-network alias. Isolation is by Compose **project name** (`-p`), explicit
@@ -62,6 +62,7 @@ cp .env.example .env      # fill in your host, domains, email, repos/branches
 # → point DNS: amr, analyzers, grist A-records → the host EIP (all share one IP)
 ./deploy.sh certs         # issue Let's Encrypt once DNS resolves
 ./deploy.sh seed          # seed reviewable demo data on both instances
+./deploy.sh data seed amr --fixture microbiology-mvp --story AMR-S33
 ./deploy.sh status        # instance + HTTPS codes + container states
 ```
 
@@ -81,13 +82,29 @@ at an exact pushed SHA:
 ./deploy.sh analyzer-runtime verify
 ./deploy.sh data seed analyzers --fixture analyzer-mvp
 ./deploy.sh app status analyzers
+./deploy.sh app logs analyzers --since 10m --tail 400
+./deploy.sh app logs analyzers --errors
 ./deploy.sh app verify analyzers
 ```
 
-The targeted path rebuilds and replaces only the selected app's frontend and/or
-backend services. It derives the live Compose chain from container labels, keeps
-the other app and shared review infrastructure running, and publishes
-`/__review/target.json` only after health and route smoke checks pass.
+Shared Grist/runtime changes use the same checked-out review-tooling revision:
+
+```bash
+./deploy.sh review deploy --ref <sha> --scope all
+./deploy.sh grist up
+./deploy.sh grist apply-story --file <story.json>
+```
+
+The targeted path rebuilds and replaces only the selected app's services. For
+the analyzer app, `--scope app` includes its pinned Analyzer Bridge and analyzer
+mock alongside the OpenELIS backend and frontend. It derives the live Compose
+chain from container labels, keeps the other apps and shared review
+infrastructure running, and publishes `/__review/target.json` only after health
+and route smoke checks pass.
+
+Runtime logs use the same SSM transport as deployment, so diagnostics do not
+require SSH ingress or an interactive shell. Use `--errors` to search the
+current and rotated OpenELIS application logs for exception context.
 
 Local deploy configuration comes from `.env.example` and lives in a git-ignored
 `.env`. Grist/Dex secrets use the separate `grist/.env.example` template and
@@ -126,8 +143,9 @@ stable `/Microbiology/worklist` route.
 - **Renaming harness containers** requires updating `astm-simulator`'s
   `BRIDGE_CONTAINER_NAME` / `MOCK_CONTAINER_NAME`.
 - **Two separate LE certs**, not one multi-SAN — renewals/failures stay decoupled.
-- **Enterprise Grist** is activated by `/persist/config.json`
-  (`{"version":"1","edition":"enterprise"}`); delete it to revert to community.
+- **Grist is Community-only** — the deployment uses `gristlabs/grist-oss` with
+  the existing persistent volume. Agent authoring uses the same open REST API as
+  lifecycle automation; no evaluation or activation key is involved.
 
 ## License
 MIT — see [LICENSE](LICENSE).
