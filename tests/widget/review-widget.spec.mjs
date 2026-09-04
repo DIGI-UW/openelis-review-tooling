@@ -57,25 +57,138 @@ test("mounts while the host application is still loading", async ({ page }) => {
   }
 });
 
-test("keeps the minimized launcher clear of page actions", async ({ page }) => {
+test("keeps the minimized launcher clear of page content and actions", async ({
+  page,
+}) => {
   await page.goto("/");
+  await page.evaluate(() => {
+    const spacer = document.createElement("div");
+    spacer.id = "late-layout-spacer";
+    spacer.style.height = "850px";
+    const table = document.createElement("table");
+    Object.assign(table.style, {
+      width: "100%",
+      height: "48px",
+    });
+    const row = table.insertRow();
+    const cell = row.insertCell();
+    cell.textContent = "Bridge connection configured";
+    document.body.append(spacer, table);
+  });
   const launcher = page
     .locator("#oe-review-host")
     .getByRole("button", { name: "Review" });
-  const pageAction = page.getByRole("button", { name: "Save" });
-  const [launcherBox, actionBox] = await Promise.all([
-    launcher.boundingBox(),
-    pageAction.boundingBox(),
-  ]);
+  const pageContent = [
+    page.getByRole("button", { name: "Save" }),
+    page.getByRole("button", { name: "Analyzer row actions" }),
+    page.getByRole("cell", { name: "Bridge connection configured" }),
+  ];
 
-  expect(launcherBox).not.toBeNull();
-  expect(actionBox).not.toBeNull();
-  const overlaps =
-    launcherBox.x < actionBox.x + actionBox.width &&
-    launcherBox.x + launcherBox.width > actionBox.x &&
-    launcherBox.y < actionBox.y + actionBox.height &&
-    launcherBox.y + launcherBox.height > actionBox.y;
-  expect(overlaps).toBe(false);
+  await page.evaluate(
+    () =>
+      new Promise((resolve) =>
+        requestAnimationFrame(() => requestAnimationFrame(resolve)),
+      ),
+  );
+  await page.evaluate(() => {
+    document.getElementById("late-layout-spacer").style.height = "560px";
+  });
+
+  for (const pageElement of pageContent) {
+    await expect
+      .poll(async () => {
+        const launcherBox = await launcher.boundingBox();
+        const elementBox = await pageElement.boundingBox();
+        if (!launcherBox || !elementBox) return true;
+        return (
+          launcherBox.x < elementBox.x + elementBox.width &&
+          launcherBox.x + launcherBox.width > elementBox.x &&
+          launcherBox.y < elementBox.y + elementBox.height &&
+          launcherBox.y + launcherBox.height > elementBox.y
+        );
+      })
+      .toBe(false);
+  }
+
+  await page.evaluate(() => {
+    const launcher = document
+      .getElementById("oe-review-host")
+      .shadowRoot.querySelector(".tab")
+      .getBoundingClientRect();
+    const legend = document.createElement("b");
+    legend.textContent = "Sample or Order is nonconforming";
+    Object.assign(legend.style, {
+      position: "fixed",
+      left: `${launcher.left}px`,
+      top: `${launcher.top}px`,
+      width: "320px",
+      height: `${launcher.height}px`,
+    });
+    document.body.append(legend);
+  });
+  const legend = page.getByText("Sample or Order is nonconforming");
+  await expect
+    .poll(async () => {
+      const launcherBox = await launcher.boundingBox();
+      const legendBox = await legend.boundingBox();
+      if (!launcherBox || !legendBox) return true;
+      return (
+        launcherBox.x < legendBox.x + legendBox.width &&
+        launcherBox.x + launcherBox.width > legendBox.x &&
+        launcherBox.y < legendBox.y + legendBox.height &&
+        launcherBox.y + launcherBox.height > legendBox.y
+      );
+    })
+    .toBe(false);
+});
+
+test("raises the minimized launcher above a Carbon-style action row", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await page.evaluate(() => {
+    const input = document.createElement("input");
+    input.id = "carbon-action";
+    input.type = "checkbox";
+    input.disabled = true;
+    Object.assign(input.style, {
+      position: "fixed",
+      width: "1px",
+      height: "1px",
+      overflow: "hidden",
+    });
+    const label = document.createElement("label");
+    label.htmlFor = input.id;
+    label.textContent = "Carbon-style page action";
+    Object.assign(label.style, {
+      position: "fixed",
+      left: "0",
+      right: "0",
+      bottom: "64px",
+      height: "48px",
+      pointerEvents: "none",
+    });
+    document.body.append(input, label);
+  });
+
+  const launcher = page
+    .locator("#oe-review-host")
+    .getByRole("button", { name: "Review" });
+  const action = page.getByText("Carbon-style page action");
+
+  await expect
+    .poll(async () => {
+      const launcherBox = await launcher.boundingBox();
+      const actionBox = await action.boundingBox();
+      if (!launcherBox || !actionBox) return true;
+      return (
+        launcherBox.x < actionBox.x + actionBox.width &&
+        launcherBox.x + launcherBox.width > actionBox.x &&
+        launcherBox.y < actionBox.y + actionBox.height &&
+        launcherBox.y + launcherBox.height > actionBox.y
+      );
+    })
+    .toBe(false);
 });
 
 test("keys answers by stable step key and includes provenance in reports", async ({
@@ -101,11 +214,17 @@ test("keys answers by stable step key and includes provenance in reports", async
   expect(json.checklistRevision).toBe("revision-two");
   expect(json.deploymentId).toBe("deploy-analyzers-001");
   expect(json.build.appSha).toBe("abc123");
+  expect(json.build.bridgeSha).toBe("bridge789");
+  expect(json.build.mockSha).toBe("mock012");
+  expect(json.build.profileCatalogSha).toBe("bridge789");
   expect(json.checklist[0].steps[0].key).toBe("AN-QC-001");
   expect(json.checklist[0].steps[0].markedAt).toBeTruthy();
   expect(json.checklist[0].steps[0].actualUrl).toContain("127.0.0.1");
   expect(report.md).toContain("route: /analyzers/types");
   expect(report.md).toContain("page: http://127.0.0.1:");
+  expect(report.md).toContain("Analyzer Bridge: `bridge789`");
+  expect(report.md).toContain("Analyzer mock: `mock012`");
+  expect(report.md).toContain("Profile catalog: `bridge789`");
 });
 
 test("refresh preserves reordered answers and marks changed instructions stale", async ({

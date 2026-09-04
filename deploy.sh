@@ -33,9 +33,13 @@
 #   ./deploy.sh app status <instance> [--deployment <id>]
 #   ./deploy.sh app verify <instance>
 #   ./deploy.sh app rollback <instance>
+#   ./deploy.sh analyzer-runtime deploy --ref <sha>
+#   ./deploy.sh analyzer-runtime status [--deployment <id>]
+#   ./deploy.sh analyzer-runtime verify
 #   ./deploy.sh review deploy --ref <sha> --scope widget|service|all
 #   ./deploy.sh review reload-router [--instance amr] [--domain <host>]
 #                                   # re-render nginx from the template, router only
+#   ./deploy.sh data seed analyzers --fixture analyzer-mvp
 #   ./deploy.sh data seed amr --fixture microbiology-mvp
 #   ./deploy.sh up-to-certs --yes   # configure -> deploy -> certs -> seed
 set -euo pipefail
@@ -66,10 +70,9 @@ DEPLOY_TIMEOUT="${DEPLOY_TIMEOUT:-3000}"
 REMOTE_RUNNER="/home/$OS_USER/oe-dual-deploy.run.sh"
 REMOTE_LOG="/home/$OS_USER/oe-dual-deploy.log"
 DONE_MARK="OE_DUAL_DEPLOY_DONE_OK"
-# astm-simulator's static analyzer-net IP (docker-compose.analyzer-test.yml IPAM,
-# unchanged by the analyzers override — only the "default" network is remapped).
-# The host can always reach this directly; it's never published as a host port.
-MOCK_URL="${MOCK_URL:-http://172.21.1.100:8080}"
+# Optional operator override. When omitted, analyzer fixture commands resolve the
+# mock container from the running Compose project instead of assuming a Docker IP.
+MOCK_URL="${MOCK_URL:-}"
 
 C_I=$'\033[1;36m'; C_W=$'\033[1;33m'; C_E=$'\033[1;31m'; C_0=$'\033[0m'
 log()  { printf '%s>> %s%s\n' "$C_I" "$*" "$C_0"; }
@@ -131,6 +134,42 @@ ssm_fire() {
     --query "Command.CommandId" --output text 2>&1
 }
 
+render_mock_url_setup() {
+  local configured_q
+  printf -v configured_q '%q' "${1:-}"
+  printf 'mock_url=%s\n' "$configured_q"
+  cat <<'REMOTE'
+if [ -z "$mock_url" ]; then
+  mock_ip=$(docker inspect -f '{{with index .NetworkSettings.Networks "analyzers_analyzer-net"}}{{.IPAddress}}{{end}}' analyzers-openelis-astm-simulator)
+  if [ -z "$mock_ip" ]; then
+    echo 'could not resolve the analyzer mock container address' >&2
+    exit 1
+  fi
+  mock_url="http://$mock_ip:8080"
+fi
+curl -fsS "$mock_url/health" >/dev/null
+REMOTE
+}
+
+render_bridge_admin_setup() {
+  cat <<'REMOTE'
+bridge_ip=$(docker inspect -f '{{with index .NetworkSettings.Networks "analyzers_analyzer-net"}}{{.IPAddress}}{{end}}' analyzers-openelis-analyzer-bridge)
+if [ -z "$bridge_ip" ]; then
+  echo 'could not resolve the analyzer Bridge container address' >&2
+  exit 1
+fi
+bridge_admin_url="https://$bridge_ip:8443"
+bridge_env=$(docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' analyzers-openelis-analyzer-bridge)
+bridge_user=$(printf '%s\n' "$bridge_env" | sed -n 's/^BRIDGE_SECURITY_USERNAME=//p' | head -n 1)
+bridge_pass=$(printf '%s\n' "$bridge_env" | sed -n 's/^BRIDGE_SECURITY_PASSWORD=//p' | head -n 1)
+if [ -z "$bridge_user" ] || [ -z "$bridge_pass" ]; then
+  echo 'could not read analyzer Bridge admin credentials from the running container' >&2
+  exit 1
+fi
+curl -skfsS -u "$bridge_user:$bridge_pass" "$bridge_admin_url/actuator/health" >/dev/null
+REMOTE
+}
+
 # ---- SSH: interactive `connect` only. Needs the caller's current IP allowed
 # in the SG (idempotent, same approach deploy-vector-demo.sh uses). ----
 allow_ssh_ingress() {
@@ -162,18 +201,10 @@ repo_git() {
   shift
   sudo -u "\$REMOTE_USER" git -c safe.directory="\$dir" -C "\$dir" "\$@"
 }
-normalize_runtime_markers() {
-  local dir="\$1" marker
-  marker="\$dir/volume/plugins/.gitignore"
-  if [ -f "\$marker" ]; then
-    chmod 0644 "\$marker"
-  fi
-}
 sync_checkout() { # dir branch repo
   local dir="\$1" br="\$2" repo="\$3"
   if [ -d "\$dir/.git" ]; then
     sudo chown -R "$OS_USER":"$OS_USER" "\$dir" 2>/dev/null || true
-    normalize_runtime_markers "\$dir"
     if ! repo_git "\$dir" diff --quiet || ! repo_git "\$dir" diff --cached --quiet; then
       echo "[deploy] refusing to overwrite tracked changes in \$dir" >&2
       repo_git "\$dir" status --short >&2
@@ -185,21 +216,13 @@ sync_checkout() { # dir branch repo
     sudo mkdir -p "\$dir" && sudo chown "$OS_USER":"$OS_USER" "\$dir"
     sudo -u "\$REMOTE_USER" git clone --depth 1 --single-branch --branch "\$br" "\$repo" "\$dir"
   fi
-  repo_git "\$dir" submodule update --init --depth 1 dataexport plugins tools/openelis-analyzer-bridge tools/analyzer-mock-server \\
-    || die "submodule init failed in \$dir (the plugin registry check depends on it)"
   echo "[deploy] \$dir -> \$br @\$(repo_git "\$dir" rev-parse --short HEAD)"
-}
-prepare_analyzer_plugin_volume() {
-  local app_dir="\$1" destination
-  destination="\$app_dir/volume/plugins"
-  mkdir -p "\$destination"
-  find "\$destination" -maxdepth 1 -type f -name '*.jar' -delete
-  echo "[deploy] cleared analyzer runtime plugin volume; the app image will seed shipped generic handlers"
 }
 sync_checkout "$EDGE_DIR" "$HARNESS_BRANCH" "$HARNESS_REPO"
 sync_checkout "$AMR_DIR" "$AMR_BRANCH" "$APP_REPO"
+repo_git "$AMR_DIR" submodule update --init --depth 1 dataexport || die "submodule init failed in $AMR_DIR"
 sync_checkout "$ANALYZERS_DIR" "$ANALYZERS_BRANCH" "$APP_REPO"
-prepare_analyzer_plugin_volume "$ANALYZERS_DIR"
+repo_git "$ANALYZERS_DIR" submodule update --init --depth 1 dataexport tools/openelis-analyzer-bridge tools/analyzer-mock-server || die "submodule init failed in $ANALYZERS_DIR"
 [ -f "$EDGE_DIR/.env" ] || {
   echo "[deploy] $EDGE_DIR/.env is missing; provision box-side Grist/Dex secrets before deployment" >&2
   exit 1
@@ -261,21 +284,6 @@ if [ "\$healthy" != true ]; then
   echo "[deploy] health verification failed; ready deployment metadata was not changed" >&2
   exit 1
 fi
-
-verify_analyzer_plugin_registry() {
-  local registry
-  registry=\$(docker exec analyzers-openelisglobal-database psql -U clinlims -d clinlims -t -A -c \
-    "SELECT count(*) || ':' || string_agg(protocol, ',' ORDER BY protocol)
-       FROM clinlims.analyzer_type
-      WHERE is_active IS TRUE
-        AND is_generic_plugin IS TRUE;")
-  if [ "\$registry" != "3:ASTM,FILE,HL7" ]; then
-    echo "[deploy] expected active generic analyzer registry 3:ASTM,FILE,HL7; found '\$registry'" >&2
-    exit 1
-  fi
-  echo "[deploy] verified active generic analyzer registry: \$registry"
-}
-verify_analyzer_plugin_registry
 
 publish_target() {
   local instance branch app_sha deployed_at tmp
@@ -366,7 +374,10 @@ cmd_certs() {
 cmd_seed() {
   require_aws
   log "seeding analyzers.openelis-global.org (9-device fleet via the harness's own seed script)"
-  ssm_run "cd $ANALYZERS_DIR/projects/analyzer-harness && BASE_URL=https://$ANALYZERS_DOMAIN MOCK_URL=$MOCK_URL DB_CONTAINER=analyzers-openelisglobal-database ./seed-analyzers.sh" \
+  ssm_run "set -euo pipefail
+$(render_mock_url_setup "$MOCK_URL")
+cd '$ANALYZERS_DIR/projects/analyzer-harness'
+BASE_URL=https://$ANALYZERS_DOMAIN MOCK_URL=\"\$mock_url\" DB_CONTAINER=analyzers-openelisglobal-database ./seed-analyzers.sh" \
     || warn "analyzer seed failed — see output above"
   log "seeding amr.openelis-global.org (microbiology worklist and classification cases)"
   ssm_run "cat > /tmp/seed-microbiology.sh <<'SEEDEOF'
@@ -539,6 +550,84 @@ cmd_app() {
   esac
 }
 
+cmd_analyzer_runtime_deploy() {
+  local ref="" deployment_id deployment_dir remote_runner remote_log
+  shift || true
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --ref) ref="${2:-}"; shift 2 ;;
+      *) die "unknown analyzer-runtime deploy argument '$1'" ;;
+    esac
+  done
+  validate_sha "$ref"
+  require_aws
+  deployment_id="runtime-$(date -u +%Y%m%dT%H%M%SZ)-${ref:0:12}"
+  deployment_dir="$EDGE_DIR/runtime/deployments/$deployment_id"
+  remote_runner="/home/$OS_USER/oe-analyzer-runtime-deploy-$deployment_id.sh"
+  remote_log="/home/$OS_USER/oe-analyzer-runtime-deploy-$deployment_id.log"
+  log "launching analyzer-only Bridge/mock deploy from exact OpenELIS SHA $ref"
+  ssm_run "mkdir -p '$deployment_dir'
+cat > '$remote_runner' <<'RUNNEREOF'
+APP_DIR='$ANALYZERS_DIR'
+EDGE_DIR='$EDGE_DIR'
+APP_REF='$ref'
+APP_DOMAIN='$ANALYZERS_DOMAIN'
+REMOTE_USER='$OS_USER'
+DEPLOYMENT_ID='$deployment_id'
+DEPLOYMENT_DIR='$deployment_dir'
+$(cat "$HERE/scripts/targeted-analyzer-runtime-deploy.sh")
+RUNNEREOF
+chmod 0700 '$remote_runner'
+nohup bash '$remote_runner' > '$remote_log' 2>&1 </dev/null &
+echo '$deployment_id'" || die "failed to launch analyzer runtime deployment"
+  log "deployment launched: $deployment_id"
+  log "status: ./deploy.sh analyzer-runtime status --deployment $deployment_id"
+}
+
+cmd_analyzer_runtime_status() {
+  local deployment_id=""
+  shift || true
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --deployment) deployment_id="${2:-}"; shift 2 ;;
+      *) die "unknown analyzer-runtime status argument '$1'" ;;
+    esac
+  done
+  require_aws
+  ssm_run "deployment_id='$deployment_id'
+edge_dir='$EDGE_DIR'
+if [ -z \"\$deployment_id\" ]; then
+  latest=\$(find \"\$edge_dir/runtime/deployments\" -mindepth 1 -maxdepth 1 -type d -name 'runtime-*' 2>/dev/null | sort | tail -1)
+  deployment_id=\${latest##*/}
+fi
+[ -n \"\$deployment_id\" ] || { echo 'no analyzer runtime deployments found'; exit 1; }
+status=\"\$edge_dir/runtime/deployments/\$deployment_id/status.json\"
+log='/home/$OS_USER/oe-analyzer-runtime-deploy-'\"\$deployment_id\"'.log'
+echo \"deployment=\$deployment_id\"
+cat \"\$status\" 2>/dev/null || echo '{\"state\":\"launching\"}'
+echo
+tail -12 \"\$log\" 2>/dev/null || true"
+}
+
+cmd_analyzer_runtime_verify() {
+  require_aws
+  curl -fsSk "https://$ANALYZERS_DOMAIN/__review/target.json"
+  echo
+  ssm_run "docker exec analyzers-openelis-analyzer-bridge /app/healthcheck.sh >/dev/null
+[ \"\$(docker inspect -f '{{.State.Health.Status}}' analyzers-openelis-astm-simulator)\" = healthy ]
+echo 'analyzer Bridge and mock are healthy'"
+}
+
+cmd_analyzer_runtime() {
+  local action="${1:-}"
+  case "$action" in
+    deploy) cmd_analyzer_runtime_deploy "$@" ;;
+    status) cmd_analyzer_runtime_status "$@" ;;
+    verify) cmd_analyzer_runtime_verify ;;
+    *) die "unknown analyzer-runtime action '$action' (deploy|status|verify)" ;;
+  esac
+}
+
 cmd_review_deploy() {
   local ref="" scope=""
   shift || true
@@ -701,9 +790,45 @@ cmd_data_seed() {
   done
   validate_instance "$instance"
   case "$instance:$fixture" in
+    analyzers:analyzer-mvp) ;;
     amr:microbiology-mvp | phrases:macro-library) ;;
-    *) die "supported data fixtures are amr:microbiology-mvp and phrases:macro-library" ;;
+    *) die "supported data fixtures are analyzers:analyzer-mvp, amr:microbiology-mvp, and phrases:macro-library" ;;
   esac
+  if [ "$instance:$fixture" = "analyzers:analyzer-mvp" ]; then
+    require_aws
+    log "seeding the analyzer acceptance fixture without touching AMR"
+    ssm_run "set -euo pipefail
+$(render_mock_url_setup "$MOCK_URL")
+$(render_bridge_admin_setup)
+cd '$ANALYZERS_DIR'
+BASE_URL=https://$ANALYZERS_DOMAIN MOCK_URL=\"\$mock_url\" bash projects/analyzer-harness/seed-analyzers.sh
+echo 'Clearing analyzer story results...'
+docker exec -i analyzers-openelisglobal-database \
+  psql -v ON_ERROR_STOP=1 -U clinlims -d clinlims <<'ANALYZER_RESET_SQL'
+DELETE FROM clinlims.result
+WHERE analysis_id IN (
+  SELECT analysis.id
+  FROM clinlims.analysis
+  JOIN clinlims.sample_item ON analysis.sampitem_id = sample_item.id
+  JOIN clinlims.sample ON sample_item.samp_id = sample.id
+  WHERE sample.accession_number IN (
+    'DEV01261000000000001',
+    'DEV01263000000000001',
+    'DEV01263000000000002'
+  )
+);
+DELETE FROM clinlims.qc_result;
+DELETE FROM clinlims.analyzer_results;
+ANALYZER_RESET_SQL
+bridge_uid=\$(docker exec analyzers-openelis-analyzer-bridge id -u)
+bridge_gid=\$(docker exec analyzers-openelis-analyzer-bridge id -g)
+docker exec -u 0 analyzers-openelis-analyzer-bridge \
+  chown -R \"\$bridge_uid:\$bridge_gid\" /data/analyzer-imports
+BASE_URL=https://$ANALYZERS_DOMAIN MOCK_URL=\"\$mock_url\" \
+BRIDGE_ADMIN_URL=\"\$bridge_admin_url\" BRIDGE_USER=\"\$bridge_user\" BRIDGE_PASS=\"\$bridge_pass\" \
+bash projects/analyzer-harness/seed-mvp-traffic.sh"
+    return
+  fi
   select_instance_config "$instance"
   require_aws
   log "seeding $instance fixture $fixture"
@@ -745,8 +870,8 @@ cmd_drift() {
   echo "   drift:"
   # Built with a quoted heredoc so nothing expands locally: every $ below is for
   # the remote shell.
-  local script
-  script="$(cat <<'DRIFT'
+  local script=""
+  IFS= read -r -d '' script <<'DRIFT' || true
 cd EDGE_DIR_PLACEHOLDER 2>/dev/null || { echo "checkout missing"; exit 0; }
 # SSM runs as root and the fetch below writes loose objects. Fetching as root
 # leaves root-owned fanout directories under .git/objects that the deploy path —
@@ -780,7 +905,6 @@ if [ -n "$img" ]; then
   fi
 fi
 DRIFT
-)"
   script="${script//EDGE_DIR_PLACEHOLDER/$EDGE_DIR}"
   script="${script//BRANCH_PLACEHOLDER/$HARNESS_BRANCH}"
   script="${script//OS_USER_PLACEHOLDER/$OS_USER}"
@@ -804,12 +928,13 @@ main() {
     certs) cmd_certs ;;
     seed) cmd_seed ;;
     app) cmd_app "$@" ;;
+    analyzer-runtime) cmd_analyzer_runtime "$@" ;;
     review) cmd_review "$@" ;;
     data) cmd_data "$@" ;;
     grist) cmd_grist "$@" ;;
     up-to-certs) cmd_up_to_certs "$@" ;;
-    help|-h|--help) sed -n '2,30p' "$0" | sed 's/^# \{0,1\}//' ;;
-    *) die "unknown subcommand '$sub' (status|connect|configure|deploy|certs|seed|app|review|data|grist|up-to-certs|help)" ;;
+    help|-h|--help) sed -n '2,44p' "$0" | sed 's/^# \{0,1\}//' ;;
+    *) die "unknown subcommand '$sub' (status|connect|configure|deploy|certs|seed|app|analyzer-runtime|review|data|grist|up-to-certs|help)" ;;
   esac
 }
 main "$@"

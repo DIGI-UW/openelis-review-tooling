@@ -534,6 +534,14 @@
     window.addEventListener("resize", scheduleReposition);
     window.addEventListener("popstate", scheduleReposition);
     window.addEventListener("storage", adoptOtherWindow);
+    var pageObserver = new MutationObserver(scheduleReposition);
+    pageObserver.observe(document.body, { childList: true, subtree: true });
+    if (typeof ResizeObserver !== "undefined") {
+      var layoutObserver = new ResizeObserver(scheduleReposition);
+      layoutObserver.observe(document.body);
+      var applicationRoot = document.getElementById("root");
+      if (applicationRoot) layoutObserver.observe(applicationRoot);
+    }
     if (STANDALONE) {
       markPoppedOut(true);
       // pagehide rather than beforeunload: it is the one the browser guarantees on
@@ -1358,6 +1366,82 @@
     })(document.body, 0);
     return found;
   }
+  function pageActions() {
+    var found = [];
+    var selectors = [
+      "button",
+      "a[href]",
+      "input:not([type=hidden])",
+      "select",
+      "textarea",
+      "label[for]",
+      "[role=button]",
+      "[role=link]",
+      "[role=menuitem]",
+      "td",
+      "th",
+      "[role=cell]",
+      "[role=columnheader]",
+      "[role=rowheader]",
+    ].join(",");
+    var actions = document.querySelectorAll(selectors);
+    for (var i = 0; i < actions.length; i++) {
+      var action = actions[i];
+      var style = getComputedStyle(action);
+      if (
+        style.display === "none" ||
+        style.visibility === "hidden"
+      ) {
+        continue;
+      }
+      var rect = action.getBoundingClientRect();
+      if (
+        rect.width > 0 &&
+        rect.height > 0 &&
+        rect.bottom > 0 &&
+        rect.right > 0 &&
+        rect.top < window.innerHeight &&
+        rect.left < window.innerWidth
+      ) {
+        found.push(rect);
+      }
+    }
+    var textWalker = document.createTreeWalker(
+      document.body,
+      NodeFilter.SHOW_TEXT,
+    );
+    while (textWalker.nextNode()) {
+      var textNode = textWalker.currentNode;
+      if (!textNode.nodeValue.trim()) continue;
+      var textParent = textNode.parentElement;
+      if (
+        !textParent ||
+        /^(SCRIPT|STYLE|NOSCRIPT|TEMPLATE)$/.test(textParent.tagName)
+      )
+        continue;
+      var textStyle = getComputedStyle(textParent);
+      if (
+        textStyle.display === "none" ||
+        textStyle.visibility === "hidden"
+      ) {
+        continue;
+      }
+      var range = document.createRange();
+      range.selectNodeContents(textNode);
+      var textRect = range.getBoundingClientRect();
+      if (
+        textRect.width > 0 &&
+        textRect.height > 0 &&
+        textRect.bottom > 0 &&
+        textRect.right > 0 &&
+        textRect.top < window.innerHeight &&
+        textRect.left < window.innerWidth
+      ) {
+        found.push(textRect);
+      }
+    }
+    return found;
+  }
   function overlapArea(a, b) {
     var x =
       Math.min(a.left + a.width, b.left + b.width) - Math.max(a.left, b.left);
@@ -1365,8 +1449,8 @@
       Math.min(a.top + a.height, b.top + b.height) - Math.max(a.top, b.top);
     return x > 0 && y > 0 ? x * y : 0;
   }
-  function candidateRect(anchor, width, height) {
-    var top = window.innerHeight - EDGE_GAP - height;
+  function candidateRect(anchor, width, height, bottomGap) {
+    var top = window.innerHeight - (bottomGap || EDGE_GAP) - height;
     if (anchor === "right") {
       return {
         left: window.innerWidth - 16 - width,
@@ -1385,12 +1469,45 @@
     };
   }
   var EDGE_GAP = 64;
+  var PLACEMENT_GAP = 16;
+  function autoLauncherPlacement() {
+    var subject = wrap.querySelector(".tab");
+    if (!subject) return { anchor: "right", bottom: EDGE_GAP };
+    var width = subject.offsetWidth;
+    var height = subject.offsetHeight;
+    if (!width || !height)
+      return { anchor: "right", bottom: EDGE_GAP };
+    var blockers = pageActions();
+    var best = { anchor: "right", bottom: EDGE_GAP };
+    var bestOverlap = Infinity;
+    for (
+      var bottom = EDGE_GAP;
+      bottom + height <= window.innerHeight - PLACEMENT_GAP;
+      bottom += height + PLACEMENT_GAP
+    ) {
+      for (var i = 0; i < ANCHORS.length; i++) {
+        var rect = candidateRect(ANCHORS[i], width, height, bottom);
+        var total = blockers.reduce(function (sum, blocker) {
+          return sum + overlapArea(rect, blocker);
+        }, 0);
+        if (total === 0) return { anchor: ANCHORS[i], bottom: bottom };
+        if (total < bestOverlap) {
+          bestOverlap = total;
+          best = { anchor: ANCHORS[i], bottom: bottom };
+        }
+      }
+    }
+    return best;
+  }
   function autoAnchor() {
-    if (!ui || state.minimized) return "right";
-    var width = ui.panel.offsetWidth;
-    var height = ui.panel.offsetHeight;
+    var subject = state.minimized
+      ? wrap.querySelector(".tab")
+      : ui && ui.panel;
+    if (!subject) return "right";
+    var width = subject.offsetWidth;
+    var height = subject.offsetHeight;
     if (!width || !height) return "right";
-    var blockers = obstacles();
+    var blockers = state.minimized ? pageActions() : obstacles();
     var best = "right";
     var bestOverlap = Infinity;
     for (var i = 0; i < ANCHORS.length; i++) {
@@ -1414,7 +1531,9 @@
         wrap.className = "wrap standalone open";
       return;
     }
-    var anchor = prefs.anchor || autoAnchor();
+    var placement = state.minimized ? autoLauncherPlacement() : null;
+    var anchor = placement ? placement.anchor : prefs.anchor || autoAnchor();
+    wrap.style.bottom = placement ? placement.bottom + "px" : "";
     // The open panel becomes a bottom sheet on a narrow screen; the launcher stays
     // a corner pill, because a full-width bar at the bottom lands underneath
     // whatever the application pins there.
@@ -2813,6 +2932,15 @@
           (build.deployedAt || "unknown") +
           ")",
       );
+      if (build.bridgeSha) {
+        lines.push("- Analyzer Bridge: `" + build.bridgeSha + "`");
+      }
+      if (build.mockSha) {
+        lines.push("- Analyzer mock: `" + build.mockSha + "`");
+      }
+      if (build.profileCatalogSha) {
+        lines.push("- Profile catalog: `" + build.profileCatalogSha + "`");
+      }
     }
     lines.push("");
     lines.push("## Checklist");
