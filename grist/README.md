@@ -26,7 +26,7 @@ not a publish step. The overlay sees changes within the router's short cache.
 | `UAT_Meta`        | instance, title, intro, jira                                                                                 | per-module header            |
 | `UAT_Stories`     | instance, story_key, title, story_order, version, jira, pr, mock, user_story, hosts                          | one row per story            |
 | `UAT_Steps`       | instance, step_key, required, story, step_order, do, expect, route                                           | the checklist                |
-| `UAT_Submissions` | instance, login, reviewer, submitted_at, host, app_sha, checklist_revision                                   | one row per review handed in |
+| `UAT_Submissions` | instance, login, reviewer, submitted_at, host, app_sha, checklist_revision                                   | one row per review; login is authenticated and reviewer is entered |
 | `UAT_Answers`     | review, step_key, story_key, story_title, story_version, story_revision, mark, note, actual_url, step, story | one row per step answered    |
 
 The first three are authored. The last two are written by a submission and are

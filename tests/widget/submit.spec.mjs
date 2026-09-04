@@ -40,6 +40,7 @@ async function openPanel(
       firstName: "Mercy",
       lastName: "Mwanza",
     },
+    reviewerName = "Piotr Manko",
   } = {},
 ) {
   await page.route("**/session", (route) => route.fulfill({ json: session }));
@@ -50,6 +51,9 @@ async function openPanel(
   const widget = widgetOf(page);
   await widget.getByRole("button", { name: /review/i }).click();
   await expect(widget.locator(".panel")).toBeVisible();
+  if (reviewerName) {
+    await widget.getByLabel("Your name").fill(reviewerName);
+  }
   return widget;
 }
 
@@ -87,7 +91,7 @@ async function captureSubmit(page, respond) {
 const ok = (route) =>
   route.fulfill({
     status: 201,
-    json: { id: 12, reviewer: { login: "mmwanza", name: "Mercy Mwanza" } },
+    json: { id: 12, reviewer: { login: "mmwanza", name: "Piotr Manko" } },
   });
 
 test("sends each answer pinned to the story version it was given against", async ({
@@ -104,6 +108,8 @@ test("sends each answer pinned to the story version it was given against", async
   const [body] = sent;
   expect(body.checklistRevision).toBe("rev-abc");
   expect(body.appSha).toBeTruthy();
+  expect(body.reviewer).toBe("Piotr Manko");
+  expect(body.login).toBeUndefined();
 
   // Only what was answered. An unanswered step is not a "not yet" to record —
   // it is a step this review says nothing about.
@@ -122,7 +128,22 @@ test("says the review went in, and whose name is on it", async ({ page }) => {
   await captureSubmit(page, ok);
   const widget = await answerOneStep(await openPanel(page));
   await submitButton(widget).click();
-  await expect(widget.locator(".statusbox")).toContainText("Mercy Mwanza");
+  await expect(widget.locator(".statusbox")).toContainText("Piotr Manko");
+});
+
+test("requires an entered name even when the application session is signed in", async ({
+  page,
+}) => {
+  const sent = await captureSubmit(page, ok);
+  const widget = await answerOneStep(
+    await openPanel(page, { reviewerName: "" }),
+  );
+  await submitButton(widget).click();
+  await expect(widget.getByRole("alert")).toHaveText(
+    "Enter your name before sharing this review.",
+  );
+  await expect(widget.getByLabel("Your name")).toBeFocused();
+  expect(sent).toHaveLength(0);
 });
 
 test("a reviewer the service will not vouch for is asked to sign in", async ({
@@ -220,7 +241,7 @@ test("an impatient second click does not file the review twice", async ({
     .catch(() => {});
 
   release();
-  await expect(widget.locator(".statusbox")).toContainText("Mercy Mwanza");
+  await expect(widget.locator(".statusbox")).toContainText("Piotr Manko");
   expect(sent).toHaveLength(1);
 });
 

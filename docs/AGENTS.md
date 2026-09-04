@@ -143,10 +143,15 @@ box-side read service that reshapes live Grist rows into the widget's JSON
 overlay within ~30s — no publish step.
 The panel also refreshes whenever it opens and has an explicit refresh action.
 
-## Feedback — the report
+## Feedback — the submission and report
 
-The reviewer marks each step (pass/fail/na) + optional notes, then downloads
-`oe-review-<instance>-<timestamp>.md` and `.json`. The Markdown carries a
+The reviewer marks each step (pass/fail/na) + optional notes and enters their
+required name. **Submit review** writes the answers to Grist with both the
+application-verified login and the separately entered reviewer name. The server
+derives the login from the application session and rejects a blank reviewer
+name; neither value substitutes for the other.
+
+The reviewer can also download `oe-review-<instance>-<timestamp>.md`. The report carries a
 per-section checklist with `[PASS]/[FAIL]/[N/A]/[----]` boxes, a summary line,
 and freeform feedback. Both formats include the checklist revision, verified
 deployment ID, application and harness SHAs, stable step keys, marked

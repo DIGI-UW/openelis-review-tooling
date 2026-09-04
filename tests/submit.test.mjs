@@ -153,7 +153,7 @@ const submit = (base, { cookie, payload, instance = "amr" }) =>
       "Content-Type": "application/json",
       ...(cookie ? { Cookie: cookie } : {}),
     },
-    body: JSON.stringify(payload),
+    body: JSON.stringify({ reviewer: "Piotr Manko", ...payload }),
   });
 
 const ANSWER = {
@@ -167,17 +167,17 @@ const ANSWER = {
   actualUrl: "https://amr.openelis-global.org/MicrobiologyWorklist",
 };
 
-test("the name on a submission is the one the application vouched for", async () => {
-  // The whole reason this endpoint exists. A submission that could name its own
-  // author would be a form, not a record — so the body says one thing here and
-  // the session says another, and the session wins.
+test("stores the entered reviewer name beside the authenticated login", async () => {
+  // The application session proves which account submitted the review. The
+  // required name says which person used that account, which matters when demo
+  // deployments share the OpenELIS admin login.
   const doc = seededDoc();
   await withService(doc, { "JSESSIONID=real": MERCY }, {}, async (base) => {
     const res = await submit(base, {
       cookie: "JSESSIONID=real",
       payload: {
         login: "someone-else",
-        reviewer: "Someone Else",
+        reviewer: "Piotr Manko",
         answers: [ANSWER],
       },
     });
@@ -190,12 +190,30 @@ test("the name on a submission is the one the application vouched for", async ()
     "mmwanza",
     "the login comes from the session, never the body",
   );
-  assert.equal(row.fields.reviewer, "Mercy Mwanza");
+  assert.equal(row.fields.reviewer, "Piotr Manko");
   assert.equal(
     row.fields.instance,
     7,
     "the submission points at the review's row",
   );
+});
+
+test("a blank entered reviewer name is refused without writing", async () => {
+  const doc = seededDoc();
+  const { response } = await withService(
+    doc,
+    { "JSESSIONID=real": MERCY },
+    {},
+    (base) =>
+      submit(base, {
+        cookie: "JSESSIONID=real",
+        payload: { reviewer: "  ", answers: [ANSWER] },
+      }),
+  );
+  assert.equal(response.status, 400);
+  assert.match((await response.json()).error, /reviewer name/i);
+  assert.equal(doc.tables.UAT_Submissions.records.length, 0);
+  assert.equal(doc.tables.UAT_Answers.records.length, 0);
 });
 
 test("it is the reviewer's own cookie that gets checked", async () => {

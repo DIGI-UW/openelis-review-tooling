@@ -595,17 +595,6 @@
     );
   }
 
-  // The signed-in name replaces whatever was typed: it is the one a submission can
-  // be attributed to, and the reviewer cannot mistype it. Applied wherever state
-  // is built rather than once when the session arrives — loading a checklist
-  // replaces state, and a name written only at probe time does not survive it.
-  function adoptIdentity() {
-    if (!identity || !identity.signedIn || !identity.name) return false;
-    if (state.reviewer === identity.name) return false;
-    state.reviewer = identity.name;
-    return true;
-  }
-
   // ---- who is reviewing ------------------------------------------------------
   function readIdentity() {
     if (!IDENTITY_SRC) return;
@@ -627,7 +616,6 @@
           login: String(value.loginName || "").trim(),
           name: name || String(value.loginName || "").trim(),
         };
-        if (adoptIdentity()) save();
         render();
       })
       .catch(function () {
@@ -1011,7 +999,6 @@
     // the compact panel's working area by accident.
     storyNavigation.revealOverview =
       hasStoryOverview && storyNavigation.revealOverview;
-    adoptIdentity();
     // Honour the persisted panel state on first load; only preserve the in-session
     // value once the reviewer has actually opened or closed it, so a background
     // refresh cannot collapse a panel they are working in — and so the panel does
@@ -2445,10 +2432,10 @@
     ui.intro.title = uat.intro || "";
     ui.intro.hidden = !uat.intro || state.introDone;
 
-    // Everything below is chrome the reviewer needs occasionally, not while they
-    // are working a step. In the compact panel it stands down once it has done
-    // its job; expanded, it is all on show.
-    ui.who.hidden = Boolean(identity && identity.signedIn);
+    // The application account and the person doing the review are separate.
+    // Demo sites commonly share an admin account, so signing in must never hide
+    // or replace the required reviewer name.
+    ui.who.hidden = false;
     var shown = {};
     allSteps().forEach(function (step) {
       shown[step.key] = matchesFilter(state.steps[step.key] || {});
@@ -2606,11 +2593,9 @@
     ui.nameError.hidden = true;
   }
 
-  // A signed-in application identity has already supplied the name. Everywhere
-  // else, require the reviewer to name the report before it leaves the browser;
-  // answering steps is still allowed so signing in or typing later loses nothing.
+  // The application session authenticates the account; this field identifies the
+  // person using it. Require both before a review can be submitted.
   function requireReviewerName() {
-    adoptIdentity();
     if (reviewerNamed()) {
       clearReviewerError();
       return true;
@@ -2721,6 +2706,7 @@
       credentials: "include",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
+        reviewer: String(state.reviewer || "").trim(),
         checklistRevision: uat.checklistRevision || "",
         host: location.host,
         appSha: (build && build.appSha) || "",
@@ -2791,6 +2777,9 @@
     lines.push("");
     lines.push("- Instance: `" + INSTANCE + "` (" + location.origin + ")");
     lines.push("- Reviewer: " + (state.reviewer || "_unnamed_"));
+    if (identity && identity.signedIn && identity.login) {
+      lines.push("- Authenticated login: " + identity.login);
+    }
     lines.push("- Generated: " + generated);
     lines.push(
       "- Checklist revision: `" + (uat.checklistRevision || "unknown") + "`",

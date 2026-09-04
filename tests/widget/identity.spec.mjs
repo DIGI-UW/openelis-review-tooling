@@ -15,8 +15,9 @@ async function deployed(page) {
   );
 }
 
-// The application's own session endpoint, which the widget borrows rather than
-// asking the reviewer who they are.
+// The application's own session endpoint supplies the authenticated account.
+// The reviewer still enters their name separately because demo accounts may be
+// shared.
 async function session(page, body, status = 200) {
   await page.route("**/session", (route) =>
     status === 200
@@ -33,7 +34,7 @@ async function openPanel(page) {
   return widget;
 }
 
-test("uses the signed-in user instead of asking who they are", async ({
+test("shows the signed-in account beside a required reviewer name", async ({
   page,
 }) => {
   await session(page, {
@@ -45,11 +46,10 @@ test("uses the signed-in user instead of asking who they are", async ({
   const widget = await openPanel(page);
 
   await expect(widget.locator(".whoami")).toContainText("Mercy Mwanza");
-  // Expanded, because the compact panel hides the name box once any name is set —
-  // including one the reviewer typed. Only here does its absence mean the session
-  // answered the question rather than the layout folding it away.
-  await widget.getByRole("button", { name: "Expand panel" }).click();
-  await expect(widget.getByLabel("Your name")).not.toBeVisible();
+  const name = widget.getByLabel("Your name");
+  await expect(name).toBeVisible();
+  await expect(name).toHaveAttribute("required", "");
+  await expect(name).toHaveValue("");
 });
 
 test("asks an anonymous reviewer to sign in", async ({ page }) => {
@@ -81,6 +81,7 @@ test("keeps what was answered before signing in", async ({ page }) => {
   await deployed(page);
   await session(page, { authenticated: false });
   let widget = await openPanel(page);
+  await widget.getByLabel("Your name").fill("Piotr Manko");
   await widget
     .locator(".step")
     .first()
@@ -105,6 +106,7 @@ test("keeps what was answered before signing in", async ({ page }) => {
   await expect(widget.locator(".panel")).toBeVisible();
 
   await expect(widget.locator(".whoami")).toContainText("Mercy Mwanza");
+  await expect(widget.getByLabel("Your name")).toHaveValue("Piotr Manko");
   await expect(widget.locator(".step").first()).toHaveAttribute(
     "data-state",
     "pass",
@@ -124,7 +126,8 @@ test("keeps what was answered before signing in", async ({ page }) => {
   const first = json.checklist[0].steps[0];
   expect(first.mark).toBe("pass");
   expect(first.note).toBe("noticed before I signed in");
-  expect(json.reviewer).toBe("Mercy Mwanza");
+  expect(json.reviewer).toBe("Piotr Manko");
+  expect(json.login).toBe("mmwanza");
 });
 
 test("still works where there is no session endpoint at all", async ({
@@ -169,7 +172,7 @@ test("requires a typed reviewer name before a report can be handed off", async (
   await download;
 });
 
-test("carries the verified name into the report rather than a typed one", async ({
+test("carries the entered reviewer and authenticated login separately", async ({
   page,
 }) => {
   await session(page, {
@@ -179,6 +182,7 @@ test("carries the verified name into the report rather than a typed one", async 
     lastName: "Mwanza",
   });
   const widget = await openPanel(page);
+  await widget.getByLabel("Your name").fill("Piotr Manko");
   await widget
     .locator(".step")
     .first()
@@ -188,8 +192,7 @@ test("carries the verified name into the report rather than a typed one", async 
     window.__OE_REVIEW_TEST__.buildReport(),
   );
   const json = JSON.parse(report.json);
-  expect(json.reviewer).toBe("Mercy Mwanza");
-  // The login name, not just the display name: it is what a submission is
-  // attributed to, and two reviewers can share a name.
+  expect(json.reviewer).toBe("Piotr Manko");
+  // The authenticated account cannot be typed or changed by the reviewer.
   expect(json.login).toBe("mmwanza");
 });

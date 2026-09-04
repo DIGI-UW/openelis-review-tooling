@@ -272,6 +272,10 @@ app.post("/uat/:instance/submissions", async (req, res) => {
       .status(400)
       .json({ error: "a submission needs at least one answered step" });
   }
+  const reviewerName = String((req.body && req.body.reviewer) || "").trim();
+  if (!reviewerName) {
+    return res.status(400).json({ error: "a reviewer name is required" });
+  }
 
   let reviewer;
   try {
@@ -319,7 +323,7 @@ app.post("/uat/:instance/submissions", async (req, res) => {
       {
         instance: review.id,
         login: reviewer.login,
-        reviewer: reviewer.name,
+        reviewer: reviewerName,
         // Grist stores a DateTime as epoch seconds. Taken here rather than from
         // the body: a clock the submitter controls is not a timestamp.
         submitted_at: Math.floor(Date.now() / 1000),
@@ -375,7 +379,10 @@ app.post("/uat/:instance/submissions", async (req, res) => {
       throw e;
     }
 
-    res.status(201).json({ id: submission.id, reviewer });
+    res.status(201).json({
+      id: submission.id,
+      reviewer: { login: reviewer.login, name: reviewerName },
+    });
   } catch (e) {
     console.error(
       `[grist-uat] submission for ${instance}:`,
