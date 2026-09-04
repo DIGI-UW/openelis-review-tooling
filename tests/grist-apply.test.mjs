@@ -410,6 +410,7 @@ test("apply builds the tables a submitted review lands in", async () => {
     "story_version",
     "story_revision",
     "mark",
+    "issue_url",
   ]) {
     assert.ok(
       answers.includes(col),

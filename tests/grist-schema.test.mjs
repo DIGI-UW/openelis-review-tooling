@@ -328,6 +328,23 @@ test("nothing an answer pins is recomputed from the story it points at", () => {
   }
 });
 
+test("an answer has one issue link instead of a second resolution state", () => {
+  const issueUrl = SCHEMA.UAT_Answers.columns.issue_url;
+  assert.ok(issueUrl, "UAT_Answers.issue_url must be declared");
+  assert.equal(issueUrl.type, "Text");
+  assert.deepEqual(JSON.parse(issueUrl.widgetOptions), {
+    widget: "HyperLink",
+  });
+  assert.match(issueUrl.description, /GitHub issue or pull request/);
+  for (const redundant of ["status", "resolution", "resolved_at"]) {
+    assert.equal(
+      SCHEMA.UAT_Answers.columns[redundant],
+      undefined,
+      `${redundant} belongs to the linked issue, not Grist`,
+    );
+  }
+});
+
 test("a review can be read whole, from the person down to the answers", () => {
   const page = PAGES.find((p) => p.name === "Submitted reviews");
   assert.ok(page, "there must be a Submitted reviews page");
