@@ -164,6 +164,10 @@ items — group by severity, map each FAIL / critical note to a concrete
 story/task under the instance's Jira epic, and confirm what passed. Draft the
 issues; don't file them unless asked.
 
+After an issue or pull request is approved and created, put its canonical
+GitHub URL in that answer's `issue_url`. Do not add or maintain a second status
+in Grist; the linked artifact is the source of truth for resolution.
+
 ## Gotchas
 
 - The REST API is **authed with a full-access key** — never expose it to a browser
