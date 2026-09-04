@@ -149,10 +149,32 @@ restore_previous_images() {
   compose up -d --no-deps --force-recreate "${services[@]}" || true
 }
 
+restore_previous_checkout() {
+  local restore_submodules=("dataexport")
+  [ "$bootstrap" = false ] || return 0
+  [ -n "$previous_app_sha" ] || return 0
+
+  if [ "$INSTANCE" = analyzers ]; then
+    restore_submodules+=(
+      "tools/openelis-analyzer-bridge"
+      "tools/analyzer-mock-server"
+    )
+  fi
+
+  echo "[app-deploy] restoring application checkout $previous_app_sha"
+  repo_git "$APP_DIR" checkout --detach "$previous_app_sha" || {
+    echo "[app-deploy] warning: could not restore the previous application checkout" >&2
+    return 0
+  }
+  repo_git "$APP_DIR" submodule update --init --depth 1 "${restore_submodules[@]}" ||
+    echo "[app-deploy] warning: could not restore every managed submodule" >&2
+}
+
 on_exit() {
   local exit_code="$?"
   [ "$deployment_complete" = true ] && return
   restore_previous_images
+  restore_previous_checkout
   write_status failed failed
   echo "[app-deploy] failed with exit code $exit_code; ready target metadata was not changed" >&2
 }

@@ -77,6 +77,10 @@ at an exact pushed SHA:
 
 ```bash
 ./deploy.sh app deploy analyzers --ref <sha> --scope app
+./deploy.sh analyzer-runtime deploy --ref <same-exact-openelis-sha>
+./deploy.sh analyzer-runtime status --deployment <id>
+./deploy.sh analyzer-runtime verify
+./deploy.sh data seed analyzers --fixture analyzer-mvp
 ./deploy.sh app status analyzers
 ./deploy.sh app logs analyzers --since 10m --tail 400
 ./deploy.sh app logs analyzers --errors

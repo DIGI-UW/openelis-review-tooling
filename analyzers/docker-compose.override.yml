@@ -34,6 +34,9 @@ services:
     container_name: analyzers-openelisglobal-webapp
     image: openelisglobal-webapp.analyzers
     ports: !reset []
+    environment:
+      - "ANALYZER_BRIDGE_USERNAME=${BRIDGE_SECURITY_USERNAME:?required}"
+      - "ANALYZER_BRIDGE_PASSWORD=${BRIDGE_SECURITY_PASSWORD:?required}"
     networks:
       default:
         ipv4_address: 172.25.1.121   # moved into the remapped subnet below
@@ -71,6 +74,9 @@ services:
     container_name: analyzers-openelis-analyzer-bridge
     image: openelis-analyzer-bridge.analyzers   # per-instance tag
     ports: !reset []                                   # HTTPS/ASTM/MLLP listeners stay internal
+    environment:
+      - "BRIDGE_SECURITY_USERNAME=${BRIDGE_SECURITY_USERNAME:?required}"
+      - "BRIDGE_SECURITY_PASSWORD=${BRIDGE_SECURITY_PASSWORD:?required}"
 
 networks:
   edge:
