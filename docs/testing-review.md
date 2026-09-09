@@ -14,7 +14,7 @@ Deploy the committed change using the existing narrow commands:
 
 ```sh
 ./deploy.sh review deploy --ref <full-commit-sha> --scope all
-./deploy.sh review reload-router
+./deploy.sh review reload-router --instance testing
 ```
 
 These update the widget/checklist service and router. Review deployment now

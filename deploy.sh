@@ -767,15 +767,27 @@ cmd_review_reload_router() {
       *) die "unknown reload-router option '$1'" ;;
     esac
   done
-  validate_instance "$instance"
+  local probe_path="/__review/uat-$instance/submissions"
   if [ -z "$domain" ]; then
     case "$instance" in
       amr) domain="$AMR_DOMAIN" ;;
       analyzers) domain="$ANALYZERS_DOMAIN" ;;
       phrases) domain="$PHRASES_DOMAIN" ;;
+      testing)
+        domain="$GRIST_DOMAIN"
+        probe_path="/uat/testing/submissions"
+        ;;
+      *) die "review router supports instances 'amr', 'analyzers', 'phrases', and 'testing'" ;;
+    esac
+  elif [ "$instance" = testing ]; then
+    probe_path="/uat/testing/submissions"
+  else
+    case "$instance" in
+      amr | analyzers | phrases) ;;
+      *) die "review router supports instances 'amr', 'analyzers', 'phrases', and 'testing'" ;;
     esac
   fi
-  log "reloading the router (probing $domain/__review/uat-$instance/submissions)"
+  log "reloading the router (probing $domain$probe_path)"
   ssm_run "set -euo pipefail
 # Shipped as a real script rather than inlined here, so it is covered by
 # shellcheck and by tests that actually run it against stubs.
@@ -783,7 +795,7 @@ cat > /tmp/oe-reload-router.sh <<'RTREOF'
 $(cat "$HERE/scripts/reload-router.sh")
 RTREOF
 chmod +x /tmp/oe-reload-router.sh
-REMOTE_USER='$OS_USER' PROBE_DOMAIN='$domain' PROBE_INSTANCE='$instance' \
+REMOTE_USER='$OS_USER' PROBE_DOMAIN='$domain' PROBE_INSTANCE='$instance' PROBE_PATH='$probe_path' \
 AMR_DOMAIN='$AMR_DOMAIN' ANALYZERS_DOMAIN='$ANALYZERS_DOMAIN' PHRASES_DOMAIN='$PHRASES_DOMAIN' GRIST_DOMAIN='$GRIST_DOMAIN' \
 /tmp/oe-reload-router.sh"
 }
