@@ -20,3 +20,7 @@ playwright-report/
 # editor / OS / backups
 *.bak*
 .DS_Store
+
+# Evidence uploaded by reviewers, written on the box. Tracking it would make
+# every deploy report a dirty worktree and train people to ignore drift.
+widget/evidence/
