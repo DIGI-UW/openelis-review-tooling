@@ -11,7 +11,8 @@ import test from "node:test";
 import { fakeGristDoc, startFakeGrist } from "./helpers/fake-grist.mjs";
 import { startFakeOpenELIS } from "./helpers/fake-openelis.mjs";
 
-const SERVER = new URL("../grist/uat-read/server.mjs", import.meta.url).pathname;
+const SERVER = new URL("../grist/uat-read/server.mjs", import.meta.url)
+  .pathname;
 
 const MERCY = {
   authenticated: true,
@@ -112,7 +113,7 @@ async function withService(doc, sessions, env, body) {
       PORT: "0",
       // ghost is a verifiable deployment with no review of that name, which is
       // a different refusal from a deployment that cannot verify anyone.
-      REVIEW_BACKENDS: `amr=${app.url},ghost=${app.url}`,
+      REVIEW_BACKENDS: `amr=${app.url},ghost=${app.url},testing=${app.url}`,
       ...env,
     },
     stdio: ["ignore", "ignore", "pipe"],
@@ -166,6 +167,31 @@ const ANSWER = {
   note: "the worklist was empty",
   actualUrl: "https://amr.openelis-global.org/MicrobiologyWorklist",
 };
+
+test("testing submissions verify the testing session and store its dedicated review", async () => {
+  const doc = seededDoc();
+  doc.tables.UAT_Meta.records[0].fields.instance = "testing";
+  doc.tables.UAT_Steps.records[0].fields.instance = "testing";
+  const { app } = await withService(
+    doc,
+    { "JSESSIONID=testing": MERCY },
+    {},
+    async (base) => {
+      const response = await submit(base, {
+        instance: "testing",
+        cookie: "JSESSIONID=testing",
+        payload: { answers: [ANSWER] },
+      });
+      assert.equal(response.status, 201, await response.text());
+    },
+  );
+  assert.equal(app.seen[0].cookie, "JSESSIONID=testing");
+  assert.equal(doc.tables.UAT_Submissions.records[0].fields.instance, 7);
+  assert.equal(
+    doc.tables.UAT_Submissions.records[0].fields.login,
+    MERCY.loginName,
+  );
+});
 
 test("stores the entered reviewer name beside the authenticated login", async () => {
   // The application session proves which account submitted the review. The

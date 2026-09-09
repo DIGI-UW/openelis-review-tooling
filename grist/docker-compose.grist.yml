@@ -83,7 +83,7 @@ services:
       # is attributed to whoever holds the session cookie there, so an instance
       # missing from this map cannot be submitted to at all — recording a name
       # nothing checked would be indistinguishable from one that was verified.
-      - REVIEW_BACKENDS=${REVIEW_BACKENDS:-amr=https://amr-oe:8443,analyzers=https://analyzers-oe:8443,phrases=https://phrases-oe:8443}
+      - REVIEW_BACKENDS=${REVIEW_BACKENDS:-amr=https://amr-oe:8443,analyzers=https://analyzers-oe:8443,phrases=https://phrases-oe:8443,testing=https://testing.openelis-global.org}
       # Those two are compose aliases on a network that is not routable, serving
       # certificates no public CA can vouch for. Named one by one so the default
       # stays "verify": a backend pointed at a real host is checked like any

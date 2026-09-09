@@ -731,14 +731,6 @@ repo_git fetch --depth 1 origin '$ref'
 repo_git checkout --detach FETCH_HEAD
 [ \"\$(repo_git rev-parse HEAD)\" = '$ref' ]
 grep -q 'attachShadow({ mode: \"open\" })' \"\$edge_dir/widget/oe-review-widget.js\"
-for instance in amr analyzers phrases; do
-  target=\"\$edge_dir/runtime/target-\$instance.json\"
-  [ -f \"\$target\" ] || continue
-  tmp=\$(mktemp \"\$edge_dir/runtime/.target-\$instance.XXXXXX\")
-  sed 's/\"harnessSha\":\"[^\"]*\"/\"harnessSha\":\"$ref\"/' \"\$target\" > \"\$tmp\"
-  chmod 0644 \"\$tmp\"
-  mv \"\$tmp\" \"\$target\"
-done
 scope='$scope'
 probe=\$(mktemp)
 trap 'rm -f \"\$probe\"' EXIT
@@ -757,7 +749,8 @@ SVCEOF
   chmod +x /tmp/oe-rebuild-checklist-service.sh
   REMOTE_USER='$OS_USER' GRIST_DOMAIN='$GRIST_DOMAIN' /tmp/oe-rebuild-checklist-service.sh
   echo 'checklist service ready at $ref'
-fi"
+fi
+python3 \"\$edge_dir/scripts/publish-review-identity.py\" --checkout \"\$edge_dir\" --sha '$ref' --widget-url 'https://$GRIST_DOMAIN/oe-review-widget.js'"
 }
 
 # Recreating the router is what turns a changed nginx.conf.template into live

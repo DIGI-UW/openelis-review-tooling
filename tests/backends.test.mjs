@@ -59,3 +59,11 @@ test("an exemption is for one host, not for anything ending in it", () => {
   assert.equal(verifyTlsFor("evil-amr-oe", "amr-oe"), true);
   assert.equal(verifyTlsFor("amr-oe.example.org", "amr-oe"), true);
 });
+
+test("testing verifies its public TLS certificate", () => {
+  const { backends } = parseBackends(
+    "testing=https://testing.openelis-global.org",
+  );
+  const host = new URL(backends.get("testing")).hostname;
+  assert.equal(verifyTlsFor(host, "amr-oe,analyzers-oe,phrases-oe"), true);
+});
