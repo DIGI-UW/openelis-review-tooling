@@ -50,7 +50,10 @@ test("REST checklist authoring requires explicit stable keys", async () => {
   const skill = await read("skills/uat-authoring/SKILL.md");
   const schema = await read("skills/uat-authoring/references/schema.md");
 
-  assert.match(contract, /REST creates must send[\s\S]*`story_key` and `step_key`/);
+  assert.match(
+    contract,
+    /REST creates must send[\s\S]*`story_key` and `step_key`/,
+  );
   assert.match(skill, /REST creates must provide stable keys explicitly/);
   assert.match(
     skill,
@@ -121,6 +124,19 @@ test("the dedicated phrases review verifies sessions against its own app", async
   assert.match(compose, /phrases-oe/);
   assert.match(router, /server_name \$\{PHRASES_DOMAIN\}/);
   assert.match(router, /data-instance="phrases"/);
+});
+
+test("testing session verification survives an existing backend override", async () => {
+  const compose = await read("grist/docker-compose.grist.yml");
+
+  assert.match(
+    compose,
+    /REVIEW_BACKENDS=\$\{REVIEW_BACKENDS:-[^\n]+\},testing=\$\{TESTING_REVIEW_BACKEND:-https:\/\/testing\.openelis-global\.org\}/,
+  );
+  assert.doesNotMatch(
+    compose,
+    /INSECURE_BACKEND_HOSTS[^\n]*testing\.openelis-global\.org/,
+  );
 });
 
 test("the review router recompresses frontend responses after overlay injection", async () => {

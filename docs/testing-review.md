@@ -5,9 +5,10 @@ images; this repository uses `main`.
 The central router accepts `/uat/testing/submissions` and forwards the existing
 OpenELIS session cookie to the checklist service. The service verifies that
 session against `https://testing.openelis-global.org/api/OpenELIS-Global/session`
-with normal TLS certificate verification. A configured `REVIEW_BACKENDS`
-override must include `testing=https://testing.openelis-global.org` as well as
-the existing instances. No Grist authoring key reaches the testing VM or browser.
+with normal TLS certificate verification. Testing is appended to any existing
+`REVIEW_BACKENDS` override; `TESTING_REVIEW_BACKEND` can change its URL without
+replacing the other instance mappings. No Grist authoring key reaches the
+testing VM or browser.
 
 Deploy the committed change using the existing narrow commands:
 
