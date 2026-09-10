@@ -44,11 +44,22 @@ assert configured["services"]["uat-read"]["environment"]["REVIEW_BACKENDS"] == (
 with tempfile.TemporaryDirectory(prefix="review-nginx-") as directory:
     root = Path(directory)
     root.chmod(0o755)
-    subprocess.run([
-        "openssl", "req", "-x509", "-nodes", "-newkey", "rsa:2048", "-days", "1",
-        "-subj", "/CN=localhost", "-addext", "subjectAltName=DNS:localhost",
-        "-keyout", str(root / "test.key"), "-out", str(root / "test.crt"),
-    ], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    def openssl(*args):
+        subprocess.run(["openssl", *args], cwd=root, check=True,
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+    openssl("req", "-x509", "-nodes", "-newkey", "rsa:2048", "-days", "1",
+            "-subj", "/CN=fixture-root", "-keyout", "ca.key", "-out", "ca.crt")
+    (root / "intermediate.ext").write_text("basicConstraints=critical,CA:TRUE,pathlen:1\nkeyUsage=critical,keyCertSign,cRLSign\n")
+    (root / "issuing.ext").write_text("basicConstraints=critical,CA:TRUE,pathlen:0\nkeyUsage=critical,keyCertSign,cRLSign\n")
+    (root / "leaf.ext").write_text("basicConstraints=CA:FALSE\nsubjectAltName=DNS:localhost\n")
+    for name, issuer in [("intermediate", "ca"), ("issuing", "intermediate"), ("leaf", "issuing")]:
+        openssl("req", "-new", "-nodes", "-newkey", "rsa:2048", "-subj", "/CN=" + name,
+                "-keyout", name + ".key", "-out", name + ".csr")
+        openssl("x509", "-req", "-days", "1", "-in", name + ".csr", "-CA", issuer + ".crt",
+                "-CAkey", issuer + ".key", "-CAcreateserial", "-extfile", name + ".ext", "-out", name + ".crt")
+    (root / "test.crt").write_bytes(b"".join((root / (name + ".crt")).read_bytes() for name in ("leaf", "issuing", "intermediate")))
+    (root / "test.key").write_bytes((root / "leaf.key").read_bytes())
     template = (ROOT / "router/nginx.conf.template").read_text()
     start = template.index("        location ~ ^/uat/(?<uat_submit_instance>")
     end = template.index("\n        }", start) + len("\n        }")
@@ -58,13 +69,13 @@ with tempfile.TemporaryDirectory(prefix="review-nginx-") as directory:
     for instance, session in sites:
         files = configure.render({"instance": instance, "label": 'Lab "$host',
                                   "review_origin": "https://localhost:9443", "session_path": session,
-                                  "ca_bundle": "/test/test.crt"})
+                                  "ca_bundle": "/test/ca.crt"})
         blocks.append(f'''server {{
             listen 8080; server_name {instance}.example.org;
             {files['routes.conf']}
             location / {{ proxy_pass http://127.0.0.1:8081; {files['html.conf']} }}
         }}''')
-    bad = configure.render({"instance": "bad-cert", "review_origin": "https://127.0.0.1:9443", "ca_bundle": "/test/test.crt"})
+    bad = configure.render({"instance": "bad-cert", "review_origin": "https://127.0.0.1:9443", "ca_bundle": "/test/ca.crt"})
     blocks.append(f"server {{ listen 8080; server_name bad-cert.example.org; {bad['routes.conf']} }}")
     config = '''events {}
 http {

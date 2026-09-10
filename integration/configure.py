@@ -65,6 +65,7 @@ def render(config):
             "    proxy_ssl_server_name on;\n"
             f"    proxy_ssl_name {parsed.hostname};\n"
             "    proxy_ssl_verify on;\n"
+            "    proxy_ssl_verify_depth 3;\n"
             f"    proxy_ssl_trusted_certificate {ca};\n"
             '    add_header Cache-Control "no-store" always;\n'
             "}\n"
