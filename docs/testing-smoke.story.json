@@ -1,0 +1,29 @@
+{
+  "instance": "testing",
+  "story": {
+    "story_key": "TESTING-STARTUP",
+    "title": "Application startup and retained analyzers",
+    "story_order": 0,
+    "hosts": "testing.openelis-global.org",
+    "pr": "https://github.com/DIGI-UW/OpenELIS-Global-2/pull/4255",
+    "user_story": "Verify the testing deployment after an update. Use an existing testing account with analyzer administration access. These checks only inspect existing data; do not create, activate, or delete an analyzer."
+  },
+  "steps": [
+    {
+      "step_key": "TESTING-001",
+      "required": true,
+      "step_order": 0,
+      "do": "Open testing.openelis-global.org and sign in with your existing testing account.",
+      "expect": "The application opens after sign-in without a System Error or a permanently pending request.",
+      "route": "/"
+    },
+    {
+      "step_key": "TESTING-002",
+      "required": true,
+      "step_order": 1,
+      "do": "Open the Analyzers page using this step's link. Inspect the existing analyzer list without changing any records.",
+      "expect": "The list loads. Any retained incomplete analyzer appears as Setup; it does not prevent other analyzers from loading.",
+      "route": "/analyzers"
+    }
+  ]
+}

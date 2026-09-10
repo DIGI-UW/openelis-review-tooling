@@ -20,6 +20,10 @@ jobs:
       # those tests fails as a connection error.
       - run: npm ci --prefix grist/uat-read
       - run: npm test
+      - name: Validate portable Nginx integration
+        run: python3 -m unittest discover -s tests -p '*_test.py' -v
+      - name: Exercise external sites through Nginx
+        run: python3 tests/nginx-smoke.py
       - run: npx playwright install --with-deps chromium
       - run: npm run test:widget
       - name: Validate shell

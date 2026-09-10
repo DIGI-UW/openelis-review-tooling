@@ -1,0 +1,6 @@
+{
+  "instance": "my-lab",
+  "label": "My lab review",
+  "review_origin": "https://grist.openelis-global.org",
+  "session_path": "/api/OpenELIS-Global/session"
+}
