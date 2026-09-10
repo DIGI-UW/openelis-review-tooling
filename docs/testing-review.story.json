@@ -2,7 +2,7 @@
   "instance": "testing",
   "story": {
     "story_key": "TESTING-REVIEW",
-    "title": "Review feedback and deployment identity",
+    "title": "Review feedback",
     "story_order": 1,
     "hosts": "testing.openelis-global.org",
     "user_story": "Verify Review on the testing server with an existing signed-in testing account. This story creates one clearly labelled validation review in Grist and does not change laboratory records."
@@ -13,7 +13,7 @@
       "required": true,
       "step_order": 0,
       "do": "Open the Review panel on testing, enter your reviewer name, and open the story picker.",
-      "expect": "Both testing stories are available: Application startup and retained analyzers, and Review feedback and deployment identity. The deployment shows the application commit being reviewed.",
+      "expect": "Both testing stories are available: Application startup and retained analyzers, and Review feedback.",
       "route": "/"
     },
     {
@@ -21,7 +21,7 @@
       "required": true,
       "step_order": 1,
       "do": "Mark the preceding Review step, add a note starting with 'Testing deployment validation', and download the report.",
-      "expect": "The report retains the mark and note, identifies testing, and includes the deployment ID plus application and Review tooling commits.",
+      "expect": "The report retains the mark and note and identifies the testing instance and selected story. Deployment metadata is included when available; unavailable metadata is not presented as a verified commit.",
       "route": "/"
     },
     {

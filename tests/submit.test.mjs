@@ -113,8 +113,8 @@ async function withService(doc, sessions, env, body) {
       PORT: "0",
       // ghost is a verifiable deployment with no review of that name, which is
       // a different refusal from a deployment that cannot verify anyone.
-      REVIEW_BACKENDS: `amr=${app.url},ghost=${app.url},testing=${app.url}`,
-      ...env,
+      REVIEW_BACKENDS: `amr=${app.url},ghost=${app.url}`,
+      ...(typeof env === "function" ? env(app) : env),
     },
     stdio: ["ignore", "ignore", "pipe"],
   });
@@ -147,12 +147,13 @@ async function withService(doc, sessions, env, body) {
   }
 }
 
-const submit = (base, { cookie, payload, instance = "amr" }) =>
+const submit = (base, { cookie, payload, instance = "amr", headers = {} }) =>
   fetch(`${base}/uat/${instance}/submissions`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       ...(cookie ? { Cookie: cookie } : {}),
+      ...headers,
     },
     body: JSON.stringify({ reviewer: "Piotr Manko", ...payload }),
   });
@@ -168,29 +169,74 @@ const ANSWER = {
   actualUrl: "https://amr.openelis-global.org/MicrobiologyWorklist",
 };
 
-test("testing submissions verify the testing session and store its dedicated review", async () => {
+for (const instance of ["lab-north", "clinic_42"]) {
+  test(`external site ${instance} is onboarded through configuration alone`, async () => {
+    const doc = seededDoc();
+    doc.tables.UAT_Meta.records[0].fields.instance = instance;
+    doc.tables.UAT_Steps.records[0].fields.instance = instance;
+    const external = await startFakeOpenELIS({ "JSESSIONID=external": MERCY });
+    try {
+      const { app } = await withService(
+        doc,
+        { "JSESSIONID=existing": MERCY },
+        (existing) => ({
+          REVIEW_BACKENDS: `amr=${existing.url},${instance}=${external.url}`,
+        }),
+        async (base) => {
+          const headers = {
+            "X-Review-Proxy": "external",
+            Host: "review.example.org",
+            "X-Forwarded-Host": "forged.example.org",
+          };
+          const wrongSite = await submit(base, {
+            instance,
+            cookie: "JSESSIONID=existing",
+            headers,
+            payload: { answers: [ANSWER] },
+          });
+          assert.equal(wrongSite.status, 401);
+          assert.equal(doc.tables.UAT_Submissions.records.length, 0);
+          const response = await submit(base, {
+            instance,
+            cookie: "JSESSIONID=external",
+            headers,
+            payload: { host: "forged.example.org", answers: [ANSWER] },
+          });
+          assert.equal(response.status, 201, await response.text());
+        },
+      );
+      assert.equal(
+        app.seen.length,
+        0,
+        "another site's backend must never authenticate this review",
+      );
+      assert.equal(external.seen[1].cookie, "JSESSIONID=external");
+      const row = doc.tables.UAT_Submissions.records[0].fields;
+      assert.equal(row.instance, 7);
+      assert.equal(row.login, MERCY.loginName);
+      assert.equal(row.host, new URL(external.url).host);
+    } finally {
+      await external.stop();
+    }
+  });
+}
+
+test("the external route rejects unregistered sites before any session lookup or write", async () => {
   const doc = seededDoc();
-  doc.tables.UAT_Meta.records[0].fields.instance = "testing";
-  doc.tables.UAT_Steps.records[0].fields.instance = "testing";
-  const { app } = await withService(
-    doc,
-    { "JSESSIONID=testing": MERCY },
-    {},
-    async (base) => {
-      const response = await submit(base, {
-        instance: "testing",
-        cookie: "JSESSIONID=testing",
-        payload: { answers: [ANSWER] },
-      });
-      assert.equal(response.status, 201, await response.text());
-    },
+  const { response, app } = await withService(doc, {}, {}, (base) =>
+    submit(base, {
+      instance: "unregistered",
+      cookie: "JSESSIONID=anything",
+      headers: {
+        "X-Review-Proxy": "external",
+        "X-Forwarded-Host": "attacker.example.org",
+      },
+      payload: { backend: "http://attacker.example.org", answers: [ANSWER] },
+    }),
   );
-  assert.equal(app.seen[0].cookie, "JSESSIONID=testing");
-  assert.equal(doc.tables.UAT_Submissions.records[0].fields.instance, 7);
-  assert.equal(
-    doc.tables.UAT_Submissions.records[0].fields.login,
-    MERCY.loginName,
-  );
+  assert.equal(response.status, 501);
+  assert.equal(app.seen.length, 0);
+  assert.equal(doc.tables.UAT_Submissions.records.length, 0);
 });
 
 test("stores the entered reviewer name beside the authenticated login", async () => {

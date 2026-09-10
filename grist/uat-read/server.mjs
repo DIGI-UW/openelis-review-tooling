@@ -327,10 +327,13 @@ app.post("/uat/:instance/submissions", async (req, res) => {
         // Grist stores a DateTime as epoch seconds. Taken here rather than from
         // the body: a clock the submitter controls is not a timestamp.
         submitted_at: Math.floor(Date.now() / 1000),
-        // The header, not the body: the request was routed by it — nginx
-        // matched a vhost on it — so it says which deployment these answers are
-        // about. The body is the submitter's word for the same thing.
-        host: String(req.headers.host || ""),
+        // The central external route arrives on the Review hostname. Record
+        // the configured OpenELIS host that authenticated this session instead.
+        // Never accept a caller-supplied backend URL or forwarded host.
+        host:
+          req.headers["x-review-proxy"] === "external"
+            ? new URL(backend).host
+            : String(req.headers.host || ""),
         app_sha: String((req.body && req.body.appSha) || ""),
         checklist_revision: String(
           (req.body && req.body.checklistRevision) || "",

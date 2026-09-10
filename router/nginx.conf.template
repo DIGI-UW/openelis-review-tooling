@@ -111,6 +111,7 @@ http {
             set $uat_up "uat-read";
             proxy_pass http://$uat_up:8585/uat/$uat_submit_instance/submissions;
             proxy_set_header Host $host;
+            proxy_set_header X-Review-Proxy local;
             add_header Cache-Control "no-store" always;
         }
 
@@ -208,6 +209,7 @@ http {
             set $uat_up "uat-read";
             proxy_pass http://$uat_up:8585/uat/$uat_submit_instance/submissions;
             proxy_set_header Host $host;
+            proxy_set_header X-Review-Proxy local;
             add_header Cache-Control "no-store" always;
         }
 
@@ -306,6 +308,7 @@ http {
             set $uat_up "uat-read";
             proxy_pass http://$uat_up:8585/uat/$uat_submit_instance/submissions;
             proxy_set_header Host $host;
+            proxy_set_header X-Review-Proxy local;
             add_header Cache-Control "no-store" always;
         }
 
@@ -411,20 +414,14 @@ http {
             add_header Cache-Control "public, max-age=300" always;
         }
 
-        location = /__review/tooling.json {
-            alias /etc/nginx/runtime/review-tooling.json;
-            default_type application/json;
-            add_header Access-Control-Allow-Origin "*" always;
-            add_header Cache-Control "no-store" always;
-        }
-
-        # The testing VM forwards the application cookie to this fixed route.
-        # Authentication still checks that cookie against testing's own backend.
-        location = /uat/testing/submissions {
+        # External sites forward their application cookie through a same-origin
+        # route. The service selects the backend from its configured instance map.
+        location ~ ^/uat/(?<uat_submit_instance>[a-z0-9_-]+)/submissions$ {
             if ($request_method != POST) { return 405; }
             set $uat_up "uat-read";
-            proxy_pass http://$uat_up:8585/uat/testing/submissions;
-            proxy_set_header Host testing.openelis-global.org;
+            proxy_pass http://$uat_up:8585/uat/$uat_submit_instance/submissions;
+            proxy_set_header Host $host;
+            proxy_set_header X-Review-Proxy external;
             proxy_set_header Cookie $http_cookie;
             proxy_set_header X-Forwarded-Proto https;
             proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;

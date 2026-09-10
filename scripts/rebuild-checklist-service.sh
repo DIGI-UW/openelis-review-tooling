@@ -45,10 +45,16 @@ for config in "${file_list[@]}"; do
   compose_args+=(-f "$config")
 done
 
+ENV_FILE="${ENV_FILE:-$workdir/../.env}"
+[ -f "$ENV_FILE" ] || {
+  echo "checklist runtime environment file is missing: $ENV_FILE" >&2
+  exit 1
+}
+
 cd "$workdir"
 # --no-deps keeps the rebuild to the service that changed; without it Compose
 # recreates Grist and Dex alongside it.
-sudo -u "$REMOTE_USER" docker compose -p "$project" "${compose_args[@]}" \
+sudo -u "$REMOTE_USER" docker compose -p "$project" --env-file "$ENV_FILE" "${compose_args[@]}" \
   up -d --no-deps --build "$SERVICE"
 
 probe="$(mktemp)"

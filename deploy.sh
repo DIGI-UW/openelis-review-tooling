@@ -38,7 +38,7 @@
 #   ./deploy.sh analyzer-runtime status [--deployment <id>]
 #   ./deploy.sh analyzer-runtime verify
 #   ./deploy.sh review deploy --ref <sha> --scope widget|service|all
-#   ./deploy.sh review reload-router [--instance amr] [--domain <host>]
+#   ./deploy.sh review reload-router [--instance amr] [--domain <host>] [--external]
 #                                   # re-render nginx from the template, router only
 #   ./deploy.sh data seed amr --fixture microbiology-mvp --story AMR-S33
 #   ./deploy.sh data seed analyzers --fixture analyzer-mvp
@@ -731,6 +731,14 @@ repo_git fetch --depth 1 origin '$ref'
 repo_git checkout --detach FETCH_HEAD
 [ \"\$(repo_git rev-parse HEAD)\" = '$ref' ]
 grep -q 'attachShadow({ mode: \"open\" })' \"\$edge_dir/widget/oe-review-widget.js\"
+for instance in amr analyzers phrases; do
+  target=\"\$edge_dir/runtime/target-\$instance.json\"
+  [ -f \"\$target\" ] || continue
+  tmp=\$(mktemp \"\$edge_dir/runtime/.target-\$instance.XXXXXX\")
+  sed 's/\"harnessSha\":\"[^\"]*\"/\"harnessSha\":\"$ref\"/' \"\$target\" > \"\$tmp\"
+  chmod 0644 \"\$tmp\"
+  mv \"\$tmp\" \"\$target\"
+done
 scope='$scope'
 probe=\$(mktemp)
 trap 'rm -f \"\$probe\"' EXIT
@@ -749,8 +757,7 @@ SVCEOF
   chmod +x /tmp/oe-rebuild-checklist-service.sh
   REMOTE_USER='$OS_USER' GRIST_DOMAIN='$GRIST_DOMAIN' /tmp/oe-rebuild-checklist-service.sh
   echo 'checklist service ready at $ref'
-fi
-python3 \"\$edge_dir/scripts/publish-review-identity.py\" --checkout \"\$edge_dir\" --sha '$ref' --widget-url 'https://$GRIST_DOMAIN/oe-review-widget.js'"
+fi"
 }
 
 # Recreating the router is what turns a changed nginx.conf.template into live
@@ -759,34 +766,29 @@ python3 \"\$edge_dir/scripts/publish-review-identity.py\" --checkout \"\$edge_di
 cmd_review_reload_router() {
   shift || true
   require_aws
-  local instance="amr" domain=""
+  local instance="amr" domain="" external=false
   while [ $# -gt 0 ]; do
     case "$1" in
       --instance) instance="${2:-}"; shift 2 ;;
       --domain) domain="${2:-}"; shift 2 ;;
+      --external) external=true; shift ;;
       *) die "unknown reload-router option '$1'" ;;
     esac
   done
+  [[ "$instance" =~ ^[a-z0-9_-]+$ ]] || die "invalid review instance"
   local probe_path="/__review/uat-$instance/submissions"
-  if [ -z "$domain" ]; then
+  if [ "$external" = true ]; then
+    domain="${domain:-$GRIST_DOMAIN}"
+    probe_path="/uat/$instance/submissions"
+  elif [ -z "$domain" ]; then
     case "$instance" in
       amr) domain="$AMR_DOMAIN" ;;
       analyzers) domain="$ANALYZERS_DOMAIN" ;;
       phrases) domain="$PHRASES_DOMAIN" ;;
-      testing)
-        domain="$GRIST_DOMAIN"
-        probe_path="/uat/testing/submissions"
-        ;;
-      *) die "review router supports instances 'amr', 'analyzers', 'phrases', and 'testing'" ;;
-    esac
-  elif [ "$instance" = testing ]; then
-    probe_path="/uat/testing/submissions"
-  else
-    case "$instance" in
-      amr | analyzers | phrases) ;;
-      *) die "review router supports instances 'amr', 'analyzers', 'phrases', and 'testing'" ;;
+      *) die "use --external for a site on another server, or supply --domain" ;;
     esac
   fi
+  [[ "$domain" =~ ^[A-Za-z0-9.-]+$ ]] || die "invalid probe domain"
   log "reloading the router (probing $domain$probe_path)"
   ssm_run "set -euo pipefail
 # Shipped as a real script rather than inlined here, so it is covered by

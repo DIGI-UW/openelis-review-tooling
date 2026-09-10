@@ -1,82 +1,132 @@
-# Add the review overlay to an existing deployment
+# Add Review to an existing OpenELIS deployment
 
-Three ways, depending on what you control. All of them point at the central
-authoring service — **nothing is built, vendored, or redeployed on your side**, and
-checklist edits show up without touching the integration again.
+The widget runs on an existing site. It needs no OpenELIS rebuild, replacement
+Compose stack, or dependency on an infrastructure repository.
 
-Two URLs are all you need:
+Each site has an instance slug, a checklist in Grist, and a configured OpenELIS
+session backend. After the generic central route is installed once, adding a site
+requires configuration and Grist data only.
 
-| | |
-|---|---|
-| the widget | `https://grist.openelis-global.org/oe-review-widget.js` |
-| your checklist | `https://grist.openelis-global.org/uat/<instance>.json` |
+## 1. Register the site and author its checklist
 
-`<instance>` is the slug of a checklist in the central Grist doc (e.g. `amr`).
-Create one before you integrate — see [`../docs/TUTORIAL.md`](../docs/TUTORIAL.md).
+On the central Review host, append the site to `REVIEW_EXTRA_BACKENDS` in its
+untracked runtime `.env`, preserving existing entries:
 
----
-
-## 1. You can edit the app's HTML → one script tag
-
-Add to the page template, before `</head>`:
-
-```html
-<script src="https://grist.openelis-global.org/oe-review-widget.js"
-        data-instance="my-feature"
-        data-label="My Feature (OGC-1234)"
-        data-src="https://grist.openelis-global.org/uat/my-feature.json"></script>
+```dotenv
+REVIEW_EXTRA_BACKENDS=lab-one=https://lab-one.example.org,clinic_42=https://clinic.example.org
 ```
 
-## 2. You control the proxy, not the app → nginx snippet (no app change)
+The existing `REVIEW_BACKENDS` override and bundled instance mappings remain
+effective. Use each site's public HTTPS origin; the service verifies its TLS
+certificate and checks the forwarded session against that site's
+`/api/OpenELIS-Global/session`. A request cannot choose its own authentication
+backend. Each separate deployment needs its own slug.
 
-The usual case for an existing deployment: inject it at the reverse proxy. Add to
-the `location` block that serves the app's HTML:
+Recreate only the checklist service to load the changed configuration. From an
+operator shell **on the Review host**, with the existing runtime environment:
+
+```bash
+sudo env REMOTE_USER=ubuntu GRIST_DOMAIN=grist.openelis-global.org \
+  ENV_FILE=/path/to/review-runtime/.env \
+  bash scripts/rebuild-checklist-service.sh
+```
+
+This retains the running service's Compose project and files and reads the named
+environment file. It leaves Grist, Dex, and application containers running.
+
+Create/reuse the site's `UAT_Meta` row and its stories/steps through Grist's UI
+or authenticated REST API. Follow [the authoring instructions](../docs/AGENTS.md).
+Keep stable story/step keys. The authoring key stays on the central host.
+Grist edits do not require a merge or code deployment. Verify
+`https://grist.openelis-global.org/uat/<instance>.json`, then publish the
+metadata row when the walkthrough is ready for discovery in the catalog.
+
+## 2. Generate the target-side layer
+
+Check out this repository anywhere on the application server:
+
+```bash
+cp integration/site.example.json /tmp/review-site.json
+# Set instance, label, review_origin, and the site's session_path in this file.
+python3 integration/configure.py /tmp/review-site.json --output /tmp/review-layer
+```
+
+The generator writes files only to the output directory. It does not change the
+web server, start containers, contact Grist, or handle credentials.
+
+| File | Where to use it |
+| --- | --- |
+| `html.conf` | Inside the existing Nginx location that proxies OpenELIS HTML |
+| `routes.conf` | Inside that site's existing HTTPS server block |
+| `embed.html` | Alternative script tag for a server where you control the HTML template |
+
+For an Nginx installation, copy the generated files to a persistent directory
+visible to Nginx and add these two includes to the existing configuration:
 
 ```nginx
-# Inject the review overlay into HTML responses.
-proxy_set_header Accept-Encoding "";   # so nginx sees uncompressed HTML to patch
-sub_filter_once on;
-sub_filter '</head>' '<script src="https://grist.openelis-global.org/oe-review-widget.js" data-instance="my-feature" data-label="My Feature (OGC-1234)" data-src="https://grist.openelis-global.org/uat/my-feature.json"></script></head>';
+server {
+    # Keep the existing listeners, certificates and application routes.
+    include /etc/nginx/review/routes.conf;
+    location / {
+        # Keep this location's existing proxy_pass and headers.
+        include /etc/nginx/review/html.conf;
+    }
+}
 ```
 
-Reload nginx (`nginx -s reload`) — that's the whole integration. Requires the
-`ngx_http_sub_module` (present in the stock nginx image and most distro builds;
-check with `nginx -V 2>&1 | grep -o with-http_sub_module`).
+These are insertion points, not a replacement server configuration. For a
+containerized proxy, use its existing configuration mount or mount the generated
+directory read-only. Pasting the generated directives into an already mounted
+configuration is also supported and needs no Compose change. Nginx needs its
+standard HTTP substitution module and the CA bundle at the configured
+`ca_bundle` path (default `/etc/ssl/certs/ca-certificates.crt`).
 
-<details>
-<summary>Apache equivalent</summary>
+Validate the effective configuration with `nginx -t`, then reload Nginx. If the
+container renders a template at startup, render that template before validating
+and reloading. Editing the template alone does not update the running proxy.
 
-```apache
-# needs mod_substitute + mod_filter
-AddOutputFilterByType SUBSTITUTE text/html
-Substitute 's|</head>|<script src="https://grist.openelis-global.org/oe-review-widget.js" data-instance="my-feature" data-src="https://grist.openelis-global.org/uat/my-feature.json"></script></head>|q'
+The submission route is under the application's session-cookie path. It forwards
+the cookie over verified TLS to `/uat/<instance>/submissions` on Review; a direct
+browser POST to the central hostname would not carry the OpenELIS session cookie.
+The central service attributes the review to the configured site's verified
+login and host. Unknown sites and unauthenticated sessions are rejected.
+
+If you supply `build_path`, point it at the site's existing live, verified JSON
+deployment metadata. The default is `/__review/target.json`. When no such
+metadata is served, the widget explicitly reports it unavailable; do not insert
+a static commit that becomes false on the next application deployment.
+
+For Apache or another web server, use `embed.html` and configure the equivalent
+fixed same-origin POST proxy. The server-side requirements are the same.
+
+## 3. Verify and retain the installation
+
+- Open the actual site, open Review, and select each intended story.
+- Mark a step and export a report; check the instance, story, mark, and note.
+- Sign into that OpenELIS site, submit one labelled validation review, and verify
+  its login, reviewer name, instance, host, and answers in Grist.
+- Check that other registered sites still submit with their own sessions.
+- Recreate/redeploy the application through its normal process and confirm the
+  widget and submission route remain present.
+
+Keep the two includes/directive blocks in the deployment's persistent web-server
+configuration and retain any required mounts. Changing an ephemeral container
+file alone will not survive recreation. An updater that replaces the entire
+web-server configuration must retain these insertion points. The application
+image and CI do not need to know about Review.
+
+See [testing's installation](../docs/testing-review.md) for a concrete example.
+
+## One-time central upgrade
+
+When installing this version of Review for the first time, deploy the service
+code and generic router route together. From an authorized operator checkout:
+
+```bash
+./deploy.sh review deploy --ref <full-review-commit> --scope service
+./deploy.sh review reload-router --instance lab-one --external
 ```
-</details>
 
-## 3. You control neither → bookmarklet (ad-hoc, per reviewer)
-
-For a one-off review of a site you can't configure. Save as a bookmark and click it
-on any page — the overlay loads for that tab only:
-
-```
-javascript:(function(){var s=document.createElement('script');s.src='https://grist.openelis-global.org/oe-review-widget.js';s.setAttribute('data-instance','my-feature');s.setAttribute('data-label','My Feature');s.setAttribute('data-src','https://grist.openelis-global.org/uat/my-feature.json');document.body.appendChild(s);})();
-```
-
-(Sites with a strict `script-src` Content-Security-Policy will block this; use
-option 1 or 2 there.)
-
----
-
-## No backend at all?
-
-The widget doesn't require the central service either — embed the checklist inline
-and it runs fully standalone. See [`../widget/README.md`](../widget/README.md).
-
-## Notes
-
-- The checklist endpoint is **public and read-only** (`Access-Control-Allow-Origin: *`);
-  authoring requires auth. Don't put anything sensitive in a checklist.
-- Reviewer answers live in the reviewer's own `localStorage`, isolated by
-  `data-instance`, verified deployment identity, and checklist revision. Nothing
-  is sent anywhere until they download their report.
-- Use a distinct `data-instance` per feature/ticket so answers and reports don't mix.
+The external probe targets the central hostname and accepts arbitrary slugs.
+Subsequent sites use the existing route: update runtime configuration, reload
+the checklist service, and author Grist data. No router code change is needed.

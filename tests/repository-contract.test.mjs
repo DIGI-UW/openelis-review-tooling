@@ -126,19 +126,6 @@ test("the dedicated phrases review verifies sessions against its own app", async
   assert.match(router, /data-instance="phrases"/);
 });
 
-test("testing session verification survives an existing backend override", async () => {
-  const compose = await read("grist/docker-compose.grist.yml");
-
-  assert.match(
-    compose,
-    /REVIEW_BACKENDS=\$\{REVIEW_BACKENDS:-[^\n]+\},testing=\$\{TESTING_REVIEW_BACKEND:-https:\/\/testing\.openelis-global\.org\}/,
-  );
-  assert.doesNotMatch(
-    compose,
-    /INSECURE_BACKEND_HOSTS[^\n]*testing\.openelis-global\.org/,
-  );
-});
-
 test("the review router recompresses frontend responses after overlay injection", async () => {
   const router = await read("router/nginx.conf.template");
 

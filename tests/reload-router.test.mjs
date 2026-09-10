@@ -181,16 +181,16 @@ test("probes the submissions route on the domain it was given", () => {
   );
 });
 
-test("can prove the fixed testing submission route on the central host", () => {
+test("can prove an arbitrary external submission route on the central host", () => {
   const rig = harness();
   rig.run({
     PROBE_DOMAIN: "grist.example.org",
-    PROBE_INSTANCE: "testing",
-    PROBE_PATH: "/uat/testing/submissions",
+    PROBE_INSTANCE: "clinic-42",
+    PROBE_PATH: "/uat/clinic-42/submissions",
   });
   assert.match(
     rig.curlLog(),
-    /https:\/\/grist\.example\.org\/uat\/testing\/submissions/,
+    /https:\/\/grist\.example\.org\/uat\/clinic-42\/submissions/,
   );
 });
 

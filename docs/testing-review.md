@@ -1,47 +1,49 @@
-Testing integrates the hosted Review widget through the optional proxy overlay
-in `DIGI-UW/openelis-docker`. Its application remains on the published develop
-images; this repository uses `main`.
+# Review on testing
 
-The central router accepts `/uat/testing/submissions` and forwards the existing
-OpenELIS session cookie to the checklist service. The service verifies that
-session against `https://testing.openelis-global.org/api/OpenELIS-Global/session`
-with normal TLS certificate verification. Testing is appended to any existing
-`REVIEW_BACKENDS` override; `TESTING_REVIEW_BACKEND` can change its URL without
-replacing the other instance mappings. No Grist authoring key reaches the
-testing VM or browser.
+Testing uses the same [installation procedure](../integration/README.md) as any
+existing OpenELIS server. Its application stays on the current deployment.
 
-Deploy the committed change using the existing narrow commands:
+On the central Review host, append this entry to the runtime
+`REVIEW_EXTRA_BACKENDS` list:
 
-```sh
-./deploy.sh review deploy --ref <full-commit-sha> --scope all
-./deploy.sh review reload-router --instance testing
+```text
+testing=https://testing.openelis-global.org
 ```
 
-These update the widget/checklist service and router. Review deployment now
-compares the publicly served widget bytes with the clean checkout before
-publishing `/__review/tooling.json`. That descriptor carries `harnessSha` and
-`widgetSha256`; testing deployment verifies both before enabling its widget.
-Existing application target metadata is updated only after the Review checks
-pass. Python 3 is required on the Review host for this identity check.
+Reload only the checklist service using its existing Compose project and the
+runtime `.env`. The generic `/uat/<instance>/submissions` route is installed
+once and requires no testing-specific source change.
 
-Create the dedicated checklist through Grist REST using the host-side authoring
-key. Read `UAT_Meta` first and reuse the row whose instance is `testing`; if
-absent, create just that row with title `OpenELIS Testing`, an introduction
-explaining these deployment checks, and `published: false`. Do not replace
-other instances. Apply the two scoped story files:
+Read Grist's current rows, reuse or create the `testing` metadata row, and
+apply the two scoped stories through authenticated REST:
 
-```sh
+```bash
 ./deploy.sh grist apply-story --file docs/testing-smoke.story.json
 ./deploy.sh grist apply-story --file docs/testing-review.story.json
 ```
 
-Read back both stories and their five stable steps. Validate the application
-startup story on the restored server, then publish this instance's metadata row.
-The Review story is validated after enabling the widget below. Verify `/uat/testing.json` and `/uat/index.json` show both testing
-stories restricted to `testing.openelis-global.org`.
+These files are authoring inputs. Grist remains the live source of truth, and
+neither a merge nor a code deployment is required to author the checklist.
+Read back both stories and their five stable steps. Verify the public checklist
+and catalog, dry-run the instructions, then publish the testing metadata row.
 
-Enable Review in testing's deployment and verify the live panel, both story
-choices, application and tooling identity, downloaded report, and one clearly
-labelled validation submission. JSON availability alone is not sufficient to
-declare the integration working. The story files are tested authoring inputs;
-Grist remains the source of truth after they are applied.
+On testing, generate the layer from:
+
+```json
+{
+  "instance": "testing",
+  "label": "OpenELIS Testing",
+  "review_origin": "https://grist.openelis-global.org",
+  "session_path": "/api/OpenELIS-Global/session"
+}
+```
+
+Install the generated HTML directives and submission route into testing's
+existing persistent Nginx template, validate, and reload only Nginx. Preserve
+these directives on normal application updates. No alternative Compose stack
+or infrastructure-repository PR is required.
+
+Open the live Review panel, select both stories, download the report, and
+submit one review labelled `Testing deployment validation`. Verify the stored
+testing login, reviewer name, host, and answers. A JSON response alone does not
+prove the integration works.
