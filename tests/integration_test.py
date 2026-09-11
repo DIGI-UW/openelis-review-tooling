@@ -27,6 +27,12 @@ class IntegrationTest(unittest.TestCase):
         self.assertNotIn('$host', files["html.conf"])
         self.assertEqual(files["embed.html"].count("</script>"), 1)
 
+    def test_general_server_can_show_all_stories_without_build_metadata(self):
+        files = configure.render({"instance": "testing", "review_origin": "https://review.example.org", "story_scope": "all", "build_path": None})
+        self.assertIn('data-story-scope="all"', files["embed.html"])
+        self.assertIn('data-build-src="none"', files["embed.html"])
+        self.assertIn('/uat/testing/submissions;', files["routes.conf"])
+
     def test_invalid_configuration_is_rejected_before_writing(self):
         invalid = [
             {"instance": "index"}, {"instance": "lab; return 200"},
@@ -37,6 +43,7 @@ class IntegrationTest(unittest.TestCase):
             {"session_path": "/api/../session"},
             {"ca_bundle": "/tmp/ca; proxy_ssl_verify off"},
             {"label": "hello\nreturn 200"},
+            {"story_scope": "invalid"},
         ]
         for overrides in invalid:
             with self.subTest(overrides=overrides), self.assertRaises(ValueError):
