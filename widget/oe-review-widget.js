@@ -1762,9 +1762,11 @@
     } else {
       if (SELF_SRC) {
         var out = iconBtn(
-          "⧉",
+          "",
           "Pop out into its own window (⌘/Ctrl-click for a tab)",
         );
+        out.innerHTML =
+          '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" aria-hidden="true" focusable="false"><path d="M5.5 5.5h8v8h-8zM2.5 10.5v-8h8"/></svg>';
         out.onclick = openPopout;
         head.appendChild(out);
       }
@@ -3290,7 +3292,7 @@
       ".titlebox{flex:1;min-width:0;}.has-story-picker .titlebox{display:flex;align-items:baseline;gap:12px;}",
       ".title{font-size:18px;font-weight:600;margin:0;}",
       ".sub{font-size:var(--label);opacity:.8;margin-top:2px;font-variant-numeric:tabular-nums;}.expandcontrol{padding:6px 10px!important;min-height:32px!important;font-size:14px!important;border:1px solid #6f6f6f!important;white-space:nowrap;}",
-      ".icon{background:transparent;border:none;color:inherit;font-size:var(--body);line-height:1;cursor:pointer;min-width:24px;min-height:24px;border-radius:4px;}.icon:hover{background:rgba(255,255,255,.15);}",
+      ".icon{background:transparent;border:none;color:inherit;font-size:var(--body);line-height:1;cursor:pointer;min-width:24px;min-height:24px;border-radius:4px;}.icon:hover{background:rgba(255,255,255,.15);}.icon svg{display:block;}",
       ".statusbox:empty{display:none;}",
       ".whoami{flex:1;min-width:0;font-size:var(--label);color:var(--text2);}",
       ".whoami[hidden],.signin[hidden]{display:none;}",
