@@ -8,21 +8,22 @@ No application records or Grist submissions were changed for these captures.
 
 ## Findings and changes
 
-| Observed problem                                                                                                                                | Change                                                                                                                                                                 |
-| ----------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| The default panel was narrow and tall, wrapping instructions unnecessarily.                                                                     | Prefer 720 × 520 px; narrow automatically when application side panels occupy the available space.                                                                     |
-| Expansion still left most of the screen unused on desktop. On mobile, it did not enlarge the panel and answer controls overflowed horizontally. | Expanded mode fills the viewport with a 16 px desktop or 8 px mobile inset. Two-column answers apply only at desktop widths.                                           |
-| The selected story appeared in three headings, alongside five header icons and technical identifiers.                                           | Keep one story selector, a short progress header, and explicit Expand/Back to page controls. Move secondary panel commands into the existing More review actions menu. |
-| Browsing 37 stories required scanning a long list that squeezed the checklist out of view.                                                      | Add title, story-key, and source-review search in an overlay with its own scrolling list and an explicit empty state.                                                  |
-| Identity fields and repeated card borders competed with the task.                                                                               | Place reviewer identity beside submission; use quieter separators and retain the active-step emphasis.                                                                 |
-| Opening the compact panel could leave a clipped fragment of the introduction above the task.                                                    | Align the current task on open. Selecting a different story still reveals its overview.                                                                                |
+| Observed problem                                                                                                                                | Change                                                                                                                                                                                                     |
+| ----------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| The default panel was narrow and tall, wrapping instructions unnecessarily.                                                                     | Prefer 720 × 520 px; narrow automatically when application side panels occupy the available space.                                                                                                         |
+| Expansion still left most of the screen unused on desktop. On mobile, it did not enlarge the panel and answer controls overflowed horizontally. | Expanded mode fills the viewport with a 16 px desktop or 8 px mobile inset. Two-column answers apply only at desktop widths.                                                                               |
+| The selected story appeared in three headings, alongside five header icons and technical identifiers.                                           | Keep one story selector, a short progress header, and explicit Expand/Back to page controls plus a visible separate-window icon. Move secondary panel commands into the existing More review actions menu. |
+| Browsing 37 stories required scanning a long list that squeezed the checklist out of view.                                                      | Add title, story-key, and source-review search in an overlay with its own scrolling list and an explicit empty state.                                                                                      |
+| Identity fields and repeated card borders competed with the task.                                                                               | Place reviewer identity beside submission; use quieter separators and retain the active-step emphasis.                                                                                                     |
+| Opening the compact panel could leave a clipped fragment of the introduction above the task.                                                    | Align the current task on open. Selecting a different story still reveals its overview.                                                                                                                    |
 
 ## Research informing the implementation
 
 - [Nielsen Norman Group: Progressive Disclosure](https://www.nngroup.com/articles/progressive-disclosure/)
   supports keeping frequent actions prominent and placing less frequent commands
-  in a discoverable secondary surface. Refresh, Move, and Pop out remain
-  available alongside the existing report and filter commands.
+  in a discoverable secondary surface. Refresh and Move remain available alongside the existing report and filter
+  commands. The separate-window icon stays in the header so that option is
+  immediately discoverable.
 - [Carbon: Modal usage](https://carbondesignsystem.com/components/modal/usage/)
   informs the header/body/footer hierarchy, content-appropriate sizing, and
   independently scrolling body. The panel preserves readable instructions and
