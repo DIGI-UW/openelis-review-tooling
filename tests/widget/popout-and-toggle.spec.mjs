@@ -19,19 +19,26 @@ async function popOut(page) {
   const widget = await openPanel(page);
   const [popup] = await Promise.all([
     page.waitForEvent("popup"),
-    widget.getByRole("button", { name: /pop out/i }).click(),
+    widget
+      .locator(".head")
+      .getByRole("button", { name: /pop out/i })
+      .click(),
   ]);
   await expect(popup.locator("#oe-review-host .panel")).toBeVisible();
   return { widget, popup };
 }
 
 test.describe("?oe-review", () => {
-  test("opens the panel for whoever the link was shared with", async ({ page }) => {
+  test("opens the panel for whoever the link was shared with", async ({
+    page,
+  }) => {
     await page.goto(`${APP}?oe-review=open`);
     await expect(widgetOf(page).locator(".panel")).toBeVisible();
   });
 
-  test("is consumed, so it cannot keep undoing the reviewer", async ({ page }) => {
+  test("is consumed, so it cannot keep undoing the reviewer", async ({
+    page,
+  }) => {
     await page.goto(`${APP}?keep=1&oe-review=open`);
     const widget = widgetOf(page);
     await expect(widget.locator(".panel")).toBeVisible();
@@ -113,13 +120,19 @@ test.describe("popping the panel out", () => {
     const { popup } = await popOut(page);
     const head = popup.locator("#oe-review-host .head");
     // Nothing to move it away from, and nothing to minimize it back into.
-    await expect(head.getByRole("button", { name: "Move panel" })).toHaveCount(0);
+    await expect(head.getByRole("button", { name: "Move panel" })).toHaveCount(
+      0,
+    );
     await expect(head.getByRole("button", { name: "Minimize" })).toHaveCount(0);
     await expect(head.getByRole("button", { name: /pop out/i })).toHaveCount(0);
-    await expect(head.getByRole("button", { name: "Return the checklist to the page" })).toBeVisible();
+    await expect(
+      head.getByRole("button", { name: "Return the checklist to the page" }),
+    ).toBeVisible();
   });
 
-  test("turns the launcher into a way back to that window", async ({ page }) => {
+  test("turns the launcher into a way back to that window", async ({
+    page,
+  }) => {
     const { widget } = await popOut(page);
     const tab = widget.locator(".tab");
     await expect(tab).toHaveAttribute("title", /front|window/i);
@@ -142,7 +155,10 @@ test.describe("popping the panel out", () => {
       await expect(widget.locator(".panel")).toBeVisible();
       const [popup] = await Promise.all([
         page.waitForEvent("popup"),
-        widget.getByRole("button", { name: /pop out/i }).click({ modifiers }),
+        widget
+          .locator(".head")
+          .getByRole("button", { name: /pop out/i })
+          .click({ modifiers }),
       ]);
       await expect(popup.locator("#oe-review-host .panel")).toBeVisible();
       const width = await popup.evaluate(() => innerWidth);
@@ -159,7 +175,9 @@ test.describe("popping the panel out", () => {
     expect(await widthFor(["ControlOrMeta"])).not.toBe(plain);
   });
 
-  test("keeps the pop-out glyph out of the launcher's name", async ({ page }) => {
+  test("keeps the pop-out glyph out of the launcher's name", async ({
+    page,
+  }) => {
     const { widget } = await popOut(page);
     // ⧉ says "elsewhere" to the eye. To a screen reader it is an unpronounceable
     // character in the middle of the button's name, and the title already says
@@ -180,17 +198,23 @@ test.describe("popping the panel out", () => {
     // whatever pagehide cleared has to be re-asserted on pageshow — otherwise the
     // page offers to open a second panel over a review that is still on screen.
     await popup.evaluate(() => {
-      window.dispatchEvent(new PageTransitionEvent("pagehide", { persisted: true }));
+      window.dispatchEvent(
+        new PageTransitionEvent("pagehide", { persisted: true }),
+      );
     });
     await expect(widget.locator(".tab.away")).toHaveCount(0);
 
     await popup.evaluate(() => {
-      window.dispatchEvent(new PageTransitionEvent("pageshow", { persisted: true }));
+      window.dispatchEvent(
+        new PageTransitionEvent("pageshow", { persisted: true }),
+      );
     });
     await expect(widget.locator(".tab.away")).toHaveCount(1);
   });
 
-  test("does not offer a route link that bypasses the review task", async ({ page }) => {
+  test("does not offer a route link that bypasses the review task", async ({
+    page,
+  }) => {
     const { popup } = await popOut(page);
     const widget = popup.locator("#oe-review-host");
     await expect(widget.locator(".step a")).toHaveCount(0);
@@ -200,7 +224,9 @@ test.describe("popping the panel out", () => {
     expect(report.checklist[0].steps[0].route).toBe("/analyzers/types");
   });
 
-  test("carries a mark back to the page it was popped out of", async ({ page }) => {
+  test("carries a mark back to the page it was popped out of", async ({
+    page,
+  }) => {
     const { widget, popup } = await popOut(page);
     await popup
       .locator("#oe-review-host")
@@ -211,7 +237,9 @@ test.describe("popping the panel out", () => {
     await expect(widget.locator(".tab")).toContainText("Review 1/2");
   });
 
-  test("fills its window rather than floating in a corner of it", async ({ page }) => {
+  test("fills its window rather than floating in a corner of it", async ({
+    page,
+  }) => {
     const { popup } = await popOut(page);
     const panel = popup.locator("#oe-review-host .panel");
     const box = await panel.boundingBox();
@@ -242,7 +270,9 @@ test.describe("popping the panel out", () => {
     // the two windows share.
     await page.goto(APP);
     await expect(widgetOf(page).locator(".tab")).toContainText("Review 1/2");
-    const report = await page.evaluate(() => window.__OE_REVIEW_TEST__.buildReport());
+    const report = await page.evaluate(() =>
+      window.__OE_REVIEW_TEST__.buildReport(),
+    );
     const marked = JSON.parse(report.json)
       .checklist.flatMap((section) => section.steps)
       .find((step) => step.mark === "pass");
