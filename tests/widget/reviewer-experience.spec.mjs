@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { panelAction } from "./helpers.mjs";
 
 // The reviewer works a real application with the checklist on top of it. These
 // tests run against app-fixture.html, which reproduces the layers measured on
@@ -143,8 +144,8 @@ function topmostOverPanel(page) {
 test("sits above the application's own furniture", async ({ page }) => {
   const widget = await openPanel(page);
   // Onto the left anchor, where the application pins its side nav at z-index 8000.
-  await widget.getByRole("button", { name: "Move panel" }).click();
-  await widget.getByRole("button", { name: "Move panel" }).click();
+  await panelAction(widget, "Move panel");
+  await panelAction(widget, "Move panel");
   await expect(widget.locator(".wrap")).toHaveClass(/anchor-left/);
 
   expect(await topmostOverPanel(page)).toBe("oe-review-host");
@@ -174,7 +175,7 @@ test("can be moved off whatever it is covering, and remembers where", async ({
   const widget = await openPanel(page);
   const before = await widget.locator(".panel").boundingBox();
 
-  await widget.getByRole("button", { name: /move/i }).click();
+  await panelAction(widget, "Move panel");
   const moved = await widget.locator(".panel").boundingBox();
   expect(moved.x).not.toBeCloseTo(before.x, 0);
 
@@ -261,30 +262,20 @@ test("tells the action and the expected result apart", async ({ page }) => {
   await expect(detail.getByRole("link")).toHaveCount(0);
 });
 
-test("keeps the section a step belongs to visible while scrolling", async ({
+test("keeps the selected story visible while its checklist scrolls", async ({
   page,
 }) => {
   const widget = await openPanel(page);
   await widget.getByRole("button", { name: "Expand panel" }).click();
-  const scroller = widget.locator(".body");
-  // Into the middle of the list rather than the very end: the last section is a
-  // single step, and a section shorter than the window legitimately has nothing
-  // left to pin.
-  await scroller.evaluate((node) => {
-    node.scrollTop = Math.round(node.scrollHeight / 2);
+  const trigger = widget.getByRole("button", { name: "Choose story" });
+  const before = await trigger.boundingBox();
+  await widget.locator(".body").evaluate((node) => {
+    node.scrollTop = node.scrollHeight / 2;
   });
-
-  const view = await scroller.boundingBox();
-  const headings = await widget
-    .locator(".secrow:not([hidden])")
-    .evaluateAll((nodes) =>
-      nodes.map((node) => node.getBoundingClientRect().top),
-    );
-  // Scrolled deep into the list, the heading for the section the reviewer is
-  // inside has to be pinned to the top of the scroller — not merely somewhere on
-  // screen, which is true of an ordinary heading that happens to be nearby.
-  const pinned = headings.filter((top) => Math.abs(top - view.y) < 3);
-  expect(pinned).toHaveLength(1);
+  await expect(trigger).toContainText("M1 - Find and route microbiology work");
+  await expect(trigger).toBeInViewport();
+  expect((await trigger.boundingBox()).y).toBe(before.y);
+  await expect(widget.locator(".secrow")).toBeHidden();
 });
 
 test("stands the preamble down once, not every time the count changes", async ({
@@ -351,7 +342,9 @@ test("is reachable and operable without a mouse", async ({ page }) => {
   await expect(panel).toHaveAttribute("role", "complementary");
   await expect(panel).toHaveAttribute("aria-label", /review/i);
   await expect(widget.getByRole("heading", { level: 2 })).toHaveCount(1);
-  await expect(widget.getByRole("heading", { level: 3 })).toHaveCount(1);
+  await expect(
+    widget.getByRole("button", { name: "Choose story" }),
+  ).toContainText("M1 - Find and route microbiology work");
 
   const pass = widget
     .locator(".step.current .detail")
@@ -399,32 +392,45 @@ test("hands the review over as a single document the reviewer can paste", async 
   );
   expect(report.md).toContain("```json");
   expect(report.md).toContain('"schemaVersion": 2');
-  await expect(widget.getByRole("button", { name: "More review actions" })).toBeVisible();
+  await expect(
+    widget.getByRole("button", { name: "More review actions" }),
+  ).toBeVisible();
 });
 
-test("keeps secondary review actions out of the primary footer", async ({ page }) => {
+test("keeps secondary review actions out of the primary footer", async ({
+  page,
+}) => {
   const widget = await openPanel(page);
   const footer = widget.locator(".foot");
 
   await expect(footer.getByRole("button")).toHaveCount(2);
-  await expect(footer.getByRole("button", { name: "Submit review" })).toBeVisible();
+  await expect(
+    footer.getByRole("button", { name: "Submit review" }),
+  ).toBeVisible();
   const more = footer.getByRole("button", { name: "More review actions" });
   const stories = widget.getByRole("button", { name: "Choose story" });
   await expect(more).toHaveAttribute("aria-expanded", "false");
-  await expect(widget.getByRole("button", { name: "Download report" })).toHaveCount(0);
+  await expect(
+    widget.getByRole("button", { name: "Download report" }),
+  ).toHaveCount(0);
 
   await stories.click();
   await expect(stories).toHaveAttribute("aria-expanded", "true");
   await more.click();
   await expect(stories).toHaveAttribute("aria-expanded", "false");
   await expect(more).toHaveAttribute("aria-expanded", "true");
-  await expect(widget.getByRole("button", { name: "Copy report" })).toBeVisible();
-  await expect(widget.getByRole("button", { name: "Download report" })).toBeVisible();
-  await expect(widget.getByRole("button", { name: "Reset review" })).toBeVisible();
-  await expect(widget.getByRole("button", { name: "All steps" })).toHaveAttribute(
-    "aria-pressed",
-    "true",
-  );
+  await expect(
+    widget.getByRole("button", { name: "Copy report" }),
+  ).toBeVisible();
+  await expect(
+    widget.getByRole("button", { name: "Download report" }),
+  ).toBeVisible();
+  await expect(
+    widget.getByRole("button", { name: "Reset review" }),
+  ).toBeVisible();
+  await expect(
+    widget.getByRole("button", { name: "All steps" }),
+  ).toHaveAttribute("aria-pressed", "true");
 
   await widget.getByRole("button", { name: "To do" }).click();
   await expect(more).toHaveAttribute("aria-expanded", "false");
