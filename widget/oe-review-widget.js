@@ -21,6 +21,7 @@
     menuOpen: false,
     focusTrigger: false,
     revealOverview: false,
+    search: "",
   };
   function storePrefixFor(story) {
     return "oe-review:v2:" + story + ":";
@@ -1532,13 +1533,48 @@
         wrap.className = "wrap standalone open";
       return;
     }
+    if (ui) {
+      ui.panel.style.width = "";
+      if (
+        !state.minimized &&
+        !prefs.expanded &&
+        !prefs.anchor &&
+        window.innerWidth > 640
+      ) {
+        var left = 0;
+        var right = window.innerWidth;
+        obstacles().forEach(function (rect) {
+          if (rect.height < window.innerHeight / 2) return;
+          if (rect.left <= 16) left = Math.max(left, rect.right);
+          if (rect.right >= window.innerWidth - 16)
+            right = Math.min(right, rect.left);
+        });
+        // A wide companion can otherwise straddle an application's open drawer.
+        // Keep the preferred width when it fits; allow the automatic centre
+        // placement to narrow enough to leave both side surfaces reachable.
+        var centredWidth =
+          2 *
+            Math.min(
+              window.innerWidth / 2 - left,
+              right - window.innerWidth / 2,
+            ) -
+          32;
+        if (centredWidth >= 560 && centredWidth < ui.panel.offsetWidth)
+          ui.panel.style.width = centredWidth + "px";
+      }
+    }
     var placement = state.minimized ? autoLauncherPlacement() : null;
-    var anchor = placement ? placement.anchor : prefs.anchor || autoAnchor();
+    var anchor = placement
+      ? placement.anchor
+      : prefs.anchor || (prefs.expanded ? "right" : autoAnchor());
     wrap.style.bottom = placement ? placement.bottom + "px" : "";
     // The open panel becomes a bottom sheet on a narrow screen; the launcher stays
     // a corner pill, because a full-width bar at the bottom lands underneath
     // whatever the application pins there.
-    var className = "wrap anchor-" + anchor + (state.minimized ? "" : " open");
+    var className =
+      "wrap anchor-" +
+      anchor +
+      (state.minimized ? "" : " open" + (prefs.expanded ? " fullscreen" : ""));
     if (wrap.className !== className) wrap.className = className;
   }
   function movePanel() {
@@ -1691,6 +1727,12 @@
           parts.storyTrigger.focus();
           return;
         }
+        if (prefs.expanded) {
+          event.preventDefault();
+          parts.expand.click();
+          parts.expand.focus();
+          return;
+        }
         minimize();
       }
     });
@@ -1703,14 +1745,8 @@
     titleBox.appendChild(parts.title);
     titleBox.appendChild(parts.progress);
     head.appendChild(titleBox);
-    // Move is about getting out of the application's way, which is not a problem a
-    // window of its own has.
-    if (!STANDALONE) {
-      var move = iconBtn("⇄", "Move panel");
-      move.onclick = movePanel;
-      head.appendChild(move);
-    }
     parts.expand = iconBtn("⤢", "Expand panel");
+    parts.expand.classList.add("expandcontrol");
     parts.expand.onclick = function () {
       prefs.expanded = !prefs.expanded;
       savePrefs();
@@ -1719,24 +1755,11 @@
       if (!prefs.expanded) scrollCurrentIntoView();
     };
     head.appendChild(parts.expand);
-    var refresh = iconBtn("↻", "Refresh checklist");
-    refresh.onclick = refreshChecklist;
-    head.appendChild(refresh);
     if (STANDALONE) {
       var back = iconBtn("↩", "Return the checklist to the page");
       back.onclick = returnToPage;
       head.appendChild(back);
     } else {
-      // No script URL means the widget was pasted in rather than linked, and this
-      // window has nothing to tell the next one to load.
-      if (SELF_SRC) {
-        var out = iconBtn(
-          "⧉",
-          "Pop out into its own window (⌘/Ctrl-click for a tab)",
-        );
-        out.onclick = openPopout;
-        head.appendChild(out);
-      }
       var min = iconBtn("–", "Minimize");
       min.onclick = minimize;
       head.appendChild(min);
@@ -1746,7 +1769,10 @@
     parts.statusBox = el("div", "statusbox");
     panel.appendChild(parts.statusBox);
 
-    if (stories().length > 1) panel.appendChild(buildStories(parts));
+    if (stories().length > 1) {
+      panel.classList.add("has-story-picker");
+      panel.appendChild(buildStories(parts));
+    }
 
     // Created here so it reads in source order; mounted inside the scroller
     // further down. Above the scroller it was fixed chrome competing with the
@@ -1757,7 +1783,6 @@
     parts.intro = el("div", "intro");
 
     parts.whoami = el("div", "whoami");
-    panel.appendChild(parts.whoami);
     parts.signin = el("div", "signin");
     panel.appendChild(parts.signin);
 
@@ -1789,7 +1814,6 @@
     parts.nameError.hidden = true;
     who.appendChild(parts.nameError);
     parts.who = who;
-    panel.appendChild(who);
 
     parts.body = el("div", "body");
     parts.body.appendChild(parts.intro);
@@ -1824,8 +1848,10 @@
     panel.appendChild(parts.body);
 
     panel.appendChild(buildNotes(parts));
+    panel.appendChild(who);
 
     var foot = el("div", "foot");
+    foot.appendChild(parts.whoami);
     var submit = el("button", "primary submit");
     submit.textContent = "Submit review";
     submit.onclick = submitReview;
@@ -1860,6 +1886,11 @@
     parts.storyTrigger.setAttribute("aria-haspopup", "listbox");
     parts.storyTrigger.setAttribute("aria-controls", "oe-review-story-list");
     parts.storyTriggerTitle = el("span", "storytriggertitle");
+    parts.storyTriggerTitle.id = "oe-review-current-story";
+    parts.storyTrigger.setAttribute(
+      "aria-describedby",
+      parts.storyTriggerTitle.id,
+    );
     parts.storyTriggerProgress = el("span", "storytriggerprogress");
     var chevron = el("span", "storychevron");
     chevron.textContent = "⌄";
@@ -1871,6 +1902,7 @@
       setStoryMenuOpen(!storyNavigation.menuOpen);
       if (storyNavigation.menuOpen) closeMoreActions(parts);
       syncStories();
+      if (storyNavigation.menuOpen) parts.storySearch.focus();
     };
     box.appendChild(parts.storyTrigger);
 
@@ -1889,12 +1921,34 @@
     menuHead.appendChild(parts.storyMenuTitle);
     menuHead.appendChild(parts.storyMenuCount);
     parts.storyMenu.appendChild(menuHead);
+    parts.storySearch = document.createElement("input");
+    parts.storySearch.type = "search";
+    parts.storySearch.className = "storysearch";
+    parts.storySearch.setAttribute("aria-label", "Find a story");
+    parts.storySearch.placeholder = "Find a story…";
+    parts.storySearch.value = storyNavigation.search;
+    parts.storySearch.oninput = function () {
+      storyNavigation.search = parts.storySearch.value;
+      syncStories();
+    };
+    parts.storySearch.onkeydown = function (event) {
+      if (event.key === "ArrowDown") {
+        event.preventDefault();
+        var first = parts.storyList.querySelector('[role="option"]');
+        if (first) first.focus();
+      }
+    };
+    parts.storyMenu.appendChild(parts.storySearch);
     parts.storyNotice = el("div", "storynotice");
     parts.storyMenu.appendChild(parts.storyNotice);
     parts.storyList = el("div", "storylist");
     parts.storyList.id = "oe-review-story-list";
     parts.storyList.setAttribute("role", "listbox");
     parts.storyMenu.appendChild(parts.storyList);
+    parts.storyEmpty = el("div", "storyempty");
+    parts.storyEmpty.textContent = "No matching stories. Try another search.";
+    parts.storyEmpty.setAttribute("role", "status");
+    parts.storyMenu.appendChild(parts.storyEmpty);
     parts.storyScopeToggle = el("button", "storyscopetoggle");
     parts.storyScopeToggle.type = "button";
     parts.storyScopeToggle.onclick = function () {
@@ -2021,6 +2075,17 @@
     var pageScoped =
       !ALL_STORIES && here.length > 0 && !storyNavigation.showAll;
     var visible = pageScoped ? here : available;
+    var query = storyNavigation.search.trim().toLowerCase();
+    var unfilteredCount = visible.length;
+    if (query)
+      visible = visible.filter(function (story) {
+        return (
+          [story.title, story.key, story.review]
+            .join(" ")
+            .toLowerCase()
+            .indexOf(query) !== -1
+        );
+      });
     var scopeLabel = ALL_STORIES
       ? "All published stories"
       : pageScoped
@@ -2040,6 +2105,7 @@
     ui.storyTriggerTitle.textContent = selected
       ? selected.title
       : "Choose a story";
+    ui.storyTriggerTitle.title = selected ? selected.title : "Choose a story";
     ui.storyTriggerProgress.textContent =
       selectedCounts.done + "/" + selectedCounts.total;
     ui.storyTrigger.setAttribute(
@@ -2049,7 +2115,11 @@
     ui.storyMenu.hidden = !storyNavigation.menuOpen;
     ui.storyMenuTitle.textContent = scopeLabel;
     ui.storyMenuCount.textContent =
-      visible.length + " " + (visible.length === 1 ? "story" : "stories");
+      visible.length +
+      (query ? " of " + unfilteredCount : "") +
+      " " +
+      (!query && visible.length === 1 ? "story" : "stories");
+    ui.storyEmpty.hidden = visible.length > 0;
     ui.storyList.setAttribute("aria-label", scopeLabel);
     ui.storyNotice.textContent = here.length
       ? ""
@@ -2111,6 +2181,8 @@
     };
     menu.onkeydown = function (event) {
       if (event.key === "Escape") {
+        event.preventDefault();
+        event.stopPropagation();
         setOpen(false);
         toggle.focus();
       }
@@ -2140,6 +2212,28 @@
       filters.appendChild(button);
     });
     menu.appendChild(filters);
+    menu.appendChild(el("div", "moredivider"));
+    var panelLabel = el("div", "morelabel");
+    panelLabel.textContent = "Panel";
+    menu.appendChild(panelLabel);
+    function panelAction(label, action) {
+      var button = el("button", "moreitem");
+      button.textContent = label;
+      button.onclick = function (event) {
+        setOpen(false);
+        action(event);
+      };
+      menu.appendChild(button);
+    }
+    panelAction("Refresh checklist", refreshChecklist);
+    if (!STANDALONE) {
+      panelAction("Move panel", movePanel);
+      if (SELF_SRC)
+        panelAction(
+          "Pop out into its own window (⌘/Ctrl-click for a tab)",
+          openPopout,
+        );
+    }
     menu.appendChild(el("div", "moredivider"));
     var copy = el("button", "moreitem");
     copy.textContent = "Copy report";
@@ -2460,18 +2554,15 @@
     var reserve = (pinned && !pinned.hidden ? pinned.offsetHeight : 0) + 8;
     // On first open, show either the overview or the task, never the accidental
     // half-overview caused by fitting the task around a sticky section heading.
-    var preambleBottom =
-      clearPreamble && ui.intro && !ui.intro.hidden
-        ? ui.intro.offsetTop + ui.intro.offsetHeight
-        : 0;
-    if (top - reserve < body.scrollTop)
-      body.scrollTop = Math.max(preambleBottom, top - reserve);
+    if (clearPreamble) body.scrollTop = Math.max(0, top - reserve);
+    else if (top - reserve < body.scrollTop)
+      body.scrollTop = Math.max(0, top - reserve);
     else if (bottom > body.scrollTop + body.clientHeight) {
       // Bring the end of the step into view, but never far enough to push its
       // instruction off the top: a step read from the middle is worse than one
       // whose note field needs a nudge.
       body.scrollTop = Math.max(
-        preambleBottom,
+        0,
         Math.min(bottom - body.clientHeight + 8, top - reserve),
       );
     }
@@ -2489,24 +2580,17 @@
   function syncPanel() {
     if (!ui) return;
     var counts = progress();
-    ui.title.textContent = uat.title || LABEL + " review";
-    // The build under review belongs beside the progress, not on a row of its own:
-    // it is something a reviewer checks once and refers to in a bug report.
-    var sha = build && build.appSha ? build.appSha.slice(0, 7) : "";
-    ui.progress.textContent =
-      storyNavigation.committedId +
-      " · " +
-      counts.done +
-      " of " +
-      counts.total +
-      " answered" +
-      (sha ? " · " + sha : "");
+    ui.title.textContent = ui.storyTrigger
+      ? "Review"
+      : uat.title || LABEL + " review";
+    // Keep provenance in the tooltip/report; the working header is for progress.
+    ui.progress.textContent = counts.done + " of " + counts.total + " answered";
     ui.progress.title = provenanceText();
     syncStories();
     ui.panel.classList.toggle("expanded", prefs.expanded);
     ui.expand.title = prefs.expanded ? "Collapse panel" : "Expand panel";
     ui.expand.setAttribute("aria-label", ui.expand.title);
-    ui.expand.textContent = prefs.expanded ? "⤡" : "⤢";
+    ui.expand.textContent = prefs.expanded ? "Back to page" : "Expand";
     FILTERS.forEach(function (name) {
       var button = ui.filterButtons[name];
       var on = prefs.filter === name;
@@ -2637,9 +2721,11 @@
         return answered(stepFor(key));
       }).length;
       section.count.textContent = done + "/" + section.keys.length;
-      section.row.hidden = !section.keys.some(function (key) {
-        return shown[key];
-      });
+      section.row.hidden =
+        (Boolean(ui.storyTrigger) && ui.sections.length === 1) ||
+        !section.keys.some(function (key) {
+          return shown[key];
+        });
     });
 
     ui.noteToggle.textContent = state.notes.length
@@ -3172,19 +3258,18 @@
       // falls back to whatever the platform has, and a wider face costs whole lines
       // of wrapping. A narrow column turns that into a step taller than the window
       // it has to fit; the extra width absorbs it.
-      ".panel{box-sizing:border-box;width:min(560px,calc(100vw - 32px));max-height:min(620px,calc(100vh - 120px));display:flex;flex-direction:column;background:#fff;border:1px solid var(--border);border-radius:8px;box-shadow:0 10px 40px rgba(0,0,0,.28);overflow:hidden;}",
+      ".panel{box-sizing:border-box;width:min(720px,calc(100vw - 32px));height:min(520px,calc(100dvh - 120px));max-height:calc(100dvh - 120px);display:flex;flex-direction:column;background:#fff;border:1px solid var(--border);border-radius:8px;box-shadow:0 8px 32px rgba(0,0,0,.18);overflow:hidden;}",
       // Only the checklist scrolls. Without this the fixed rows shrink to absorb
       // a long checklist and clip their own text.
       ".head,.statusbox,.whoami,.signin,.stories,.who,.fb,.foot{flex:none;}",
-      ".panel.expanded{width:min(840px,92vw);max-height:min(760px,calc(100vh - 120px));}",
-      ".stories{display:block;padding:var(--sp3) var(--sp4);border-bottom:1px solid var(--border);background:#fff;}",
+      ".stories{position:relative;display:block;padding:var(--sp3) var(--sp4);border-bottom:1px solid var(--border);background:#fff;}",
       ".storyscope{font-size:var(--label);font-weight:600;color:var(--text2);margin-bottom:var(--sp2);}",
       ".storytrigger{display:grid;grid-template-columns:minmax(0,1fr) auto 18px;align-items:center;gap:var(--sp3);width:100%;min-height:44px;border:1px solid var(--border-strong);border-radius:4px;padding:7px 10px;background:#fff;color:var(--text);font:inherit;text-align:left;cursor:pointer;}",
       ".storytrigger:hover{background:var(--layer);}.storytriggertitle{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600;}.storytriggerprogress{font-size:var(--label);color:var(--text2);font-variant-numeric:tabular-nums;}.storychevron{font-size:18px;line-height:1;color:var(--text2);transform-origin:center;}.storytrigger[aria-expanded=true] .storychevron{transform:rotate(180deg);}",
-      ".storymenu{margin-top:var(--sp3);border:1px solid var(--border);background:#fff;box-shadow:0 4px 12px rgba(0,0,0,.12);}",
+      ".storymenu{position:absolute;z-index:4;top:calc(100% - 1px);left:var(--sp4);right:var(--sp4);display:flex;flex-direction:column;max-height:min(340px,calc(100dvh - 280px));border:1px solid var(--border);background:#fff;box-shadow:0 8px 24px rgba(0,0,0,.16);}",
       ".storymenu[hidden]{display:none;}.storymenuhead{display:flex;justify-content:space-between;gap:var(--sp3);padding:9px 10px;border-bottom:1px solid var(--border);}.storymenutitle{font-size:var(--label);}.storymenucount{font-size:var(--label);color:var(--text3);font-variant-numeric:tabular-nums;}",
       ".storynotice{padding:8px 10px;background:#fcf4d6;color:#684e00;font-size:var(--label);border-bottom:1px solid #f1c21b;}.storynotice[hidden]{display:none;}",
-      ".storylist{max-height:min(248px,34vh);overflow-y:auto;overscroll-behavior:contain;}",
+      ".storylist{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;}.storysearch{box-sizing:border-box;margin:8px 10px;padding:9px 10px;border:1px solid var(--border-strong);border-radius:4px;font:inherit;min-height:40px;}.storyempty{padding:16px;color:var(--text2);}.storymenuhead,.storysearch,.storynotice,.storyscopetoggle{flex:none;}",
       ".storyoption{display:grid;grid-template-columns:24px minmax(0,1fr) auto;align-items:center;gap:var(--sp3);width:100%;min-height:48px;border:0;border-bottom:1px solid var(--border);padding:7px 10px;background:#fff;color:var(--text);font:inherit;text-align:left;cursor:pointer;}",
       ".storyoption:hover{background:var(--layer);}.storyoption.selected{background:var(--blue-bg);box-shadow:inset 3px 0 var(--blue);}.storycheck{display:flex;align-items:center;justify-content:center;width:20px;height:20px;border:1.5px solid var(--border-strong);border-radius:50%;color:#fff;font-size:var(--label);font-weight:600;}.storyoption.complete .storycheck{background:#24a148;border-color:#24a148;}.storyoptiontitle{min-width:0;font-weight:600;line-height:1.3;}.storyoptionprogress{font-size:var(--label);color:var(--text2);white-space:nowrap;font-variant-numeric:tabular-nums;}",
       ".storyscopetoggle{width:100%;min-height:40px;border:0;background:#fff;color:var(--blue-dark);font:inherit;font-size:var(--label);font-weight:600;text-align:left;padding:8px 10px;cursor:pointer;}.storyscopetoggle:hover{background:var(--blue-bg);}.storyscopetoggle[hidden]{display:none;}",
@@ -3200,13 +3285,13 @@
       ".sec{font-size:var(--label);text-transform:uppercase;letter-spacing:.02em;color:var(--text2);font-weight:600;margin:0;}",
       ".seccount{font-size:var(--label);color:var(--text3);font-variant-numeric:tabular-nums;}",
       ".step[hidden]{display:none;}",
-      ".head{display:flex;align-items:flex-start;gap:2px;padding:10px var(--sp4);background:var(--text);color:#fff;}",
-      ".titlebox{flex:1;min-width:0;}",
-      ".title{font-size:var(--heading);font-weight:600;margin:0;}",
-      ".sub{font-size:var(--label);opacity:.8;margin-top:2px;font-variant-numeric:tabular-nums;}",
+      ".head{display:flex;align-items:center;gap:8px;padding:8px var(--sp4);background:var(--text);color:#fff;}",
+      ".titlebox{flex:1;min-width:0;}.has-story-picker .titlebox{display:flex;align-items:baseline;gap:12px;}",
+      ".title{font-size:18px;font-weight:600;margin:0;}",
+      ".sub{font-size:var(--label);opacity:.8;margin-top:2px;font-variant-numeric:tabular-nums;}.expandcontrol{padding:6px 10px!important;min-height:32px!important;font-size:14px!important;border:1px solid #6f6f6f!important;white-space:nowrap;}",
       ".icon{background:transparent;border:none;color:inherit;font-size:var(--body);line-height:1;cursor:pointer;min-width:24px;min-height:24px;border-radius:4px;}.icon:hover{background:rgba(255,255,255,.15);}",
       ".statusbox:empty{display:none;}",
-      ".whoami{padding:var(--sp2) var(--sp4);font-size:var(--label);color:var(--text2);border-bottom:1px solid var(--border);}",
+      ".whoami{flex:1;min-width:0;font-size:var(--label);color:var(--text2);}",
       ".whoami[hidden],.signin[hidden]{display:none;}",
       ".signin{padding:var(--sp3) var(--sp4);font-size:var(--label);background:var(--blue-bg);color:var(--blue-dark);border-bottom:1px solid var(--blue-soft);}",
       ".status{padding:var(--sp3) var(--sp4);border-bottom:1px solid var(--border);color:var(--text2);}",
@@ -3220,18 +3305,15 @@
       // Expanded gains width, so spend it: the expected result reads down the
       // left while the answer sits on the right, which roughly halves how tall
       // each step is and puts more of the checklist on screen at once.
-      ".panel.expanded .detail{display:grid;grid-template-columns:1fr 280px;gap:var(--sp2) var(--sp5);align-items:start;}",
-      ".panel.expanded .detail .expect,.panel.expanded .detail .optional{grid-column:1;margin:0;}",
-      ".panel.expanded .detail .marks{grid-column:2;grid-row:1;}",
-      ".panel.expanded .detail .stepnote{grid-column:2;grid-row:2;margin-top:0;}",
-      ".who{padding:var(--sp3) var(--sp4);border-bottom:1px solid var(--border);display:flex;flex-wrap:wrap;align-items:center;gap:var(--sp3);}",
+      "@media(min-width:900px){.panel.expanded .detail{display:grid;grid-template-columns:minmax(0,1fr) minmax(260px,32%);gap:var(--sp2) 24px;align-items:start;}.panel.expanded .detail .expect,.panel.expanded .detail .optional{grid-column:1;margin:0;}.panel.expanded .detail .marks{grid-column:2;grid-row:1;}.panel.expanded .detail .stepnote{grid-column:2;grid-row:2;margin-top:0;}}",
+      ".who{padding:6px var(--sp4);display:flex;flex-wrap:wrap;align-items:center;gap:var(--sp3);}.who .required{color:var(--text2);}",
       ".who input{flex:1;min-width:180px;}.required{color:#a2191f;font-weight:600;}.nameerror{flex-basis:100%;font-size:var(--label);font-weight:600;color:#a2191f;}.nameerror[hidden]{display:none;}",
       "input[type=text],textarea{width:100%;box-sizing:border-box;border:1px solid var(--border-strong);border-radius:4px;padding:5px var(--sp3);font:inherit;color:inherit;}",
       "input:focus-visible,textarea:focus-visible,button:focus-visible,a:focus-visible{outline:2px solid var(--blue);outline-offset:1px;}",
       // Positioned so a row's offsetTop is measured against the scroller itself.
-      ".body{position:relative;flex:1;min-height:0;overflow-y:auto;padding:0 var(--sp4) 10px;}",
-      ".step{border:1px solid var(--border);border-radius:6px;margin-bottom:var(--sp4);background:var(--layer);}",
-      ".step.current{background:#fff;border-color:var(--blue-soft);box-shadow:0 0 0 2px rgba(15,98,254,.12);}",
+      ".body{position:relative;flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;padding:8px var(--sp4) 10px;}",
+      ".step{border:1px solid transparent;border-bottom-color:var(--border);border-radius:0;margin-bottom:var(--sp2);background:#fff;}",
+      ".step.current{background:#fff;border-color:var(--blue-soft);border-radius:4px;}",
       ".steptop{display:flex;gap:var(--sp3);align-items:flex-start;width:100%;text-align:left;background:none;border:none;padding:10px var(--sp4);font:inherit;color:inherit;cursor:pointer;min-height:24px;}",
       ".num{flex:none;width:22px;height:22px;border-radius:50%;border:1.5px solid var(--border-strong);background:#fff;color:var(--text2);display:inline-flex;align-items:center;justify-content:center;font-size:var(--label);font-weight:600;font-variant-numeric:tabular-nums;}",
       ".step[data-state=pass] .num{background:#24a148;border-color:#24a148;color:#fff;}",
@@ -3249,7 +3331,7 @@
       // narrow column; aligned under the instruction once there is width for the
       // alignment to be worth it.
       ".detail{padding:0 var(--sp4) var(--sp4);}",
-      ".panel.expanded .detail{padding-left:44px;}",
+      "@media(min-width:900px){.panel.expanded .detail{padding-left:44px;}}",
       // Set apart from the instruction and labelled, so the thing to do and the
       // thing to check stop reading as one long sentence. The label rides beside
       // the text at the label token rather than shrunk below it, which is what had
@@ -3274,11 +3356,11 @@
       ".note{display:grid;grid-template-columns:1fr auto auto;gap:6px;align-items:start;background:var(--layer);border:1px solid var(--border);border-radius:4px;padding:6px var(--sp3);}",
       ".note .icon{color:var(--text2);}",
       ".notemeta{font-size:var(--label);color:var(--text3);font-variant-numeric:tabular-nums;white-space:nowrap;}",
-      ".foot{display:flex;justify-content:flex-end;gap:var(--sp2);padding:10px var(--sp4);border-top:1px solid var(--border);background:#fff;}",
-      ".primary{flex:1;background:var(--blue);color:#fff;border:none;border-radius:4px;padding:6px 0;font:inherit;font-weight:600;cursor:pointer;min-height:24px;}.primary:hover{background:#0353e9;}",
+      ".foot{display:flex;align-items:center;justify-content:flex-end;gap:var(--sp3);padding:8px var(--sp4);background:#fff;}",
+      ".primary{background:var(--blue);color:#fff;border:none;border-radius:4px;padding:8px 20px;font:inherit;font-weight:600;cursor:pointer;min-height:36px;}.primary:hover{background:#0353e9;}.primary:disabled{background:#e0e0e0;color:#6f6f6f;cursor:not-allowed;}",
       ".ghost{background:#fff;color:var(--text2);border:1px solid var(--border-strong);border-radius:4px;padding:6px var(--sp4);font:inherit;cursor:pointer;min-height:24px;}",
       ".more{position:relative;display:flex;}.moretoggle{color:var(--text2);border:1px solid var(--border-strong);background:#fff;min-width:36px;font-weight:700;letter-spacing:1px;}.moretoggle:hover{background:var(--layer);}",
-      ".moremenu{position:absolute;z-index:2;right:0;bottom:calc(100% + var(--sp2));width:220px;box-sizing:border-box;padding:var(--sp2);background:#fff;border:1px solid var(--border-strong);border-radius:4px;box-shadow:0 4px 16px rgba(0,0,0,.2);}",
+      ".moremenu{position:absolute;z-index:5;right:0;bottom:calc(100% + var(--sp2));width:260px;max-height:min(380px,calc(100dvh - 180px));overflow-y:auto;box-sizing:border-box;padding:var(--sp2);background:#fff;border:1px solid var(--border-strong);border-radius:4px;box-shadow:0 4px 16px rgba(0,0,0,.2);}",
       ".moremenu[hidden],.storycontext[hidden]{display:none;}",
       ".morelabel{padding:4px var(--sp3);font-size:var(--label);font-weight:600;color:var(--text2);}",
       ".moregroup{display:flex;flex-direction:column;gap:2px;}",
@@ -3291,7 +3373,9 @@
       // is narrow too but is not over anything, and this rule matches it selector
       // for selector, so without the exclusion source order rather than
       // specificity would decide which layout a 460px review window gets.
-      "@media (max-width:640px){.wrap.open:not(.standalone){left:0;right:0;bottom:0;transform:none;}.wrap.open:not(.standalone) .panel{width:100vw;max-height:70vh;border-radius:8px 8px 0 0;}}",
+      "@media (max-width:640px){.wrap.open:not(.standalone){left:0;right:0;bottom:0;transform:none;}.wrap.open:not(.standalone) .panel{width:100vw;height:min(520px,70dvh);max-height:70dvh;border-radius:8px 8px 0 0;}.has-story-picker .titlebox{display:block;}.head{gap:4px;}.who label{font-size:13px;}.whoami{font-size:12px;}.expect{display:block;}.expectlabel{display:block;margin-bottom:4px;}.primary{padding:8px 12px;}}",
+      ".wrap.open.fullscreen:not(.standalone){inset:16px;transform:none;}.wrap.open.fullscreen:not(.standalone) .panel{width:100%;height:100%;max-height:none;border-radius:8px;}.panel.expanded .body{padding:16px 24px;}.panel.expanded .storymenu{max-height:calc(100dvh - 220px);}.panel.expanded .secblock{max-width:1200px;margin:0 auto;}.panel.expanded .storytriggertitle{white-space:normal;overflow:visible;}",
+      "@media(max-width:640px){.wrap.open.fullscreen:not(.standalone){inset:8px;}.panel.expanded .body{padding:8px 12px;}.panel.expanded .storymenu{max-height:calc(100dvh - 200px);}}",
       "@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important;}}",
     ].join("");
   }
