@@ -52,7 +52,10 @@ test("secondary panel controls remain reachable through one labelled menu", asyn
   page,
 }) => {
   const widget = await open(page);
-  await expect(widget.locator(".head").getByRole("button")).toHaveCount(2);
+  await expect(widget.locator(".head").getByRole("button")).toHaveCount(3);
+  await expect(
+    widget.locator(".head").getByRole("button", { name: /Pop out/ }),
+  ).toBeVisible();
   await expect(
     widget.getByRole("button", { name: "Refresh checklist" }),
   ).toBeHidden();
@@ -63,7 +66,9 @@ test("secondary panel controls remain reachable through one labelled menu", asyn
   await expect(
     widget.getByRole("button", { name: "Move panel" }),
   ).toBeVisible();
-  await expect(widget.getByRole("button", { name: /Pop out/ })).toBeVisible();
+  await expect(
+    widget.locator(".moremenu").getByRole("button", { name: /Pop out/ }),
+  ).toHaveCount(0);
 });
 
 test("expansion and menu dismissal retain the reviewer's name, notes, and answers", async ({

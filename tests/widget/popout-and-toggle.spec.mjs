@@ -1,5 +1,4 @@
 import { expect, test } from "@playwright/test";
-import { panelAction } from "./helpers.mjs";
 
 // fixture.html carries the two-step "analyzers" checklist. The reviewer reaches
 // application routes independently so the checklist cannot bypass the behavior it
@@ -20,7 +19,10 @@ async function popOut(page) {
   const widget = await openPanel(page);
   const [popup] = await Promise.all([
     page.waitForEvent("popup"),
-    panelAction(widget, /pop out/i),
+    widget
+      .locator(".head")
+      .getByRole("button", { name: /pop out/i })
+      .click(),
   ]);
   await expect(popup.locator("#oe-review-host .panel")).toBeVisible();
   return { widget, popup };
@@ -153,7 +155,10 @@ test.describe("popping the panel out", () => {
       await expect(widget.locator(".panel")).toBeVisible();
       const [popup] = await Promise.all([
         page.waitForEvent("popup"),
-        panelAction(widget, /pop out/i, { modifiers }),
+        widget
+          .locator(".head")
+          .getByRole("button", { name: /pop out/i })
+          .click({ modifiers }),
       ]);
       await expect(popup.locator("#oe-review-host .panel")).toBeVisible();
       const width = await popup.evaluate(() => innerWidth);

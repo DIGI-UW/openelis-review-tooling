@@ -1760,6 +1760,14 @@
       back.onclick = returnToPage;
       head.appendChild(back);
     } else {
+      if (SELF_SRC) {
+        var out = iconBtn(
+          "⧉",
+          "Pop out into its own window (⌘/Ctrl-click for a tab)",
+        );
+        out.onclick = openPopout;
+        head.appendChild(out);
+      }
       var min = iconBtn("–", "Minimize");
       min.onclick = minimize;
       head.appendChild(min);
@@ -2226,14 +2234,7 @@
       menu.appendChild(button);
     }
     panelAction("Refresh checklist", refreshChecklist);
-    if (!STANDALONE) {
-      panelAction("Move panel", movePanel);
-      if (SELF_SRC)
-        panelAction(
-          "Pop out into its own window (⌘/Ctrl-click for a tab)",
-          openPopout,
-        );
-    }
+    if (!STANDALONE) panelAction("Move panel", movePanel);
     menu.appendChild(el("div", "moredivider"));
     var copy = el("button", "moreitem");
     copy.textContent = "Copy report";
