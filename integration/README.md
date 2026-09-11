@@ -3,8 +3,8 @@
 The widget runs on an existing site. It needs no OpenELIS rebuild, replacement
 Compose stack, or dependency on an infrastructure repository.
 
-Each site has an instance slug, a checklist in Grist, and a configured OpenELIS
-session backend. After the generic central route is installed once, adding a site
+Each site has an instance slug and a configured OpenELIS session backend. It can
+show its own Grist checklist or the full published catalog. After the generic central route is installed once, adding a site
 requires configuration and Grist data only.
 
 ## 1. Register the site and author its checklist
@@ -34,12 +34,20 @@ sudo env REMOTE_USER=ubuntu GRIST_DOMAIN=grist.openelis-global.org \
 This retains the running service's Compose project and files and reads the named
 environment file. It leaves Grist, Dex, and application containers running.
 
-Create/reuse the site's `UAT_Meta` row and its stories/steps through Grist's UI
+For a site-specific checklist, create/reuse the site's `UAT_Meta` row and its stories/steps through Grist's UI
 or authenticated REST API. Follow [the authoring instructions](../docs/AGENTS.md).
 Keep stable story/step keys. The authoring key stays on the central host.
 Grist edits do not require a merge or code deployment. Verify
 `https://grist.openelis-global.org/uat/<instance>.json`, then publish the
 metadata row when the walkthrough is ready for discovery in the catalog.
+
+For a general testing server, set `"story_scope": "all"` in the target-side
+configuration. The widget then lists every published story regardless of its
+review, host, or page filters. No duplicate stories or site-specific Grist rows
+are needed. The default `"site"` scope retains the existing filtering behavior.
+Submissions still authenticate against the current site's configured session
+backend; `reviewInstance` identifies the source checklist and its story/step
+references. Grist records the source review and the actual testing host.
 
 ## 2. Generate the target-side layer
 
@@ -54,11 +62,11 @@ python3 integration/configure.py /tmp/review-site.json --output /tmp/review-laye
 The generator writes files only to the output directory. It does not change the
 web server, start containers, contact Grist, or handle credentials.
 
-| File | Where to use it |
-| --- | --- |
-| `html.conf` | Inside the existing Nginx location that proxies OpenELIS HTML |
-| `routes.conf` | Inside that site's existing HTTPS server block |
-| `embed.html` | Alternative script tag for a server where you control the HTML template |
+| File          | Where to use it                                                         |
+| ------------- | ----------------------------------------------------------------------- |
+| `html.conf`   | Inside the existing Nginx location that proxies OpenELIS HTML           |
+| `routes.conf` | Inside that site's existing HTTPS server block                          |
+| `embed.html`  | Alternative script tag for a server where you control the HTML template |
 
 For an Nginx installation, copy the generated files to a persistent directory
 visible to Nginx and add these two includes to the existing configuration:
@@ -93,7 +101,8 @@ login and host. Unknown sites and unauthenticated sessions are rejected.
 
 If you supply `build_path`, point it at the site's existing live, verified JSON
 deployment metadata. The default is `/__review/target.json`. When no such
-metadata is served, the widget explicitly reports it unavailable; do not insert
+metadata is served, set `"build_path": null` to disable the optional request.
+Unavailable or malformed metadata also leaves checklists and saved answers usable; do not insert
 a static commit that becomes false on the next application deployment.
 
 For Apache or another web server, use `embed.html` and configure the equivalent

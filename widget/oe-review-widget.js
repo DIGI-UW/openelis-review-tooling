@@ -3,6 +3,9 @@
   var self = document.currentScript;
   var INSTANCE = (self && self.getAttribute("data-instance")) || "unknown";
   var LABEL = (self && self.getAttribute("data-label")) || INSTANCE;
+  var ALL_STORIES = Boolean(
+    self && self.getAttribute("data-story-scope") === "all",
+  );
   var LEGACY_STORE_KEY = "oe-review:" + INSTANCE;
   // One deployment can carry several stories. Answers are keyed by the story
   // being reviewed, so switching never shows one story's marks against another's
@@ -420,7 +423,8 @@
     // there is no identity and answers land under the unbound prefix. Adopt those
     // once the real identity appears, or a reviewer working during a deploy loses
     // everything the moment it finishes.
-    var unbound = storePrefixFor(story || storyNavigation.committedId) + "unbound:";
+    var unbound =
+      storePrefixFor(story || storyNavigation.committedId) + "unbound:";
     var prefixes = prefix === unbound ? [prefix] : [prefix, unbound];
     var latest = null;
     try {
@@ -700,6 +704,9 @@
       ["src", SELF_SRC],
       ["data-instance", INSTANCE],
       ["data-label", LABEL],
+      ["data-story-scope", ALL_STORIES ? "all" : "site"],
+      ["data-identity-src", IDENTITY_SRC],
+      ["data-submit-src", SUBMIT_SRC],
       ["data-standalone", "1"],
       ["data-opener-url", location.href],
     ];
@@ -961,6 +968,7 @@
   // the totals too: a panel that asks for answers nobody on this host can give
   // never reads as finished.
   function storyAppliesHere(section) {
+    if (ALL_STORIES) return true;
     var hosts = section && section.hosts;
     if (!Array.isArray(hosts) || !hosts.length) return true;
     var here = String(location.host || "").toLowerCase();
@@ -1033,6 +1041,19 @@
     save();
   }
 
+  function fetchChecklist(source) {
+    return fetch(source, { cache: "no-store" }).then(function (response) {
+      if (!response.ok) {
+        var failure = new Error(
+          "Could not load checklist (" + response.status + ").",
+        );
+        failure.status = response.status;
+        throw failure;
+      }
+      return response.json();
+    });
+  }
+
   function refreshChecklist() {
     var requestVersion = ++storyNavigation.requestVersion;
     var nextBuildWarning = "";
@@ -1046,28 +1067,23 @@
     // current and those stale rows would remain on screen.
     if (!ui || ui.story === storyNavigation.committedId) render();
     return Promise.all([
-      fetch(checklistSrc, { cache: "no-store" }).then(function (response) {
-        if (!response.ok) {
-          var failure = new Error(
-            "Could not load checklist (" + response.status + ").",
-          );
-          failure.status = response.status;
-          throw failure;
-        }
-        return response.json();
-      }),
-      fetch(BUILD_SRC, { cache: "no-store" })
-        .then(function (response) {
-          if (!response.ok) {
-            nextBuildWarning = "Build information is unavailable.";
-            return null;
-          }
-          return response.json();
-        })
-        .catch(function () {
-          nextBuildWarning = "Build information is unavailable.";
-          return null;
-        }),
+      ALL_STORIES && storyNavigation.selectedId === INSTANCE
+        ? Promise.resolve(null)
+        : fetchChecklist(checklistSrc),
+      BUILD_SRC === "none"
+        ? Promise.resolve(null)
+        : fetch(BUILD_SRC, { cache: "no-store" })
+            .then(function (response) {
+              if (!response.ok) {
+                nextBuildWarning = "Build information is unavailable.";
+                return null;
+              }
+              return response.json();
+            })
+            .catch(function () {
+              nextBuildWarning = "Build information is unavailable.";
+              return null;
+            }),
       fetchCatalog(),
     ])
       .then(function (values) {
@@ -1086,6 +1102,12 @@
           clearStorySelection();
         }
         chooseInitialStory();
+        if (!values[0] || currentSrc() !== checklistSrc) {
+          return fetchChecklist(currentSrc()).then(function (checklist) {
+            if (requestVersion !== storyNavigation.requestVersion) return;
+            applyChecklist(checklist, build);
+          });
+        }
         applyChecklist(values[0], build);
       })
       .catch(function (error) {
@@ -1141,10 +1163,14 @@
         story.required > story.steps ||
         !Array.isArray(story.routes)
       ) {
-        throw new Error(label + " does not match the schema-v2 story contract.");
+        throw new Error(
+          label + " does not match the schema-v2 story contract.",
+        );
       }
       if (ids[story.id]) {
-        throw new Error("Story catalog contains duplicate id " + story.id + ".");
+        throw new Error(
+          "Story catalog contains duplicate id " + story.id + ".",
+        );
       }
       ids[story.id] = true;
       story.routes.forEach(function (route) {
@@ -1190,7 +1216,9 @@
 
   function stories() {
     return ((catalog && catalog.stories) || []).filter(function (story) {
-      return story.review === INSTANCE && storyAppliesHere(story);
+      return (
+        ALL_STORIES || (story.review === INSTANCE && storyAppliesHere(story))
+      );
     });
   }
   function storyId(story) {
@@ -1215,8 +1243,7 @@
     if (!knownStory(story)) return false;
     var needsLoad = story !== storyNavigation.committedId;
     var cancelsPending =
-      !needsLoad &&
-      storyNavigation.selectedId !== storyNavigation.committedId;
+      !needsLoad && storyNavigation.selectedId !== storyNavigation.committedId;
     setStoryMenuOpen(false);
     // Close the disclosure while it still describes the committed story. The
     // requested story does not become visible state until its checklist passes
@@ -1301,11 +1328,7 @@
         resetStoryNavigationForRoute();
         var here = stories().filter(coversHere);
         var selected = committedStory();
-        if (
-          catalog &&
-          here.length &&
-          (!selected || !coversHere(selected))
-        ) {
+        if (catalog && here.length && (!selected || !coversHere(selected))) {
           activateStory(storyId(here[0]), {
             path: null,
             refresh: true,
@@ -1375,10 +1398,7 @@
     for (var i = 0; i < actions.length; i++) {
       var action = actions[i];
       var style = getComputedStyle(action);
-      if (
-        style.display === "none" ||
-        style.visibility === "hidden"
-      ) {
+      if (style.display === "none" || style.visibility === "hidden") {
         continue;
       }
       var rect = action.getBoundingClientRect();
@@ -1407,10 +1427,7 @@
       )
         continue;
       var textStyle = getComputedStyle(textParent);
-      if (
-        textStyle.display === "none" ||
-        textStyle.visibility === "hidden"
-      ) {
+      if (textStyle.display === "none" || textStyle.visibility === "hidden") {
         continue;
       }
       var range = document.createRange();
@@ -1462,8 +1479,7 @@
     if (!subject) return { anchor: "right", bottom: EDGE_GAP };
     var width = subject.offsetWidth;
     var height = subject.offsetHeight;
-    if (!width || !height)
-      return { anchor: "right", bottom: EDGE_GAP };
+    if (!width || !height) return { anchor: "right", bottom: EDGE_GAP };
     var blockers = pageActions();
     var best = { anchor: "right", bottom: EDGE_GAP };
     var bestOverlap = Infinity;
@@ -1487,9 +1503,7 @@
     return best;
   }
   function autoAnchor() {
-    var subject = state.minimized
-      ? wrap.querySelector(".tab")
-      : ui && ui.panel;
+    var subject = state.minimized ? wrap.querySelector(".tab") : ui && ui.panel;
     if (!subject) return "right";
     var width = subject.offsetWidth;
     var height = subject.offsetHeight;
@@ -2004,9 +2018,14 @@
     if (!ui || !ui.storyTrigger) return;
     var available = stories();
     var here = storiesForPage();
-    var pageScoped = here.length > 0 && !storyNavigation.showAll;
+    var pageScoped =
+      !ALL_STORIES && here.length > 0 && !storyNavigation.showAll;
     var visible = pageScoped ? here : available;
-    var scopeLabel = pageScoped ? "Stories on this page" : "All server stories";
+    var scopeLabel = ALL_STORIES
+      ? "All published stories"
+      : pageScoped
+        ? "Stories on this page"
+        : "All server stories";
     var grouping = visible
       .map(function (story) {
         var counts = storedStoryProgress(story);
@@ -2035,8 +2054,9 @@
     ui.storyNotice.textContent = here.length
       ? ""
       : "No stories target this page. Showing all server stories.";
-    ui.storyNotice.hidden = Boolean(here.length);
-    var canChangeScope = here.length > 0 && here.length < available.length;
+    ui.storyNotice.hidden = ALL_STORIES || Boolean(here.length);
+    var canChangeScope =
+      !ALL_STORIES && here.length > 0 && here.length < available.length;
     ui.storyScopeToggle.hidden = !canChangeScope;
     ui.storyScopeToggle.textContent = storyNavigation.showAll
       ? "Show " +
@@ -2826,6 +2846,8 @@
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         reviewer: String(state.reviewer || "").trim(),
+        reviewInstance:
+          (committedStory() && committedStory().review) || INSTANCE,
         checklistRevision: uat.checklistRevision || "",
         host: location.host,
         appSha: (build && build.appSha) || "",
@@ -3004,6 +3026,8 @@
       {
         schemaVersion: 2,
         instance: INSTANCE,
+        reviewInstance:
+          (committedStory() && committedStory().review) || INSTANCE,
         label: LABEL,
         origin: location.origin,
         reviewer: state.reviewer,

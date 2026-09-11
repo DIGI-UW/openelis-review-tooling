@@ -14,8 +14,9 @@ Reload only the checklist service using its existing Compose project and the
 runtime `.env`. The generic `/uat/<instance>/submissions` route is installed
 once and requires no testing-specific source change.
 
-Read Grist's current rows, reuse or create the `testing` metadata row, and
-apply the two scoped stories through authenticated REST:
+Testing is a general server: use the full published Grist catalog rather than
+restricting its widget to the `testing` review. The two testing smoke stories can
+also be maintained through authenticated REST:
 
 ```bash
 ./deploy.sh grist apply-story --file docs/testing-smoke.story.json
@@ -34,7 +35,9 @@ On testing, generate the layer from:
   "instance": "testing",
   "label": "OpenELIS Testing",
   "review_origin": "https://grist.openelis-global.org",
-  "session_path": "/api/OpenELIS-Global/session"
+  "session_path": "/api/OpenELIS-Global/session",
+  "story_scope": "all",
+  "build_path": null
 }
 ```
 
@@ -43,7 +46,13 @@ existing persistent Nginx template, validate, and reload only Nginx. Preserve
 these directives on normal application updates. No alternative Compose stack
 or infrastructure-repository PR is required.
 
-Open the live Review panel, select both stories, download the report, and
+`build_path: null` disables the optional metadata request because this site's
+proxy does not serve the deployment metadata file. It must not request an SPA
+fallback as if it were JSON. Point this setting at live verified metadata if a
+metadata endpoint is added later.
+
+Open the live Review panel, verify every published catalog story is selectable,
+switch between reviews, download the report, and
 submit one review labelled `Testing deployment validation`. Verify the stored
-testing login, reviewer name, host, and answers. A JSON response alone does not
+testing login, reviewer name, host, source story, and answers. A JSON response alone does not
 prove the integration works.

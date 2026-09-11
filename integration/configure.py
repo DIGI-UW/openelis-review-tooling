@@ -24,7 +24,10 @@ def render(config):
         raise ValueError("invalid Review port")
     session = config.get("session_path", "/api/OpenELIS-Global/session")
     build = config.get("build_path", "/__review/target.json")
-    for path in (session, build):
+    story_scope = config.get("story_scope", "site")
+    if story_scope not in ("site", "all"):
+        raise ValueError("story_scope must be site or all")
+    for path in (session, *([build] if build is not None else [])):
         if not isinstance(path, str) or not re.fullmatch(r"/(?!/)[A-Za-z0-9_./-]+", path) or ".." in path:
             raise ValueError("session_path and build_path must be absolute same-origin paths")
     ca = config.get("ca_bundle", "/etc/ssl/certs/ca-certificates.crt")
@@ -41,7 +44,8 @@ def render(config):
         "data-src": f"{origin}/uat/{instance}.json",
         "data-identity-src": session,
         "data-submit-src": submit,
-        "data-build-src": build,
+        "data-build-src": build if build is not None else "none",
+        "data-story-scope": story_scope,
     }
     def attribute(value):
         return html.escape(value, quote=True).replace("$", "&#36;").replace("\\", "&#92;")

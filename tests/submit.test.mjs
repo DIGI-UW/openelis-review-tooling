@@ -169,6 +169,76 @@ const ANSWER = {
   actualUrl: "https://amr.openelis-global.org/MicrobiologyWorklist",
 };
 
+test("a general test site authenticates locally and links feedback to another published review", async () => {
+  const doc = seededDoc();
+  doc.tables.UAT_Meta.records[0].fields.published = true;
+  const external = await startFakeOpenELIS({ "JSESSIONID=testing": MERCY });
+  try {
+    const { app } = await withService(
+      doc,
+      { "JSESSIONID=amr": MERCY },
+      (app) => ({ REVIEW_BACKENDS: `amr=${app.url},testing=${external.url}` }),
+      async (base) => {
+        const payload = { reviewInstance: "amr", answers: [ANSWER] };
+        const wrong = await submit(base, {
+          instance: "testing",
+          cookie: "JSESSIONID=amr",
+          payload,
+        });
+        assert.equal(wrong.status, 401);
+        const response = await submit(base, {
+          instance: "testing",
+          cookie: "JSESSIONID=testing",
+          payload,
+          headers: { "X-Review-Proxy": "external" },
+        });
+        assert.equal(response.status, 201, await response.text());
+      },
+    );
+    assert.equal(
+      app.seen.length,
+      0,
+      "checklist source must not select the authentication backend",
+    );
+    assert.equal(doc.tables.UAT_Submissions.records[0].fields.instance, 7);
+    assert.equal(
+      doc.tables.UAT_Submissions.records[0].fields.host,
+      new URL(external.url).host,
+    );
+    assert.equal(doc.tables.UAT_Answers.records[0].fields.step, 5);
+    assert.equal(doc.tables.UAT_Answers.records[0].fields.story, 3);
+  } finally {
+    await external.stop();
+  }
+});
+
+for (const reviewInstance of [
+  "amr",
+  "missing",
+  "https://attacker.example.org",
+]) {
+  test(`general site refuses unpublished, missing, or malformed checklist source: ${reviewInstance}`, async () => {
+    const doc = seededDoc();
+    const { response } = await withService(
+      doc,
+      { "JSESSIONID=real": MERCY },
+      (app) => ({ REVIEW_BACKENDS: `testing=${app.url}` }),
+      (base) =>
+        submit(base, {
+          instance: "testing",
+          cookie: "JSESSIONID=real",
+          payload: { reviewInstance, answers: [ANSWER] },
+        }),
+    );
+    assert.equal(
+      response.status,
+      reviewInstance.startsWith("https:") ? 400 : 404,
+    );
+    assert.equal(doc.tables.UAT_Submissions.records.length, 0);
+    assert.equal(doc.tables.UAT_Answers.records.length, 0);
+  });
+}
+
 for (const instance of ["lab-north", "clinic_42"]) {
   test(`external site ${instance} is onboarded through configuration alone`, async () => {
     const doc = seededDoc();
