@@ -56,6 +56,11 @@ do, expect, route`.
   story, it explicitly falls back to all stories on that server. Reviewers can
   expand to all server stories themselves; an explicit choice must survive a
   refresh, while real navigation resets the route-relevant default.
+- A general test server can explicitly use `data-story-scope="all"`. It shows
+  all published catalog stories without review, host, or page filtering. Feedback
+  authenticates against the injected deployment and links to the selected
+  story's original Grist review. Keep the deployment identity and source review
+  distinct; never copy stories merely to expose them on another server.
 - Both story and step tables carry a computed `problems` column: empty means the
   row is publishable.
 - `step_key` is immutable and unique within an instance. Reordering a row must
@@ -88,18 +93,20 @@ not its title:
 
 ```json
 {
-  "records": [{
-    "fields": {
-      "instance": "amr",
-      "story": 3,
-      "step_key": "AMR-008",
-      "required": true,
-      "step_order": 2,
-      "do": "...the action the reviewer performs...",
-      "expect": "...the expected result / what to flag if wrong...",
-      "route": "/Microbiology/worklist"
+  "records": [
+    {
+      "fields": {
+        "instance": "amr",
+        "story": 3,
+        "step_key": "AMR-008",
+        "required": true,
+        "step_order": 2,
+        "do": "...the action the reviewer performs...",
+        "expect": "...the expected result / what to flag if wrong...",
+        "route": "/Microbiology/worklist"
+      }
     }
-  }]
+  ]
 }
 ```
 

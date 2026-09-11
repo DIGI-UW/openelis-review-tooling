@@ -50,7 +50,10 @@ test("REST checklist authoring requires explicit stable keys", async () => {
   const skill = await read("skills/uat-authoring/SKILL.md");
   const schema = await read("skills/uat-authoring/references/schema.md");
 
-  assert.match(contract, /REST creates must send[\s\S]*`story_key` and `step_key`/);
+  assert.match(
+    contract,
+    /REST creates must send[\s\S]*`story_key` and `step_key`/,
+  );
   assert.match(skill, /REST creates must provide stable keys explicitly/);
   assert.match(
     skill,

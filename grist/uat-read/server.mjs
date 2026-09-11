@@ -16,7 +16,11 @@ import { readFileSync } from "node:fs";
 import { request as httpRequest } from "node:http";
 import { request as httpsRequest } from "node:https";
 import { parseBackends, verifyTlsFor } from "./backends.mjs";
-import { buildUatDocument, buildUatIndex } from "./uat-document.mjs";
+import {
+  buildUatDocument,
+  buildUatIndex,
+  parsePublished,
+} from "./uat-document.mjs";
 
 const GRIST_URL = process.env.GRIST_URL || "http://grist:8484";
 const GRIST_ORG = process.env.GRIST_ORG || "openelis";
@@ -295,9 +299,22 @@ app.post("/uat/:instance/submissions", async (req, res) => {
   }
 
   try {
-    const [review] = await listRecords("UAT_Meta", { instance: [instance] });
-    if (!review) {
-      return res.status(404).json({ error: `no review called "${instance}"` });
+    // The route selects the deployment/session. The body only selects the
+    // published checklist being reviewed on that deployment.
+    const reviewInstance = String(req.body.reviewInstance || instance);
+    if (!/^[a-z0-9_-]+$/.test(reviewInstance) || reviewInstance === "index") {
+      return res.status(400).json({ error: "invalid review instance" });
+    }
+    const [review] = await listRecords("UAT_Meta", {
+      instance: [reviewInstance],
+    });
+    if (
+      !review ||
+      (reviewInstance !== instance && !parsePublished(review.fields.published))
+    ) {
+      return res
+        .status(404)
+        .json({ error: `no published review called "${reviewInstance}"` });
     }
 
     // A row id for each step key and story key, so an answer can be clicked
@@ -306,7 +323,7 @@ app.post("/uat/:instance/submissions", async (req, res) => {
     // reference, never through matching text. Navigation only: the pinned keys
     // are what the answer is about, and they survive either row being deleted.
     const [steps, stories] = await Promise.all([
-      listRecords("UAT_Steps", { instance: [instance] }),
+      listRecords("UAT_Steps", { instance: [reviewInstance] }),
       listRecords("UAT_Stories", { instance: [review.id] }),
     ]);
     const refsBy = (records, field) =>
@@ -327,10 +344,13 @@ app.post("/uat/:instance/submissions", async (req, res) => {
         // Grist stores a DateTime as epoch seconds. Taken here rather than from
         // the body: a clock the submitter controls is not a timestamp.
         submitted_at: Math.floor(Date.now() / 1000),
-        // The header, not the body: the request was routed by it — nginx
-        // matched a vhost on it — so it says which deployment these answers are
-        // about. The body is the submitter's word for the same thing.
-        host: String(req.headers.host || ""),
+        // The central external route arrives on the Review hostname. Record
+        // the configured OpenELIS host that authenticated this session instead.
+        // Never accept a caller-supplied backend URL or forwarded host.
+        host:
+          req.headers["x-review-proxy"] === "external"
+            ? new URL(backend).host
+            : String(req.headers.host || ""),
         app_sha: String((req.body && req.body.appSha) || ""),
         checklist_revision: String(
           (req.body && req.body.checklistRevision) || "",

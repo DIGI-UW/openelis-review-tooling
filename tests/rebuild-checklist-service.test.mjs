@@ -1,23 +1,42 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, chmodSync, existsSync } from "node:fs";
+import {
+  mkdtempSync,
+  mkdirSync,
+  writeFileSync,
+  readFileSync,
+  chmodSync,
+  existsSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-const SCRIPT = new URL("../scripts/rebuild-checklist-service.sh", import.meta.url).pathname;
+const SCRIPT = new URL(
+  "../scripts/rebuild-checklist-service.sh",
+  import.meta.url,
+).pathname;
 
 // The script talks to docker, sudo and curl. Standing in for all three lets the
 // test assert on what it actually invokes rather than on what its source says.
 // PATH ends in /bin on purpose: that resolves the system bash, which is older
 // than any shell a developer is likely to be running, so footguns like expanding
 // an empty array under `set -u` surface here instead of on the review host.
-function harness({ labels = {}, composeFiles = [], catalogBody = '{"stories":[]}', curlFails = false } = {}) {
+function harness({
+  labels = {},
+  composeFiles = [],
+  catalogBody = '{"stories":[]}',
+  curlFails = false,
+} = {}) {
   const root = mkdtempSync(join(tmpdir(), "oe-rebuild-"));
   const bin = join(root, "bin");
   const workdir = join(root, "project");
   mkdirSync(bin);
   mkdirSync(workdir);
+  writeFileSync(
+    join(root, ".env"),
+    "REVIEW_EXTRA_BACKENDS=lab=https://lab.example.org\n",
+  );
 
   const resolved = {
     "com.docker.compose.project": "oe-grist",
@@ -27,7 +46,8 @@ function harness({ labels = {}, composeFiles = [], catalogBody = '{"stories":[]}
       .join(","),
     ...labels,
   };
-  for (const name of composeFiles) writeFileSync(join(workdir, name), "services: {}\n");
+  for (const name of composeFiles)
+    writeFileSync(join(workdir, name), "services: {}\n");
 
   const stub = (name, body) => {
     const path = join(bin, name);
@@ -42,7 +62,8 @@ function harness({ labels = {}, composeFiles = [], catalogBody = '{"stories":[]}
       `if [ "$1" = inspect ]; then`,
       `  key=$(printf '%s' "$3" | sed 's/.*Labels "//; s/".*//')`,
       ...Object.entries(resolved).map(
-        ([key, value]) => `  [ "$key" = ${JSON.stringify(key)} ] && { printf '%s\\n' ${JSON.stringify(value)}; exit 0; }`,
+        ([key, value]) =>
+          `  [ "$key" = ${JSON.stringify(key)} ] && { printf '%s\\n' ${JSON.stringify(value)}; exit 0; }`,
       ),
       `  printf '\\n'; exit 0`,
       `fi`,
@@ -50,7 +71,13 @@ function harness({ labels = {}, composeFiles = [], catalogBody = '{"stories":[]}
     ].join("\n"),
   );
   // sudo -u USER cmd… — record who, then run the rest through the same stubs.
-  stub("sudo", [`[ "$1" = -u ] && { printf 'user=%s\\n' "$2" >> ${JSON.stringify(join(root, "sudo.log"))}; shift 2; }`, `exec "$@"`].join("\n"));
+  stub(
+    "sudo",
+    [
+      `[ "$1" = -u ] && { printf 'user=%s\\n' "$2" >> ${JSON.stringify(join(root, "sudo.log"))}; shift 2; }`,
+      `exec "$@"`,
+    ].join("\n"),
+  );
   stub(
     "curl",
     curlFails
@@ -78,17 +105,26 @@ function harness({ labels = {}, composeFiles = [], catalogBody = '{"stories":[]}
         encoding: "utf8",
       });
     },
-    dockerLog: () => (existsSync(join(root, "docker.log")) ? readFileSync(join(root, "docker.log"), "utf8") : ""),
-    sudoLog: () => (existsSync(join(root, "sudo.log")) ? readFileSync(join(root, "sudo.log"), "utf8") : ""),
+    dockerLog: () =>
+      existsSync(join(root, "docker.log"))
+        ? readFileSync(join(root, "docker.log"), "utf8")
+        : "",
+    sudoLog: () =>
+      existsSync(join(root, "sudo.log"))
+        ? readFileSync(join(root, "sudo.log"), "utf8")
+        : "",
   };
 }
 
 test("rebuilds in the project and file list the running container reports", () => {
-  const rig = harness({ composeFiles: ["docker-compose.grist.yml", "override.yml"] });
+  const rig = harness({
+    composeFiles: ["docker-compose.grist.yml", "override.yml"],
+  });
   const output = rig.run();
 
   const invocation = rig.dockerLog();
   assert.match(invocation, /compose -p oe-grist /);
+  assert.match(invocation, /--env-file \S*\.env /);
   // Every resolved file has to be threaded through: dropping them leaves Compose
   // to infer the file from the directory, which is a different project.
   assert.match(invocation, /-f \S*docker-compose\.grist\.yml/);
@@ -102,19 +138,35 @@ test("refuses when the running container names a Compose file that is gone", () 
   const rig = harness({ composeFiles: ["docker-compose.grist.yml"] });
   rig.run(); // the file exists, so this one succeeds
   const missing = harness({
-    labels: { "com.docker.compose.project.config_files": "/nowhere/docker-compose.yml" },
+    labels: {
+      "com.docker.compose.project.config_files": "/nowhere/docker-compose.yml",
+    },
   });
   assert.throws(() => missing.run(), /active Compose file is missing/);
 });
 
 test("refuses when no Compose file is resolved at all", () => {
-  const rig = harness({ labels: { "com.docker.compose.project.config_files": "" } });
+  const rig = harness({
+    labels: { "com.docker.compose.project.config_files": "" },
+  });
   assert.throws(() => rig.run(), /no Compose files resolved/);
+});
+
+test("refuses to reload without the site's runtime configuration", () => {
+  const rig = harness({ composeFiles: ["docker-compose.grist.yml"] });
+  assert.throws(
+    () => rig.run({ ENV_FILE: "/missing/runtime.env" }),
+    /runtime environment file is missing/,
+  );
+  assert.equal(rig.dockerLog(), "");
 });
 
 test("refuses when the running container cannot be resolved", () => {
   const rig = harness({ labels: { "com.docker.compose.project": "" } });
-  assert.throws(() => rig.run(), /could not resolve the running checklist service/);
+  assert.throws(
+    () => rig.run(),
+    /could not resolve the running checklist service/,
+  );
 });
 
 test("fetching the endpoint is not accepted as proof of the rebuild", () => {
@@ -128,6 +180,9 @@ test("fetching the endpoint is not accepted as proof of the rebuild", () => {
 });
 
 test("fails when the endpoint never answers", () => {
-  const rig = harness({ composeFiles: ["docker-compose.grist.yml"], curlFails: true });
+  const rig = harness({
+    composeFiles: ["docker-compose.grist.yml"],
+    curlFails: true,
+  });
   assert.throws(() => rig.run(), /did not serve a catalog after rebuild/);
 });

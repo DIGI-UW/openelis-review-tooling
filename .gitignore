@@ -16,6 +16,7 @@ node_modules/
 npm-debug.log*
 test-results/
 playwright-report/
+__pycache__/
 
 # editor / OS / backups
 *.bak*
