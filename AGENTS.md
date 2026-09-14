@@ -6,6 +6,9 @@ this repository.
 
 Repository-wide rules:
 
+- Follow the accepted [UAT tooling remediation and OpenELIS integration
+  contract](docs/uat-tooling-remediation-plan.md) for reviewer UX, Grist
+  ownership, optional site integration, delivery order and acceptance gates.
 - Follow [validation ownership](docs/validation-ownership.md): original
   `openelis-work` stories govern UAT; implementation E2E supplies automated
   assertions and video proof; Grist presents stories and records feedback;
