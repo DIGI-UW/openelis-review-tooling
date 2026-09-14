@@ -181,6 +181,19 @@ test("probes the submissions route on the domain it was given", () => {
   );
 });
 
+test("can prove an arbitrary external submission route on the central host", () => {
+  const rig = harness();
+  rig.run({
+    PROBE_DOMAIN: "grist.example.org",
+    PROBE_INSTANCE: "clinic-42",
+    PROBE_PATH: "/uat/clinic-42/submissions",
+  });
+  assert.match(
+    rig.curlLog(),
+    /https:\/\/grist\.example\.org\/uat\/clinic-42\/submissions/,
+  );
+});
+
 test("refuses when the running container names a Compose file that is gone", () => {
   const rig = harness({
     labels: {

@@ -72,6 +72,48 @@ async function applyStory(doc, payload) {
   }
 }
 
+test("testing stories reconcile by stable keys without changing sibling reviews", async () => {
+  const doc = legacyDoc();
+  await apply(doc);
+  doc.tables.UAT_Meta.records.push({
+    id: 99,
+    fields: {
+      instance: "testing",
+      title: "OpenELIS Testing",
+      published: false,
+    },
+  });
+  const before = JSON.stringify(doc.tables.UAT_Stories.records);
+  for (const name of ["testing-smoke", "testing-review"]) {
+    const payload = JSON.parse(
+      await readFile(
+        new URL(`../docs/${name}.story.json`, import.meta.url),
+        "utf8",
+      ),
+    );
+    await applyStory(doc, payload);
+    await applyStory(doc, payload);
+  }
+  const ownStories = doc.tables.UAT_Stories.records.filter(
+    (row) => row.fields.instance === 99,
+  );
+  assert.equal(ownStories.length, 2);
+  assert.equal(
+    doc.tables.UAT_Steps.records.filter(
+      (row) => row.fields.instance === "testing",
+    ).length,
+    5,
+  );
+  assert.equal(
+    JSON.stringify(
+      doc.tables.UAT_Stories.records.filter(
+        (row) => row.fields.instance !== 99,
+      ),
+    ),
+    before,
+  );
+});
+
 test("check-access requires the server authoring identity to own the document", async () => {
   const owner = fakeGristDoc({ access: "owners" });
   const { stdout, stderr } = await checkAccess(owner, {
@@ -83,7 +125,10 @@ test("check-access requires the server authoring identity to own the document", 
     /authenticated user 5, shared user 5, direct owners, inherited owners/,
   );
   assert.doesNotMatch(stderr, /activation|product|readOnlyDocs/i);
-  assert.doesNotMatch(owner.calls.join("\n"), /activation|\/api\/orgs\/openelis$/i);
+  assert.doesNotMatch(
+    owner.calls.join("\n"),
+    /activation|\/api\/orgs\/openelis$/i,
+  );
 
   const viewer = fakeGristDoc({ access: "viewers" });
   await assert.rejects(
@@ -305,7 +350,9 @@ test("apply-story creates and then reconciles one stable story without touching 
   );
 
   payload.story.title = "Updated WHONET scope";
-  payload.steps = [{ ...payload.steps[0], do: "Open the final reviewed AST scope." }];
+  payload.steps = [
+    { ...payload.steps[0], do: "Open the final reviewed AST scope." },
+  ];
   await applyStory(doc, payload);
   assert.equal(created.fields.title, "Updated WHONET scope");
   assert.deepEqual(
@@ -410,6 +457,7 @@ test("apply builds the tables a submitted review lands in", async () => {
     "story_version",
     "story_revision",
     "mark",
+    "issue_url",
   ]) {
     assert.ok(
       answers.includes(col),

@@ -3,6 +3,9 @@
   var self = document.currentScript;
   var INSTANCE = (self && self.getAttribute("data-instance")) || "unknown";
   var LABEL = (self && self.getAttribute("data-label")) || INSTANCE;
+  var ALL_STORIES = Boolean(
+    self && self.getAttribute("data-story-scope") === "all",
+  );
   var LEGACY_STORE_KEY = "oe-review:" + INSTANCE;
   // One deployment can carry several stories. Answers are keyed by the story
   // being reviewed, so switching never shows one story's marks against another's
@@ -18,6 +21,7 @@
     menuOpen: false,
     focusTrigger: false,
     revealOverview: false,
+    search: "",
   };
   function storePrefixFor(story) {
     return "oe-review:v2:" + story + ":";
@@ -35,7 +39,15 @@
   var SRC =
     (self && self.getAttribute("data-src")) ||
     "/__review/uat-" + INSTANCE + ".json";
-  var ANCHORS = ["right", "centre", "left"];
+  var DOCKS = ["right", "left", "bottom"];
+  var SUGGESTED_STORIES = String(
+    (self && self.getAttribute("data-suggested-stories")) || "",
+  )
+    .split(",")
+    .map(function (value) {
+      return value.trim();
+    })
+    .filter(Boolean);
   var FILTERS = ["all", "todo", "failed"];
   // A popped-out panel is this same script running in a window of its own. It is
   // not a copy of the review but a second view of it, driving the window it came
@@ -165,6 +177,8 @@
       value.steps && typeof value.steps === "object" ? value.steps : {};
     value.notes = Array.isArray(value.notes) ? value.notes : [];
     value.reviewer = value.reviewer || "";
+    value.noteDraft = value.noteDraft || "";
+    value.overallNote = value.overallNote || "";
     value.minimized = value.minimized !== false;
     value.current = typeof value.current === "string" ? value.current : null;
     value.introDone = Boolean(value.introDone);
@@ -181,6 +195,8 @@
   function fresh() {
     return {
       reviewer: "",
+      noteDraft: "",
+      overallNote: "",
       minimized: true,
       steps: {},
       notes: [],
@@ -194,6 +210,8 @@
   // happen to be working through.
   var IDENTITY_KEY = "oe-review:v2:" + INSTANCE + ":last-identity";
   var PREFS_KEY = "oe-review:v2:" + INSTANCE + ":prefs";
+  var STORY_PREFS_KEY = "oe-review:v2:" + INSTANCE + ":tab-story";
+  var linkedReviewWindow = null;
   // Which window the panel is in, rather than what the review says, so it is not
   // keyed by story: the pop-out belongs to the deployment the reviewer is looking
   // at. Written by the popped-out window itself; the page it came from reads it to
@@ -206,7 +224,7 @@
       /^[A-Za-z0-9_-]+--[A-Za-z0-9_-]+$/.test(value)
     );
   }
-  function loadPrefs() {
+  function loadPrefs(sharedStory) {
     var stored = null;
     try {
       stored = JSON.parse(localStorage.getItem(PREFS_KEY) || "null");
@@ -214,10 +232,37 @@
       stored = null;
     }
     stored = stored && typeof stored === "object" ? stored : {};
+    if (!sharedStory) {
+      try {
+        var navigation = JSON.parse(
+          sessionStorage.getItem(STORY_PREFS_KEY) || "null",
+        );
+        if (navigation) {
+          stored.story = navigation.story;
+          stored.storyPath = navigation.storyPath;
+        }
+      } catch (e) {
+        /* In-memory navigation still works when session storage is unavailable. */
+      }
+    }
     return {
-      anchor: ANCHORS.indexOf(stored.anchor) === -1 ? null : stored.anchor,
+      dock:
+        DOCKS.indexOf(stored.dock) !== -1
+          ? stored.dock
+          : stored.anchor === "left" || stored.anchor === "right"
+            ? stored.anchor
+            : stored.anchor === "centre"
+              ? "bottom"
+              : null,
+      sideSize:
+        Number(stored.sideSize) >= 340 && Number(stored.sideSize) <= 560
+          ? Number(stored.sideSize)
+          : 400,
+      bottomSize:
+        Number(stored.bottomSize) >= 240 && Number(stored.bottomSize) <= 640
+          ? Number(stored.bottomSize)
+          : 340,
       filter: FILTERS.indexOf(stored.filter) === -1 ? "all" : stored.filter,
-      expanded: Boolean(stored.expanded),
       story: isStoryId(stored.story) ? stored.story : null,
       storyPath:
         typeof stored.storyPath === "string" && stored.storyPath.startsWith("/")
@@ -228,6 +273,17 @@
   }
   function savePrefs() {
     try {
+      sessionStorage.setItem(
+        STORY_PREFS_KEY,
+        JSON.stringify({
+          story: prefs.story,
+          storyPath: prefs.storyPath,
+        }),
+      );
+    } catch (e) {
+      /* Keep this tab's in-memory choice when persistence is unavailable. */
+    }
+    try {
       localStorage.setItem(PREFS_KEY, JSON.stringify(prefs));
     } catch (e) {
       /* storage unavailable — the panel simply opens the default way next time */
@@ -237,6 +293,7 @@
     prefs.story = story === INSTANCE ? null : story;
     prefs.storyPath = path;
     savePrefs();
+    notifyLinkedStory();
   }
   function persistStorySelection() {
     persistStoryPreference(
@@ -420,7 +477,8 @@
     // there is no identity and answers land under the unbound prefix. Adopt those
     // once the real identity appears, or a reviewer working during a deploy loses
     // everything the moment it finishes.
-    var unbound = storePrefixFor(story || storyNavigation.committedId) + "unbound:";
+    var unbound =
+      storePrefixFor(story || storyNavigation.committedId) + "unbound:";
     var prefixes = prefix === unbound ? [prefix] : [prefix, unbound];
     var latest = null;
     try {
@@ -472,6 +530,9 @@
   // Assigned in boot(), which runs once the body exists: the injected script
   // executes during <head> parsing, so document.body is null at top level.
   var host, root, wrap;
+  var layoutStyle = null;
+  var adjustedFixed = [];
+  var applyingDock = false;
   var uat = { schemaVersion: 2, title: LABEL + " review", sections: [] };
   var build = null;
   var loading = true;
@@ -519,6 +580,16 @@
       ? "all:initial;display:block;"
       : "all:initial";
     document.body.appendChild(host);
+    if (!STANDALONE) {
+      layoutStyle = document.createElement("style");
+      layoutStyle.id = "oe-review-layout";
+      layoutStyle.textContent =
+        'html[data-oe-review-dock="right"] body{margin-right:var(--oe-review-dock-size)!important;width:auto!important;}' +
+        'html[data-oe-review-dock="left"] body{margin-left:var(--oe-review-dock-size)!important;width:auto!important;}' +
+        'html[data-oe-review-dock="bottom"] body{height:calc(100dvh - var(--oe-review-dock-size))!important;max-height:calc(100dvh - var(--oe-review-dock-size))!important;overflow:auto!important;}' +
+        'html[data-oe-review-dock] body>#root{max-width:100%!important;min-height:100%!important;}';
+      document.head.appendChild(layoutStyle);
+    }
     // Keep styles isolated while exposing the review surface to accessibility
     // inspection and Playwright UAT on deployed targets.
     root = host.attachShadow({ mode: "open" });
@@ -534,7 +605,11 @@
     window.addEventListener("resize", scheduleReposition);
     window.addEventListener("popstate", scheduleReposition);
     window.addEventListener("storage", adoptOtherWindow);
-    var pageObserver = new MutationObserver(scheduleReposition);
+    window.addEventListener("message", adoptLinkedStory);
+    window.addEventListener("pagehide", clearApplicationDock);
+    var pageObserver = new MutationObserver(function () {
+      if (!applyingDock) scheduleReposition();
+    });
     pageObserver.observe(document.body, { childList: true, subtree: true });
     if (typeof ResizeObserver !== "undefined") {
       var layoutObserver = new ResizeObserver(scheduleReposition);
@@ -651,6 +726,72 @@
     }
   }
 
+  function navigationOrigin() {
+    try {
+      return new URL(reviewedUrl()).origin;
+    } catch (e) {
+      return location.origin;
+    }
+  }
+
+  function notifyLinkedStory(request) {
+    var peer = STANDALONE ? openerWindow() : linkedReviewWindow;
+    if (!peer || peer.closed) return;
+    try {
+      peer.postMessage(
+        {
+          type: "oe-review-navigation",
+          instance: INSTANCE,
+          request: Boolean(request),
+          story: storyNavigation.committedId,
+          path: storyNavigation.committedPath,
+        },
+        navigationOrigin(),
+      );
+    } catch (e) {
+      /* The other window may have closed or navigated away. */
+    }
+  }
+
+  function adoptLinkedStory(event) {
+    var message = event.data;
+    if (
+      event.origin !== navigationOrigin() ||
+      !message ||
+      !event.source ||
+      message.type !== "oe-review-navigation" ||
+      message.instance !== INSTANCE
+    )
+      return;
+    try {
+      if (
+        STANDALONE
+          ? event.source !== openerWindow()
+          : event.source.opener !== window
+      )
+        return;
+    } catch (e) {
+      return;
+    }
+    if (!STANDALONE) linkedReviewWindow = event.source;
+    if (message.request) {
+      notifyLinkedStory();
+      return;
+    }
+    if (!knownStory(message.story)) return;
+    if (
+      message.path !== null &&
+      (typeof message.path !== "string" || !message.path.startsWith("/"))
+    )
+      return;
+    if (
+      message.story === storyNavigation.committedId &&
+      message.path === storyNavigation.committedPath
+    )
+      return;
+    activateStory(message.story, { path: message.path, refresh: true });
+  }
+
   // The page under review is in the opener, so that is what a mark is evidence
   // about. This window's own location is no substitute and is the more dangerous
   // answer of the two: a document written into about:blank keeps whatever URL it
@@ -700,6 +841,9 @@
       ["src", SELF_SRC],
       ["data-instance", INSTANCE],
       ["data-label", LABEL],
+      ["data-story-scope", ALL_STORIES ? "all" : "site"],
+      ["data-identity-src", IDENTITY_SRC],
+      ["data-submit-src", SUBMIT_SRC],
       ["data-standalone", "1"],
       ["data-opener-url", location.href],
     ];
@@ -779,6 +923,7 @@
       return;
     }
     popoutBlocked = false;
+    linkedReviewWindow = win;
     var populated = false;
     try {
       populated =
@@ -809,9 +954,9 @@
     window.close();
   }
 
-  // The other window wrote something. Whatever it decided is what this window
-  // shows: they are two views of one review, and the reviewer is only ever in one
-  // of them at a time, so last write wins is what they mean by it.
+  // Answers and panel preferences are shared. Route and story selection belong
+  // to each application tab; only an explicit pop-out exchanges navigation with
+  // its opener. Broadcasting selection makes unrelated tabs fight their routes.
   function adoptOtherWindow(event) {
     if (!event || !event.key) return;
     if (event.key === POPOUT_KEY) {
@@ -820,7 +965,7 @@
     }
     if (event.key === PREFS_KEY) {
       var hidden = prefs.hidden;
-      var incomingPrefs = loadPrefs();
+      var incomingPrefs = loadPrefs(true);
       // Hiding is this window's own answer to its own query string; adopting it
       // from the other one would make a popped-out panel able to unmount the page.
       incomingPrefs.hidden = hidden;
@@ -836,21 +981,22 @@
         prefs = incomingPrefs;
         persistCommittedStorySelection();
         if (ui) syncPanel();
-        applyAnchor();
+        applyDock();
         return;
       }
+      incomingPrefs.story =
+        storyNavigation.committedId === INSTANCE
+          ? null
+          : storyNavigation.committedId;
+      incomingPrefs.storyPath = storyNavigation.committedPath;
       prefs = incomingPrefs;
-      if (story !== storyNavigation.committedId) {
-        activateStory(story, {
-          path: incomingPrefs.storyPath,
-          refresh: true,
-        });
-        return;
-      }
-      setStorySelection(story, incomingPrefs.storyPath);
-      commitStorySelection();
+      if (
+        STANDALONE &&
+        storyNavigation.selectedId === storyNavigation.committedId
+      )
+        notifyLinkedStory(true);
       if (ui) syncPanel();
-      applyAnchor();
+      applyDock();
       return;
     }
     if (!STORE_KEY || event.key !== STORE_KEY || event.newValue === null)
@@ -941,7 +1087,11 @@
   }
   function answered(step) {
     var saved = state.steps[step.key];
-    return Boolean(saved && saved.mark && !saved.stale);
+    if (!saved || !saved.mark || saved.stale) return false;
+    if (saved.mark === "fail" || saved.mark === "blocked") {
+      return Boolean(String(saved.note || "").trim());
+    }
+    return true;
   }
   function currentKey() {
     var steps = allSteps();
@@ -961,6 +1111,7 @@
   // the totals too: a panel that asks for answers nobody on this host can give
   // never reads as finished.
   function storyAppliesHere(section) {
+    if (ALL_STORIES) return true;
     var hosts = section && section.hosts;
     if (!Array.isArray(hosts) || !hosts.length) return true;
     var here = String(location.host || "").toLowerCase();
@@ -1033,6 +1184,19 @@
     save();
   }
 
+  function fetchChecklist(source) {
+    return fetch(source, { cache: "no-store" }).then(function (response) {
+      if (!response.ok) {
+        var failure = new Error(
+          "Could not load checklist (" + response.status + ").",
+        );
+        failure.status = response.status;
+        throw failure;
+      }
+      return response.json();
+    });
+  }
+
   function refreshChecklist() {
     var requestVersion = ++storyNavigation.requestVersion;
     var nextBuildWarning = "";
@@ -1046,28 +1210,23 @@
     // current and those stale rows would remain on screen.
     if (!ui || ui.story === storyNavigation.committedId) render();
     return Promise.all([
-      fetch(checklistSrc, { cache: "no-store" }).then(function (response) {
-        if (!response.ok) {
-          var failure = new Error(
-            "Could not load checklist (" + response.status + ").",
-          );
-          failure.status = response.status;
-          throw failure;
-        }
-        return response.json();
-      }),
-      fetch(BUILD_SRC, { cache: "no-store" })
-        .then(function (response) {
-          if (!response.ok) {
-            nextBuildWarning = "Build information is unavailable.";
-            return null;
-          }
-          return response.json();
-        })
-        .catch(function () {
-          nextBuildWarning = "Build information is unavailable.";
-          return null;
-        }),
+      ALL_STORIES && storyNavigation.selectedId === INSTANCE
+        ? Promise.resolve(null)
+        : fetchChecklist(checklistSrc),
+      BUILD_SRC === "none"
+        ? Promise.resolve(null)
+        : fetch(BUILD_SRC, { cache: "no-store" })
+            .then(function (response) {
+              if (!response.ok) {
+                nextBuildWarning = "Build information is unavailable.";
+                return null;
+              }
+              return response.json();
+            })
+            .catch(function () {
+              nextBuildWarning = "Build information is unavailable.";
+              return null;
+            }),
       fetchCatalog(),
     ])
       .then(function (values) {
@@ -1086,6 +1245,12 @@
           clearStorySelection();
         }
         chooseInitialStory();
+        if (!values[0] || currentSrc() !== checklistSrc) {
+          return fetchChecklist(currentSrc()).then(function (checklist) {
+            if (requestVersion !== storyNavigation.requestVersion) return;
+            applyChecklist(checklist, build);
+          });
+        }
         applyChecklist(values[0], build);
       })
       .catch(function (error) {
@@ -1134,6 +1299,8 @@
         story.id !== story.review + "--" + story.key ||
         typeof story.title !== "string" ||
         !story.title.trim() ||
+        (story.purpose !== undefined && typeof story.purpose !== "string") ||
+        (story.version !== undefined && typeof story.version !== "string") ||
         !Number.isInteger(story.steps) ||
         story.steps < 1 ||
         !Number.isInteger(story.required) ||
@@ -1141,10 +1308,14 @@
         story.required > story.steps ||
         !Array.isArray(story.routes)
       ) {
-        throw new Error(label + " does not match the schema-v2 story contract.");
+        throw new Error(
+          label + " does not match the schema-v2 story contract.",
+        );
       }
       if (ids[story.id]) {
-        throw new Error("Story catalog contains duplicate id " + story.id + ".");
+        throw new Error(
+          "Story catalog contains duplicate id " + story.id + ".",
+        );
       }
       ids[story.id] = true;
       story.routes.forEach(function (route) {
@@ -1190,7 +1361,9 @@
 
   function stories() {
     return ((catalog && catalog.stories) || []).filter(function (story) {
-      return story.review === INSTANCE && storyAppliesHere(story);
+      return (
+        ALL_STORIES || (story.review === INSTANCE && storyAppliesHere(story))
+      );
     });
   }
   function storyId(story) {
@@ -1215,8 +1388,7 @@
     if (!knownStory(story)) return false;
     var needsLoad = story !== storyNavigation.committedId;
     var cancelsPending =
-      !needsLoad &&
-      storyNavigation.selectedId !== storyNavigation.committedId;
+      !needsLoad && storyNavigation.selectedId !== storyNavigation.committedId;
     setStoryMenuOpen(false);
     // Close the disclosure while it still describes the committed story. The
     // requested story does not become visible state until its checklist passes
@@ -1255,7 +1427,7 @@
     // better default than stale preference state from somewhere else in the app.
     if (
       selected &&
-      (storyNavigation.selectedPath === location.pathname ||
+      (storyNavigation.selectedPath === reviewedPath() ||
         !here.length ||
         coversHere(selected))
     )
@@ -1268,25 +1440,32 @@
   // A story is about this page when one of its steps points here. Query strings
   // pick a filter rather than a page, so the catalog publishes paths only.
   function coversHere(story) {
-    var here = location.pathname;
+    var here = reviewedPath();
     return (story.routes || []).some(function (route) {
       return here === route || here.indexOf(route + "/") === 0;
     });
   }
   function selectStory(story) {
     activateStory(story, {
-      path: location.pathname,
+      path: reviewedPath(),
       refresh: true,
       focus: true,
       reveal: true,
     });
   }
 
+  function reviewedPath() {
+    try {
+      return new URL(reviewedUrl()).pathname;
+    } catch (e) {
+      return location.pathname;
+    }
+  }
+
   // ---- placement ------------------------------------------------------------
-  // The panel floats over an application it does not own. Injecting layout into
-  // the host — margin on <html>, say — does not move the host's fixed header or
-  // side nav, so the panel instead steps aside from whatever fixed furniture it
-  // would otherwise cover. A reviewer who picks a side themselves always wins.
+  // Review is a companion pane. Reserving room in the document handles normal
+  // application content; fixed Carbon surfaces also need their viewport edge
+  // moved so headers, drawers, dialogs, and page actions stay reachable.
   var repositionQueued = false;
   var lastPath = location.pathname;
   function scheduleReposition() {
@@ -1294,244 +1473,213 @@
     repositionQueued = true;
     requestAnimationFrame(function () {
       repositionQueued = false;
-      // After the frame, so a single-page app that routed on this click has
-      // already changed the path the story grouping is derived from.
       if (ui && location.pathname !== lastPath) {
         lastPath = location.pathname;
         resetStoryNavigationForRoute();
         var here = stories().filter(coversHere);
         var selected = committedStory();
-        if (
-          catalog &&
-          here.length &&
-          (!selected || !coversHere(selected))
-        ) {
-          activateStory(storyId(here[0]), {
-            path: null,
-            refresh: true,
-          });
+        if (catalog && here.length && (!selected || !coversHere(selected))) {
+          activateStory(storyId(here[0]), { path: null, refresh: true });
         } else {
           commitStorySelection();
           syncPanel();
         }
       }
-      applyAnchor();
+      applyDock();
     });
   }
-  function obstacles() {
-    var found = [];
-    var viewport = window.innerWidth * window.innerHeight;
-    (function walk(node, depth) {
-      if (!node || depth > 4) return;
-      for (
-        var child = node.firstElementChild;
-        child;
-        child = child.nextElementSibling
-      ) {
-        if (child === host) continue;
-        var style = getComputedStyle(child);
-        if (
-          style.display === "none" ||
-          style.visibility === "hidden" ||
-          style.pointerEvents === "none"
-        ) {
-          continue;
-        }
-        var rect = child.getBoundingClientRect();
-        var pinned = style.position === "fixed" || style.position === "sticky";
-        if (pinned && rect.width > 0 && rect.height > 0) {
-          // A full-viewport pinned element is a backdrop or a drawer root, not
-          // something worth dodging. Its children are: that is where the drawer
-          // itself lives.
-          if (rect.width * rect.height < viewport * 0.8) {
-            found.push(rect);
-            continue;
-          }
-        }
-        walk(child, depth + 1);
-      }
-    })(document.body, 0);
-    return found;
+  function defaultDock() {
+    return window.innerWidth >= 1100 ? "right" : "bottom";
   }
-  function pageActions() {
+  function launcherBlockers() {
     var found = [];
-    var selectors = [
-      "button",
-      "a[href]",
-      "input:not([type=hidden])",
-      "select",
-      "textarea",
-      "label[for]",
-      "[role=button]",
-      "[role=link]",
-      "[role=menuitem]",
-      "td",
-      "th",
-      "[role=cell]",
-      "[role=columnheader]",
-      "[role=rowheader]",
-    ].join(",");
-    var actions = document.querySelectorAll(selectors);
-    for (var i = 0; i < actions.length; i++) {
-      var action = actions[i];
-      var style = getComputedStyle(action);
-      if (
-        style.display === "none" ||
-        style.visibility === "hidden"
-      ) {
-        continue;
-      }
-      var rect = action.getBoundingClientRect();
-      if (
-        rect.width > 0 &&
-        rect.height > 0 &&
-        rect.bottom > 0 &&
-        rect.right > 0 &&
-        rect.top < window.innerHeight &&
-        rect.left < window.innerWidth
-      ) {
-        found.push(rect);
-      }
-    }
-    var textWalker = document.createTreeWalker(
-      document.body,
-      NodeFilter.SHOW_TEXT,
+    var nodes = document.querySelectorAll(
+      "button,a[href],input:not([type=hidden]),select,textarea,[role=button],td,th",
     );
-    while (textWalker.nextNode()) {
-      var textNode = textWalker.currentNode;
-      if (!textNode.nodeValue.trim()) continue;
-      var textParent = textNode.parentElement;
-      if (
-        !textParent ||
-        /^(SCRIPT|STYLE|NOSCRIPT|TEMPLATE)$/.test(textParent.tagName)
-      )
+    for (var i = 0; i < nodes.length; i++) {
+      if (host && host.contains(nodes[i])) continue;
+      var rect = nodes[i].getBoundingClientRect();
+      if (rect.width && rect.height) found.push(rect);
+    }
+    var walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+    while (walker.nextNode()) {
+      var parent = walker.currentNode.parentElement;
+      if (!walker.currentNode.nodeValue.trim() || !parent || host.contains(parent))
         continue;
-      var textStyle = getComputedStyle(textParent);
-      if (
-        textStyle.display === "none" ||
-        textStyle.visibility === "hidden"
-      ) {
-        continue;
-      }
+      if (/^(SCRIPT|STYLE|NOSCRIPT)$/.test(parent.tagName)) continue;
       var range = document.createRange();
-      range.selectNodeContents(textNode);
-      var textRect = range.getBoundingClientRect();
-      if (
-        textRect.width > 0 &&
-        textRect.height > 0 &&
-        textRect.bottom > 0 &&
-        textRect.right > 0 &&
-        textRect.top < window.innerHeight &&
-        textRect.left < window.innerWidth
-      ) {
-        found.push(textRect);
-      }
+      range.selectNodeContents(walker.currentNode);
+      var rect = range.getBoundingClientRect();
+      if (rect.width && rect.height) found.push(rect);
     }
     return found;
   }
-  function overlapArea(a, b) {
-    var x =
-      Math.min(a.left + a.width, b.left + b.width) - Math.max(a.left, b.left);
-    var y =
-      Math.min(a.top + a.height, b.top + b.height) - Math.max(a.top, b.top);
-    return x > 0 && y > 0 ? x * y : 0;
+  function overlaps(a, b) {
+    return (
+      a.left < b.right &&
+      a.right > b.left &&
+      a.top < b.bottom &&
+      a.bottom > b.top
+    );
   }
-  function candidateRect(anchor, width, height, bottomGap) {
-    var top = window.innerHeight - (bottomGap || EDGE_GAP) - height;
-    if (anchor === "right") {
-      return {
-        left: window.innerWidth - 16 - width,
-        top: top,
-        width: width,
-        height: height,
-      };
-    }
-    if (anchor === "left")
-      return { left: 16, top: top, width: width, height: height };
-    return {
-      left: (window.innerWidth - width) / 2,
-      top: top,
-      width: width,
-      height: height,
-    };
-  }
-  var EDGE_GAP = 64;
-  var PLACEMENT_GAP = 16;
-  function autoLauncherPlacement() {
-    var subject = wrap.querySelector(".tab");
-    if (!subject) return { anchor: "right", bottom: EDGE_GAP };
-    var width = subject.offsetWidth;
-    var height = subject.offsetHeight;
-    if (!width || !height)
-      return { anchor: "right", bottom: EDGE_GAP };
-    var blockers = pageActions();
-    var best = { anchor: "right", bottom: EDGE_GAP };
-    var bestOverlap = Infinity;
-    for (
-      var bottom = EDGE_GAP;
-      bottom + height <= window.innerHeight - PLACEMENT_GAP;
-      bottom += height + PLACEMENT_GAP
-    ) {
-      for (var i = 0; i < ANCHORS.length; i++) {
-        var rect = candidateRect(ANCHORS[i], width, height, bottom);
-        var total = blockers.reduce(function (sum, blocker) {
-          return sum + overlapArea(rect, blocker);
-        }, 0);
-        if (total === 0) return { anchor: ANCHORS[i], bottom: bottom };
-        if (total < bestOverlap) {
-          bestOverlap = total;
-          best = { anchor: ANCHORS[i], bottom: bottom };
+  function placeLauncher() {
+    var button = wrap.querySelector(".tab");
+    if (!button) return;
+    var width = button.offsetWidth;
+    var height = button.offsetHeight;
+    var blockers = launcherBlockers();
+    var horizontal = [
+      { left: window.innerWidth - width - 16, name: "right" },
+      { left: 16, name: "left" },
+      { left: (window.innerWidth - width) / 2, name: "center" },
+    ];
+    var best = null;
+    for (var bottom = 16; bottom + height < window.innerHeight; bottom += height + 12) {
+      for (var i = 0; i < horizontal.length; i++) {
+        var candidate = {
+          left: horizontal[i].left,
+          right: horizontal[i].left + width,
+          top: window.innerHeight - bottom - height,
+          bottom: window.innerHeight - bottom,
+        };
+        var hits = blockers.filter(function (rect) {
+          return overlaps(candidate, rect);
+        }).length;
+        if (!best || hits < best.hits) {
+          best = { candidate: candidate, hits: hits };
         }
+        if (!hits) break;
       }
+      if (best && !best.hits) break;
     }
-    return best;
+    if (!best) return;
+    wrap.style.left = best.candidate.left + "px";
+    wrap.style.right = "auto";
+    wrap.style.bottom = window.innerHeight - best.candidate.bottom + "px";
+    wrap.style.transform = "none";
   }
-  function autoAnchor() {
-    var subject = state.minimized
-      ? wrap.querySelector(".tab")
-      : ui && ui.panel;
-    if (!subject) return "right";
-    var width = subject.offsetWidth;
-    var height = subject.offsetHeight;
-    if (!width || !height) return "right";
-    var blockers = state.minimized ? pageActions() : obstacles();
-    var best = "right";
-    var bestOverlap = Infinity;
-    for (var i = 0; i < ANCHORS.length; i++) {
-      var rect = candidateRect(ANCHORS[i], width, height);
-      var total = blockers.reduce(function (sum, blocker) {
-        return sum + overlapArea(rect, blocker);
-      }, 0);
-      if (total === 0) return ANCHORS[i];
-      if (total < bestOverlap) {
-        bestOverlap = total;
-        best = ANCHORS[i];
-      }
+  function dockSize(dock) {
+    if (dock === "bottom")
+      return Math.min(
+        prefs.bottomSize,
+        Math.max(240, window.innerHeight - 180),
+      );
+    return Math.min(prefs.sideSize, Math.max(340, window.innerWidth - 420));
+  }
+  function restoreFixedSurfaces() {
+    adjustedFixed.forEach(function (entry) {
+      entry.node.style.left = entry.left;
+      entry.node.style.right = entry.right;
+      entry.node.style.bottom = entry.bottom;
+    });
+    adjustedFixed = [];
+  }
+  function adjustFixedSurfaces(dock, size) {
+    restoreFixedSurfaces();
+    var nodes = document.querySelectorAll("body *");
+    for (var i = 0; i < nodes.length; i++) {
+      var node = nodes[i];
+      if (node === host || host.contains(node)) continue;
+      var style = getComputedStyle(node);
+      if (style.position !== "fixed") continue;
+      var rect = node.getBoundingClientRect();
+      if (!rect.width || !rect.height) continue;
+      var edge = dock === "bottom" ? "bottom" : dock;
+      var nearEdge =
+        edge === "right"
+          ? window.innerWidth - rect.right <= 20
+          : edge === "left"
+            ? rect.left <= 20
+            : window.innerHeight - rect.bottom <= 20;
+      if (!nearEdge) continue;
+      adjustedFixed.push({
+        node: node,
+        left: node.style.left,
+        right: node.style.right,
+        bottom: node.style.bottom,
+      });
+      var current = parseFloat(style[edge]);
+      node.style[edge] =
+        size + (Number.isFinite(current) ? current : 0) + "px";
     }
-    return best;
   }
-  function applyAnchor() {
-    // A window of its own has no host application to dodge and no corner to sit
-    // in: the panel is the document.
+  function clearApplicationDock() {
+    applyingDock = true;
+    restoreFixedSurfaces();
+    document.documentElement.removeAttribute("data-oe-review-dock");
+    document.documentElement.style.removeProperty("--oe-review-dock-size");
+    requestAnimationFrame(function () {
+      applyingDock = false;
+    });
+  }
+  function applyDock() {
     if (STANDALONE) {
+      clearApplicationDock();
       if (wrap.className !== "wrap standalone open")
         wrap.className = "wrap standalone open";
       return;
     }
-    var placement = state.minimized ? autoLauncherPlacement() : null;
-    var anchor = placement ? placement.anchor : prefs.anchor || autoAnchor();
-    wrap.style.bottom = placement ? placement.bottom + "px" : "";
-    // The open panel becomes a bottom sheet on a narrow screen; the launcher stays
-    // a corner pill, because a full-width bar at the bottom lands underneath
-    // whatever the application pins there.
-    var className = "wrap anchor-" + anchor + (state.minimized ? "" : " open");
+    if (state.minimized) {
+      clearApplicationDock();
+      wrap.style.removeProperty("--dock-size");
+      wrap.className = "wrap launcher";
+      placeLauncher();
+      return;
+    }
+    wrap.style.left = "";
+    wrap.style.right = "";
+    wrap.style.bottom = "";
+    wrap.style.transform = "";
+    prefs.dock = DOCKS.indexOf(prefs.dock) === -1 ? defaultDock() : prefs.dock;
+    applyingDock = true;
+    var size = dockSize(prefs.dock);
+    wrap.style.setProperty("--dock-size", size + "px");
+    document.documentElement.setAttribute("data-oe-review-dock", prefs.dock);
+    document.documentElement.style.setProperty(
+      "--oe-review-dock-size",
+      size + "px",
+    );
+    adjustFixedSurfaces(prefs.dock, size);
+    var className = "wrap dock-" + prefs.dock + " open";
     if (wrap.className !== className) wrap.className = className;
+    requestAnimationFrame(function () {
+      applyingDock = false;
+    });
   }
-  function movePanel() {
-    var anchor = prefs.anchor || autoAnchor();
-    prefs.anchor = ANCHORS[(ANCHORS.indexOf(anchor) + 1) % ANCHORS.length];
+  function setDock(dock) {
+    if (DOCKS.indexOf(dock) === -1) return;
+    prefs.dock = dock;
     savePrefs();
-    applyAnchor();
+    applyDock();
+  }
+  function resizeDock(event) {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    var dock = prefs.dock;
+    var onMove = function (move) {
+      if (dock === "bottom") {
+        prefs.bottomSize = Math.max(
+          240,
+          Math.min(window.innerHeight - 180, window.innerHeight - move.clientY),
+        );
+      } else {
+        prefs.sideSize = Math.max(
+          340,
+          Math.min(
+            560,
+            dock === "left" ? move.clientX : window.innerWidth - move.clientX,
+          ),
+        );
+      }
+      applyDock();
+    };
+    var onUp = function () {
+      document.removeEventListener("pointermove", onMove);
+      document.removeEventListener("pointerup", onUp);
+      savePrefs();
+    };
+    document.addEventListener("pointermove", onMove);
+    document.addEventListener("pointerup", onUp);
   }
 
   // ---- rendering ------------------------------------------------------------
@@ -1543,7 +1691,7 @@
       ui = null;
       wrap.innerHTML = "";
       wrap.appendChild(tab());
-      applyAnchor();
+      applyDock();
       return;
     }
     var built = false;
@@ -1563,7 +1711,7 @@
     var restoreStoryFocus =
       selectionCommitted && storyNavigation.focusTrigger && ui.storyTrigger;
     if (selectionCommitted) storyNavigation.focusTrigger = false;
-    applyAnchor();
+    applyDock();
     // Only on a fresh panel: a background refresh must not yank the checklist away
     // from wherever the reviewer has scrolled it.
     if (built) {
@@ -1641,6 +1789,14 @@
     button.title = "Open the " + LABEL + " review checklist";
     button.onclick = function () {
       state.minimized = false;
+      if (
+        catalog &&
+        SUGGESTED_STORIES.length &&
+        stories().length > 1 &&
+        progress().done === 0
+      ) {
+        storyNavigation.menuOpen = true;
+      }
       panelToggled = true;
       save();
       // An inline checklist has no URL to re-read; refreshing would fetch the
@@ -1651,7 +1807,7 @@
     return button;
   }
 
-  // ---- expanded panel -------------------------------------------------------
+  // ---- docked panel ---------------------------------------------------------
   function buildPanel() {
     var parts = {
       revision: uat.checklistRevision,
@@ -1681,6 +1837,34 @@
       }
     });
 
+    parts.splitter = el("div", "splitter");
+    parts.splitter.tabIndex = 0;
+    parts.splitter.setAttribute("role", "separator");
+    parts.splitter.setAttribute("aria-label", "Resize review panel");
+    parts.splitter.onpointerdown = resizeDock;
+    parts.splitter.onkeydown = function (event) {
+      var delta = 0;
+      if (prefs.dock === "bottom") {
+        if (event.key === "ArrowUp") delta = 10;
+        if (event.key === "ArrowDown") delta = -10;
+        if (delta)
+          prefs.bottomSize = Math.max(
+            240,
+            Math.min(window.innerHeight - 180, prefs.bottomSize + delta),
+          );
+      } else {
+        if (event.key === "ArrowLeft") delta = prefs.dock === "right" ? 10 : -10;
+        if (event.key === "ArrowRight") delta = prefs.dock === "left" ? 10 : -10;
+        if (delta)
+          prefs.sideSize = Math.max(340, Math.min(560, prefs.sideSize + delta));
+      }
+      if (!delta) return;
+      event.preventDefault();
+      savePrefs();
+      applyDock();
+    };
+    panel.appendChild(parts.splitter);
+
     var head = el("div", "head");
     var titleBox = el("div", "titlebox");
     parts.title = el("h2", "title");
@@ -1689,37 +1873,36 @@
     titleBox.appendChild(parts.title);
     titleBox.appendChild(parts.progress);
     head.appendChild(titleBox);
-    // Move is about getting out of the application's way, which is not a problem a
-    // window of its own has.
-    if (!STANDALONE) {
-      var move = iconBtn("⇄", "Move panel");
-      move.onclick = movePanel;
-      head.appendChild(move);
-    }
-    parts.expand = iconBtn("⤢", "Expand panel");
-    parts.expand.onclick = function () {
-      prefs.expanded = !prefs.expanded;
-      savePrefs();
-      syncPanel();
-      applyAnchor();
-      if (!prefs.expanded) scrollCurrentIntoView();
-    };
-    head.appendChild(parts.expand);
-    var refresh = iconBtn("↻", "Refresh checklist");
-    refresh.onclick = refreshChecklist;
-    head.appendChild(refresh);
     if (STANDALONE) {
       var back = iconBtn("↩", "Return the checklist to the page");
       back.onclick = returnToPage;
       head.appendChild(back);
     } else {
-      // No script URL means the widget was pasted in rather than linked, and this
-      // window has nothing to tell the next one to load.
+      parts.placement = document.createElement("select");
+      parts.placement.className = "placement";
+      parts.placement.setAttribute("aria-label", "Review placement");
+      [
+        ["right", "Right"],
+        ["left", "Left"],
+        ["bottom", "Bottom"],
+      ].forEach(function (option) {
+        var node = document.createElement("option");
+        node.value = option[0];
+        node.textContent = option[1];
+        parts.placement.appendChild(node);
+      });
+      parts.placement.value = prefs.dock || defaultDock();
+      parts.placement.onchange = function () {
+        setDock(parts.placement.value);
+      };
+      head.appendChild(parts.placement);
       if (SELF_SRC) {
         var out = iconBtn(
-          "⧉",
+          "",
           "Pop out into its own window (⌘/Ctrl-click for a tab)",
         );
+        out.innerHTML =
+          '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" aria-hidden="true" focusable="false"><path d="M5.5 5.5h8v8h-8zM2.5 10.5v-8h8"/></svg>';
         out.onclick = openPopout;
         head.appendChild(out);
       }
@@ -1732,7 +1915,10 @@
     parts.statusBox = el("div", "statusbox");
     panel.appendChild(parts.statusBox);
 
-    if (stories().length > 1) panel.appendChild(buildStories(parts));
+    if (stories().length > 1) {
+      panel.classList.add("has-story-picker");
+      panel.appendChild(buildStories(parts));
+    }
 
     // Created here so it reads in source order; mounted inside the scroller
     // further down. Above the scroller it was fixed chrome competing with the
@@ -1743,7 +1929,6 @@
     parts.intro = el("div", "intro");
 
     parts.whoami = el("div", "whoami");
-    panel.appendChild(parts.whoami);
     parts.signin = el("div", "signin");
     panel.appendChild(parts.signin);
 
@@ -1775,7 +1960,6 @@
     parts.nameError.hidden = true;
     who.appendChild(parts.nameError);
     parts.who = who;
-    panel.appendChild(who);
 
     parts.body = el("div", "body");
     parts.body.appendChild(parts.intro);
@@ -1809,11 +1993,30 @@
     });
     panel.appendChild(parts.body);
 
+    parts.completion = el("div", "completion");
+    var completionTitle = el("strong", "completiontitle");
+    completionTitle.textContent = "Review complete";
+    parts.completion.appendChild(completionTitle);
+    parts.completionSummary = el("span", "completionsummary");
+    parts.completion.appendChild(parts.completionSummary);
+    parts.completionNote = document.createElement("textarea");
+    parts.completionNote.setAttribute("aria-label", "Overall review note");
+    parts.completionNote.placeholder = "Overall note (optional)";
+    parts.completionNote.value = state.overallNote || "";
+    parts.completionNote.oninput = function () {
+      state.overallNote = parts.completionNote.value;
+      save();
+    };
+    parts.completion.appendChild(parts.completionNote);
+    panel.appendChild(parts.completion);
+
     panel.appendChild(buildNotes(parts));
+    panel.appendChild(who);
 
     var foot = el("div", "foot");
+    foot.appendChild(parts.whoami);
     var submit = el("button", "primary submit");
-    submit.textContent = "Submit review";
+    submit.textContent = "Submit partial feedback";
     submit.onclick = submitReview;
     foot.appendChild(submit);
     foot.appendChild(buildMoreActions(parts));
@@ -1846,6 +2049,11 @@
     parts.storyTrigger.setAttribute("aria-haspopup", "listbox");
     parts.storyTrigger.setAttribute("aria-controls", "oe-review-story-list");
     parts.storyTriggerTitle = el("span", "storytriggertitle");
+    parts.storyTriggerTitle.id = "oe-review-current-story";
+    parts.storyTrigger.setAttribute(
+      "aria-describedby",
+      parts.storyTriggerTitle.id,
+    );
     parts.storyTriggerProgress = el("span", "storytriggerprogress");
     var chevron = el("span", "storychevron");
     chevron.textContent = "⌄";
@@ -1857,6 +2065,7 @@
       setStoryMenuOpen(!storyNavigation.menuOpen);
       if (storyNavigation.menuOpen) closeMoreActions(parts);
       syncStories();
+      if (storyNavigation.menuOpen) parts.storySearch.focus();
     };
     box.appendChild(parts.storyTrigger);
 
@@ -1875,12 +2084,43 @@
     menuHead.appendChild(parts.storyMenuTitle);
     menuHead.appendChild(parts.storyMenuCount);
     parts.storyMenu.appendChild(menuHead);
+    parts.storyContinue = el("button", "storycontinue primary");
+    parts.storyContinue.type = "button";
+    parts.storyContinue.textContent = "Continue current review";
+    parts.storyContinue.onclick = function () {
+      setStoryMenuOpen(false);
+      syncStories();
+      scrollCurrentIntoView(true, true);
+    };
+    parts.storyMenu.appendChild(parts.storyContinue);
+    parts.storySearch = document.createElement("input");
+    parts.storySearch.type = "search";
+    parts.storySearch.className = "storysearch";
+    parts.storySearch.setAttribute("aria-label", "Find a story");
+    parts.storySearch.placeholder = "Find a story…";
+    parts.storySearch.value = storyNavigation.search;
+    parts.storySearch.oninput = function () {
+      storyNavigation.search = parts.storySearch.value;
+      syncStories();
+    };
+    parts.storySearch.onkeydown = function (event) {
+      if (event.key === "ArrowDown") {
+        event.preventDefault();
+        var first = parts.storyList.querySelector('[role="option"]');
+        if (first) first.focus();
+      }
+    };
+    parts.storyMenu.appendChild(parts.storySearch);
     parts.storyNotice = el("div", "storynotice");
     parts.storyMenu.appendChild(parts.storyNotice);
     parts.storyList = el("div", "storylist");
     parts.storyList.id = "oe-review-story-list";
     parts.storyList.setAttribute("role", "listbox");
     parts.storyMenu.appendChild(parts.storyList);
+    parts.storyEmpty = el("div", "storyempty");
+    parts.storyEmpty.textContent = "No matching stories. Try another search.";
+    parts.storyEmpty.setAttribute("role", "status");
+    parts.storyMenu.appendChild(parts.storyEmpty);
     parts.storyScopeToggle = el("button", "storyscopetoggle");
     parts.storyScopeToggle.type = "button";
     parts.storyScopeToggle.onclick = function () {
@@ -1925,7 +2165,12 @@
     var done = latest
       ? Object.keys(latest.steps || {}).filter(function (key) {
           var answer = latest.steps[key] || {};
-          return Boolean(answer.mark && !answer.stale);
+          return Boolean(
+            answer.mark &&
+              !answer.stale &&
+              ((answer.mark !== "fail" && answer.mark !== "blocked") ||
+                String(answer.note || "").trim()),
+          );
         }).length
       : 0;
     return { done: Math.min(done, total), total: total };
@@ -1966,12 +2211,20 @@
     status.textContent =
       counts.total > 0 && counts.done === counts.total ? "✓" : "";
     status.setAttribute("aria-hidden", "true");
+    var content = el("span", "storyoptioncontent");
     var title = el("span", "storyoptiontitle");
     title.textContent = story.title;
+    var purpose = el("span", "storyoptionpurpose");
+    purpose.textContent = String(story.purpose || "").split(/\.\s+/)[0];
+    var ticket = el("span", "storyoptionticket");
+    ticket.textContent = story.jira || "";
+    content.appendChild(title);
+    if (purpose.textContent) content.appendChild(purpose);
+    if (ticket.textContent) content.appendChild(ticket);
     var count = el("span", "storyoptionprogress");
     count.textContent = counts.done + " of " + counts.total + " complete";
     option.appendChild(status);
-    option.appendChild(title);
+    option.appendChild(content);
     option.appendChild(count);
     option.onclick = function () {
       selectStory(storyId(story));
@@ -2004,9 +2257,39 @@
     if (!ui || !ui.storyTrigger) return;
     var available = stories();
     var here = storiesForPage();
-    var pageScoped = here.length > 0 && !storyNavigation.showAll;
-    var visible = pageScoped ? here : available;
-    var scopeLabel = pageScoped ? "Stories on this page" : "All server stories";
+    var suggested = available.filter(function (story) {
+      return SUGGESTED_STORIES.some(function (id) {
+        return id === story.id || id === story.key;
+      });
+    });
+    var pageScoped =
+      !storyNavigation.showAll &&
+      (suggested.length > 0 || (!ALL_STORIES && here.length > 0));
+    var visible = storyNavigation.showAll
+      ? available
+      : suggested.length
+        ? suggested
+        : pageScoped
+          ? here
+          : available;
+    var query = storyNavigation.search.trim().toLowerCase();
+    var unfilteredCount = visible.length;
+    if (query)
+      visible = visible.filter(function (story) {
+        return (
+          [story.title, story.key, story.review, story.jira, story.purpose]
+            .join(" ")
+            .toLowerCase()
+            .indexOf(query) !== -1
+        );
+      });
+    var scopeLabel = storyNavigation.showAll
+      ? "Browse all reviews"
+      : suggested.length
+        ? "Suggested reviews for this deployment"
+        : pageScoped
+          ? "Suggested reviews for this page"
+          : "Available reviews";
     var grouping = visible
       .map(function (story) {
         var counts = storedStoryProgress(story);
@@ -2021,6 +2304,7 @@
     ui.storyTriggerTitle.textContent = selected
       ? selected.title
       : "Choose a story";
+    ui.storyTriggerTitle.title = selected ? selected.title : "Choose a story";
     ui.storyTriggerProgress.textContent =
       selectedCounts.done + "/" + selectedCounts.total;
     ui.storyTrigger.setAttribute(
@@ -2028,23 +2312,27 @@
       String(storyNavigation.menuOpen),
     );
     ui.storyMenu.hidden = !storyNavigation.menuOpen;
+    ui.storyContinue.hidden = !(
+      selectedCounts.done > 0 && selectedCounts.done < selectedCounts.total
+    );
     ui.storyMenuTitle.textContent = scopeLabel;
     ui.storyMenuCount.textContent =
-      visible.length + " " + (visible.length === 1 ? "story" : "stories");
+      visible.length +
+      (query ? " of " + unfilteredCount : "") +
+      " " +
+      (!query && visible.length === 1 ? "story" : "stories");
+    ui.storyEmpty.hidden = visible.length > 0;
     ui.storyList.setAttribute("aria-label", scopeLabel);
     ui.storyNotice.textContent = here.length
       ? ""
       : "No stories target this page. Showing all server stories.";
-    ui.storyNotice.hidden = Boolean(here.length);
-    var canChangeScope = here.length > 0 && here.length < available.length;
+    ui.storyNotice.hidden =
+      ALL_STORIES || Boolean(here.length) || Boolean(suggested.length);
+    var canChangeScope = visible.length < available.length || storyNavigation.showAll;
     ui.storyScopeToggle.hidden = !canChangeScope;
     ui.storyScopeToggle.textContent = storyNavigation.showAll
-      ? "Show " +
-        here.length +
-        " " +
-        (here.length === 1 ? "story" : "stories") +
-        " on this page"
-      : "Show all " + available.length + " server stories";
+      ? "Back to suggested reviews"
+      : "Browse all " + available.length + " reviews";
 
     if (ui.storyGrouping !== grouping) {
       ui.storyGrouping = grouping;
@@ -2091,6 +2379,8 @@
     };
     menu.onkeydown = function (event) {
       if (event.key === "Escape") {
+        event.preventDefault();
+        event.stopPropagation();
         setOpen(false);
         toggle.focus();
       }
@@ -2120,6 +2410,20 @@
       filters.appendChild(button);
     });
     menu.appendChild(filters);
+    menu.appendChild(el("div", "moredivider"));
+    var panelLabel = el("div", "morelabel");
+    panelLabel.textContent = "Panel";
+    menu.appendChild(panelLabel);
+    function panelAction(label, action) {
+      var button = el("button", "moreitem");
+      button.textContent = label;
+      button.onclick = function (event) {
+        setOpen(false);
+        action(event);
+      };
+      menu.appendChild(button);
+    }
+    panelAction("Refresh checklist", refreshChecklist);
     menu.appendChild(el("div", "moredivider"));
     var copy = el("button", "moreitem");
     copy.textContent = "Copy report";
@@ -2167,6 +2471,11 @@
     area.setAttribute("aria-label", "Note about this page");
     area.placeholder =
       "Describe what you saw. The current page is captured automatically.";
+    area.value = state.noteDraft || "";
+    area.oninput = function () {
+      state.noteDraft = area.value;
+      save();
+    };
     var add = el("button", "add");
     add.textContent = "Add note";
     add.onclick = function () {
@@ -2174,6 +2483,7 @@
       if (!text) return;
       state.notes.push({ text: text, url: reviewedUrl(), at: nowISO() });
       area.value = "";
+      state.noteDraft = "";
       save();
       syncPanel();
     };
@@ -2189,6 +2499,10 @@
     parts.noteList = el("div", "notes");
     box.appendChild(parts.noteList);
     parts.noteToggle = toggle;
+    if (state.noteDraft) {
+      box.classList.add("open");
+      toggle.setAttribute("aria-expanded", "true");
+    }
     return box;
   }
 
@@ -2342,15 +2656,16 @@
     var saved = state.steps[step.key] || {};
     var marks = el("div", "marks");
     [
-      ["pass", "Pass"],
-      ["fail", "Fail"],
-      ["na", "N/A"],
+      ["pass", "Worked as expected"],
+      ["fail", "There was a problem"],
+      ["blocked", "I couldn't try this"],
     ].forEach(function (option) {
       var button = el(
         "button",
         "mark " + option[0] + (saved.mark === option[0] ? " on" : ""),
       );
       button.textContent = option[1];
+      button.setAttribute("data-mark", option[0]);
       button.setAttribute("aria-pressed", String(saved.mark === option[0]));
       button.onclick = function () {
         mark(step, option[0]);
@@ -2361,16 +2676,43 @@
     var note = document.createElement("input");
     note.type = "text";
     note.className = "stepnote";
-    note.setAttribute("aria-label", "Note for this step");
-    note.placeholder = "What happened? (optional)";
+    note.setAttribute("aria-label", "Explain this answer");
+    note.placeholder =
+      saved.mark === "blocked"
+        ? "What stopped you?"
+        : "What happened?";
     note.value = saved.note || "";
+    note.hidden = saved.mark !== "fail" && saved.mark !== "blocked";
+    note.required = !note.hidden;
     note.oninput = function () {
       var entry = state.steps[step.key] || {};
       entry.note = note.value;
       state.steps[step.key] = entry;
       save();
+      // The explanation completes a problem/couldn't-try answer. Refresh the
+      // progress and submission controls as it becomes complete while keeping
+      // this mounted input and its focus intact.
+      syncPanel();
     };
     detail.appendChild(note);
+    var continueButton = el("button", "continue primary");
+    continueButton.textContent = "Continue";
+    continueButton.hidden = note.hidden;
+    continueButton.disabled = !String(saved.note || "").trim();
+    continueButton.onclick = function () {
+      var next = nextOpenAfter(step.key);
+      if (next) state.current = next;
+      save();
+      syncPanel();
+      scrollCurrentIntoView(true);
+    };
+    detail.appendChild(continueButton);
+    if (saved.mark === "na") {
+      var legacy = el("div", "legacyanswer");
+      legacy.textContent =
+        "Previously marked not applicable. Choose a current answer to update it.";
+      detail.appendChild(legacy);
+    }
     return detail;
   }
 
@@ -2386,7 +2728,7 @@
     saved.consoleErrors = saved.mark === "fail" ? pageErrors.slice() : [];
     state.steps[step.key] = saved;
     state.introDone = true;
-    if (saved.mark) {
+    if (saved.mark === "pass") {
       var next = nextOpenAfter(step.key);
       if (next) state.current = next;
     }
@@ -2397,6 +2739,11 @@
     save();
     syncPanel();
     scrollCurrentIntoView(wasFocused);
+    if (saved.mark === "fail" || saved.mark === "blocked") {
+      var row = ui && ui.rows[step.key];
+      var note = row && row.detail.querySelector(".stepnote");
+      if (note) note.focus();
+    }
   }
 
   function stepFor(key) {
@@ -2408,8 +2755,17 @@
   }
 
   function matchesFilter(saved) {
-    if (prefs.filter === "todo") return !(saved.mark && !saved.stale);
-    if (prefs.filter === "failed") return saved.mark === "fail" && !saved.stale;
+    if (prefs.filter === "todo")
+      return (
+        !saved.mark ||
+        saved.stale ||
+        ((saved.mark === "fail" || saved.mark === "blocked") &&
+          !String(saved.note || "").trim())
+      );
+    if (prefs.filter === "failed")
+      return (
+        (saved.mark === "fail" || saved.mark === "blocked") && !saved.stale
+      );
     return true;
   }
 
@@ -2440,18 +2796,15 @@
     var reserve = (pinned && !pinned.hidden ? pinned.offsetHeight : 0) + 8;
     // On first open, show either the overview or the task, never the accidental
     // half-overview caused by fitting the task around a sticky section heading.
-    var preambleBottom =
-      clearPreamble && ui.intro && !ui.intro.hidden
-        ? ui.intro.offsetTop + ui.intro.offsetHeight
-        : 0;
-    if (top - reserve < body.scrollTop)
-      body.scrollTop = Math.max(preambleBottom, top - reserve);
+    if (clearPreamble) body.scrollTop = Math.max(0, top - reserve);
+    else if (top - reserve < body.scrollTop)
+      body.scrollTop = Math.max(0, top - reserve);
     else if (bottom > body.scrollTop + body.clientHeight) {
       // Bring the end of the step into view, but never far enough to push its
       // instruction off the top: a step read from the middle is worse than one
       // whose note field needs a nudge.
       body.scrollTop = Math.max(
-        preambleBottom,
+        0,
         Math.min(bottom - body.clientHeight + 8, top - reserve),
       );
     }
@@ -2469,24 +2822,22 @@
   function syncPanel() {
     if (!ui) return;
     var counts = progress();
-    ui.title.textContent = uat.title || LABEL + " review";
-    // The build under review belongs beside the progress, not on a row of its own:
-    // it is something a reviewer checks once and refers to in a bug report.
-    var sha = build && build.appSha ? build.appSha.slice(0, 7) : "";
-    ui.progress.textContent =
-      storyNavigation.committedId +
-      " · " +
-      counts.done +
-      " of " +
-      counts.total +
-      " answered" +
-      (sha ? " · " + sha : "");
+    ui.title.textContent = ui.storyTrigger
+      ? "Review"
+      : uat.title || LABEL + " review";
+    // Keep provenance in the tooltip/report; the working header is for progress.
+    ui.progress.textContent = counts.done + " of " + counts.total + " answered";
     ui.progress.title = provenanceText();
     syncStories();
-    ui.panel.classList.toggle("expanded", prefs.expanded);
-    ui.expand.title = prefs.expanded ? "Collapse panel" : "Expand panel";
-    ui.expand.setAttribute("aria-label", ui.expand.title);
-    ui.expand.textContent = prefs.expanded ? "⤡" : "⤢";
+    if (ui.placement && ui.placement.value !== prefs.dock) {
+      ui.placement.value = prefs.dock;
+    }
+    if (ui.splitter) {
+      ui.splitter.setAttribute(
+        "aria-orientation",
+        prefs.dock === "bottom" ? "horizontal" : "vertical",
+      );
+    }
     FILTERS.forEach(function (name) {
       var button = ui.filterButtons[name];
       var on = prefs.filter === name;
@@ -2538,10 +2889,22 @@
     if (ui.submit) {
       var toSubmit = answersToSubmit().length;
       ui.submit.disabled = submitting || !toSubmit;
-      ui.submit.textContent = submitting ? "Sending…" : "Submit review";
+      ui.submit.textContent = submitting
+        ? "Sending…"
+        : counts.done === counts.total
+          ? "Submit feedback"
+          : "Submit partial feedback";
       ui.submit.title = toSubmit
         ? "Hand in " + toSubmit + " answered step" + (toSubmit === 1 ? "" : "s")
         : "Answer a step first";
+    }
+    if (ui.completion) {
+      ui.completion.hidden = counts.total === 0 || counts.done !== counts.total;
+      ui.completionSummary.textContent =
+        counts.done + " checkpoints answered. Add an optional note, then submit.";
+      if (ui.completionNote.value !== (state.overallNote || "")) {
+        ui.completionNote.value = state.overallNote || "";
+      }
     }
     // The preamble earns its space until the reviewer is under way; after that the
     // checklist needs the room more than the introduction does. Standing down is
@@ -2576,8 +2939,11 @@
       var saved = state.steps[key] || {};
       row.row.hidden = !shown[key];
       row.row.classList.toggle("current", key === current);
-      row.row.classList.toggle("answered", Boolean(saved.mark && !saved.stale));
-      row.row.classList.toggle("failed", saved.mark === "fail" && !saved.stale);
+      row.row.classList.toggle("answered", answered(row.step));
+      row.row.classList.toggle(
+        "failed",
+        (saved.mark === "fail" || saved.mark === "blocked") && !saved.stale,
+      );
       row.row.setAttribute("data-state", stateOf(saved));
       // The number carries the state visually; this is the same fact for anyone
       // who cannot see the colour.
@@ -2592,15 +2958,8 @@
       );
     });
 
-    // Expanded shows every step in full; compact shows only the one being worked.
     var open = {};
-    if (prefs.expanded) {
-      Object.keys(ui.rows).forEach(function (key) {
-        open[key] = shown[key];
-      });
-    } else if (shown[current]) {
-      open[current] = true;
-    }
+    if (shown[current]) open[current] = true;
     Object.keys(ui.rows).forEach(function (key) {
       var row = ui.rows[key];
       var mounted = row.detail.childNodes.length > 0;
@@ -2617,9 +2976,11 @@
         return answered(stepFor(key));
       }).length;
       section.count.textContent = done + "/" + section.keys.length;
-      section.row.hidden = !section.keys.some(function (key) {
-        return shown[key];
-      });
+      section.row.hidden =
+        (Boolean(ui.storyTrigger) && ui.sections.length === 1) ||
+        !section.keys.some(function (key) {
+          return shown[key];
+        });
     });
 
     ui.noteToggle.textContent = state.notes.length
@@ -2650,15 +3011,25 @@
 
   function syncMarks(row, saved) {
     row.detail.querySelectorAll(".mark").forEach(function (button) {
-      var value = button.classList.contains("pass")
-        ? "pass"
-        : button.classList.contains("fail")
-          ? "fail"
-          : "na";
+      var value = button.getAttribute("data-mark");
       var on = saved.mark === value;
       button.classList.toggle("on", on);
       button.setAttribute("aria-pressed", String(on));
     });
+    var needsExplanation =
+      saved.mark === "fail" || saved.mark === "blocked";
+    var note = row.detail.querySelector(".stepnote");
+    var continuation = row.detail.querySelector(".continue");
+    if (note) {
+      note.hidden = !needsExplanation;
+      note.required = needsExplanation;
+      note.placeholder =
+        saved.mark === "blocked" ? "What stopped you?" : "What happened?";
+    }
+    if (continuation) {
+      continuation.hidden = !needsExplanation;
+      continuation.disabled = !String(saved.note || "").trim();
+    }
   }
 
   function status(text, className, role) {
@@ -2670,7 +3041,12 @@
 
   function stateOf(saved) {
     if (saved.stale) return "stale";
-    if (saved.mark === "pass" || saved.mark === "fail" || saved.mark === "na") {
+    if (
+      saved.mark === "pass" ||
+      saved.mark === "fail" ||
+      saved.mark === "blocked" ||
+      saved.mark === "na"
+    ) {
       return saved.mark;
     }
     return "todo";
@@ -2679,7 +3055,14 @@
     var state = stateOf(saved);
     if (state === "stale") return "needs another look";
     if (state === "pass") return "passed";
-    if (state === "fail") return "failed";
+    if (state === "fail")
+      return String(saved.note || "").trim()
+        ? "failed"
+        : "problem, explanation needed";
+    if (state === "blocked")
+      return String(saved.note || "").trim()
+        ? "could not be tried"
+        : "could not be tried, explanation needed";
     if (state === "na") return "not applicable";
     return "not answered";
   }
@@ -2783,7 +3166,7 @@
     (uat.sections || []).forEach(function (section) {
       (section.steps || []).forEach(function (step) {
         var mark = state.steps[step.key] || {};
-        if (!mark.mark) return;
+        if (!answered(step)) return;
         answers.push({
           stepKey: step.key,
           storyKey: section.key || "",
@@ -2803,11 +3186,18 @@
   // is one text field on a submission to put them in, so the URL travels in the
   // line rather than being dropped.
   function submissionNote() {
-    return state.notes
+    var notes = state.notes
       .map(function (note) {
         return "- " + note.text + (note.url ? " (" + note.url + ")" : "");
       })
       .join("\n");
+    if (String(state.overallNote || "").trim()) {
+      notes =
+        "Overall: " +
+        String(state.overallNote).trim() +
+        (notes ? "\n\nPage notes:\n" + notes : "");
+    }
+    return notes;
   }
 
   function submitReview() {
@@ -2826,6 +3216,8 @@
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         reviewer: String(state.reviewer || "").trim(),
+        reviewInstance:
+          (committedStory() && committedStory().review) || INSTANCE,
         checklistRevision: uat.checklistRevision || "",
         host: location.host,
         appSha: (build && build.appSha) || "",
@@ -2887,6 +3279,7 @@
     var total = 0,
       pass = 0,
       fail = 0,
+      blocked = 0,
       na = 0,
       stale = 0,
       requiredOpen = 0;
@@ -2939,17 +3332,21 @@
       (sec.steps || []).forEach(function (step) {
         var st = state.steps[step.key] || {};
         total++;
+        var completeAnswer = answered(step);
         if (st.stale) stale++;
         else if (st.mark === "pass") pass++;
-        else if (st.mark === "fail") fail++;
+        else if (st.mark === "fail" && completeAnswer) fail++;
+        else if (st.mark === "blocked" && completeAnswer) blocked++;
         else if (st.mark === "na") na++;
-        if (isRequired(step) && (!st.mark || st.stale)) requiredOpen++;
+        if (isRequired(step) && !answered(step)) requiredOpen++;
         var box = st.stale
           ? "STALE"
           : st.mark === "pass"
             ? "PASS"
-            : st.mark === "fail"
+            : st.mark === "fail" && completeAnswer
               ? "FAIL"
+              : st.mark === "blocked" && completeAnswer
+                ? "BLOCKED"
               : st.mark === "na"
                 ? "N/A "
                 : "----";
@@ -2979,11 +3376,13 @@
         " pass · " +
         fail +
         " fail · " +
+        blocked +
+        " couldn't try · " +
         na +
         " n/a · " +
         stale +
         " stale · " +
-        (total - pass - fail - na - stale) +
+        (total - pass - fail - blocked - na - stale) +
         " untested (of " +
         total +
         ") · " +
@@ -2999,11 +3398,18 @@
         lines.push("    - at: " + n.at);
       });
     }
+    if (String(state.overallNote || "").trim()) {
+      lines.push("");
+      lines.push("## Overall note");
+      lines.push(String(state.overallNote).trim());
+    }
 
     var json = JSON.stringify(
       {
         schemaVersion: 2,
         instance: INSTANCE,
+        reviewInstance:
+          (committedStory() && committedStory().review) || INSTANCE,
         label: LABEL,
         origin: location.origin,
         reviewer: state.reviewer,
@@ -3018,6 +3424,7 @@
           total: total,
           pass: pass,
           fail: fail,
+          blocked: blocked,
           na: na,
           stale: stale,
           requiredOpen: requiredOpen,
@@ -3044,6 +3451,7 @@
           };
         }),
         feedback: state.notes,
+        overallNote: state.overallNote || "",
       },
       null,
       2,
@@ -3117,14 +3525,15 @@
         "--layer:#f4f4f4;--border:#e0e0e0;--border-strong:#8d8d8d;" +
         // blue-60 / blue-70 / blue-40 / blue-10
         "--blue:#0f62fe;--blue-dark:#0043ce;--blue-soft:#a6c8ff;--blue-bg:#edf5ff;" +
-        "position:fixed;bottom:64px;z-index:8500;" +
+        "position:fixed;z-index:8500;" +
         "font-family:var(--font);font-size:var(--body);line-height:1.4;color:var(--text);}",
       // Above the host application's own header and side nav, which Carbon puts
       // at 8000, but below its modals at 9000: a dialog the checklist is asking
       // the reviewer to use has to be able to come over the top.
-      ".anchor-right{right:16px;}",
-      ".anchor-left{left:16px;}",
-      ".anchor-centre{left:50%;transform:translateX(-50%);}",
+      ".launcher{right:16px;bottom:64px;}",
+      ".dock-right{inset:0 0 0 auto;width:var(--dock-size);}",
+      ".dock-left{inset:0 auto 0 0;width:var(--dock-size);}",
+      ".dock-bottom{inset:auto 0 0 0;height:var(--dock-size);}",
       ".tab{display:flex;align-items:center;gap:var(--sp2);background:var(--blue);color:#fff;border:none;border-radius:20px;padding:10px var(--sp5);font-weight:600;cursor:pointer;box-shadow:0 4px 14px rgba(0,0,0,.25);font-variant-numeric:tabular-nums;}",
       ".tab:hover{background:#0353e9;}",
       ".dot{background:#fff;color:var(--blue);border-radius:10px;padding:0 6px;font-size:var(--label);font-weight:600;}",
@@ -3136,7 +3545,7 @@
       // to float above, and nothing to round the edges against.
       ".wrap.standalone{position:static;inset:auto;transform:none;display:block;}",
       ".wrap.standalone .panel{width:100%;max-width:none;height:100vh;max-height:none;border:none;border-radius:0;box-shadow:none;}",
-      ".wrap.standalone .panel.expanded{width:100%;max-height:none;}",
+      ".wrap.standalone .splitter{display:none;}",
       // Anchored 64px off the bottom and reserving 56px at the top: enough to
       // clear a 48px Carbon application header with a little air. Without that
       // reserve a tall panel on a short screen pushes its own header off the top of
@@ -3148,21 +3557,26 @@
       // falls back to whatever the platform has, and a wider face costs whole lines
       // of wrapping. A narrow column turns that into a step taller than the window
       // it has to fit; the extra width absorbs it.
-      ".panel{box-sizing:border-box;width:min(560px,calc(100vw - 32px));max-height:min(620px,calc(100vh - 120px));display:flex;flex-direction:column;background:#fff;border:1px solid var(--border);border-radius:8px;box-shadow:0 10px 40px rgba(0,0,0,.28);overflow:hidden;}",
+      ".panel{position:relative;box-sizing:border-box;width:100%;height:100%;display:flex;flex-direction:column;background:#fff;border:0;box-shadow:0 0 18px rgba(0,0,0,.16);overflow:hidden;}",
+      ".dock-right .panel{border-left:1px solid var(--border);}.dock-left .panel{border-right:1px solid var(--border);}.dock-bottom .panel{border-top:1px solid var(--border);}",
+      ".splitter{position:absolute;z-index:7;background:transparent;touch-action:none;}",
+      ".splitter:focus-visible{outline:2px solid var(--blue);outline-offset:-2px;}",
+      ".dock-right .splitter{left:0;top:0;bottom:0;width:7px;cursor:col-resize;}.dock-left .splitter{right:0;top:0;bottom:0;width:7px;cursor:col-resize;}.dock-bottom .splitter{left:0;right:0;top:0;height:7px;cursor:row-resize;}",
+      ".dock-right .splitter:after,.dock-left .splitter:after{content:'';position:absolute;top:0;bottom:0;left:3px;width:1px;background:var(--border);}.dock-bottom .splitter:after{content:'';position:absolute;left:0;right:0;top:3px;height:1px;background:var(--border);}",
       // Only the checklist scrolls. Without this the fixed rows shrink to absorb
       // a long checklist and clip their own text.
       ".head,.statusbox,.whoami,.signin,.stories,.who,.fb,.foot{flex:none;}",
-      ".panel.expanded{width:min(840px,92vw);max-height:min(760px,calc(100vh - 120px));}",
-      ".stories{display:block;padding:var(--sp3) var(--sp4);border-bottom:1px solid var(--border);background:#fff;}",
+      ".stories{position:relative;display:block;padding:var(--sp3) var(--sp4);border-bottom:1px solid var(--border);background:#fff;}",
       ".storyscope{font-size:var(--label);font-weight:600;color:var(--text2);margin-bottom:var(--sp2);}",
       ".storytrigger{display:grid;grid-template-columns:minmax(0,1fr) auto 18px;align-items:center;gap:var(--sp3);width:100%;min-height:44px;border:1px solid var(--border-strong);border-radius:4px;padding:7px 10px;background:#fff;color:var(--text);font:inherit;text-align:left;cursor:pointer;}",
       ".storytrigger:hover{background:var(--layer);}.storytriggertitle{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600;}.storytriggerprogress{font-size:var(--label);color:var(--text2);font-variant-numeric:tabular-nums;}.storychevron{font-size:18px;line-height:1;color:var(--text2);transform-origin:center;}.storytrigger[aria-expanded=true] .storychevron{transform:rotate(180deg);}",
-      ".storymenu{margin-top:var(--sp3);border:1px solid var(--border);background:#fff;box-shadow:0 4px 12px rgba(0,0,0,.12);}",
+      ".storymenu{position:absolute;z-index:4;top:calc(100% - 1px);left:var(--sp4);right:var(--sp4);display:flex;flex-direction:column;max-height:min(400px,calc(100dvh - 240px));border:1px solid var(--border);background:#fff;box-shadow:0 8px 24px rgba(0,0,0,.16);}",
       ".storymenu[hidden]{display:none;}.storymenuhead{display:flex;justify-content:space-between;gap:var(--sp3);padding:9px 10px;border-bottom:1px solid var(--border);}.storymenutitle{font-size:var(--label);}.storymenucount{font-size:var(--label);color:var(--text3);font-variant-numeric:tabular-nums;}",
       ".storynotice{padding:8px 10px;background:#fcf4d6;color:#684e00;font-size:var(--label);border-bottom:1px solid #f1c21b;}.storynotice[hidden]{display:none;}",
-      ".storylist{max-height:min(248px,34vh);overflow-y:auto;overscroll-behavior:contain;}",
-      ".storyoption{display:grid;grid-template-columns:24px minmax(0,1fr) auto;align-items:center;gap:var(--sp3);width:100%;min-height:48px;border:0;border-bottom:1px solid var(--border);padding:7px 10px;background:#fff;color:var(--text);font:inherit;text-align:left;cursor:pointer;}",
-      ".storyoption:hover{background:var(--layer);}.storyoption.selected{background:var(--blue-bg);box-shadow:inset 3px 0 var(--blue);}.storycheck{display:flex;align-items:center;justify-content:center;width:20px;height:20px;border:1.5px solid var(--border-strong);border-radius:50%;color:#fff;font-size:var(--label);font-weight:600;}.storyoption.complete .storycheck{background:#24a148;border-color:#24a148;}.storyoptiontitle{min-width:0;font-weight:600;line-height:1.3;}.storyoptionprogress{font-size:var(--label);color:var(--text2);white-space:nowrap;font-variant-numeric:tabular-nums;}",
+      ".storylist{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;}.storysearch{box-sizing:border-box;margin:8px 10px;padding:9px 10px;border:1px solid var(--border-strong);border-radius:4px;font:inherit;min-height:40px;}.storyempty{padding:16px;color:var(--text2);}.storymenuhead,.storysearch,.storynotice,.storyscopetoggle{flex:none;}",
+      ".storyoption{display:grid;grid-template-columns:24px minmax(0,1fr) auto;align-items:start;gap:var(--sp3);width:100%;min-height:58px;border:0;border-bottom:1px solid var(--border);padding:9px 10px;background:#fff;color:var(--text);font:inherit;text-align:left;cursor:pointer;}",
+      ".storyoption:hover{background:var(--layer);}.storyoption.selected{background:var(--blue-bg);box-shadow:inset 3px 0 var(--blue);}.storycheck{display:flex;align-items:center;justify-content:center;width:20px;height:20px;border:1.5px solid var(--border-strong);border-radius:50%;color:#fff;font-size:var(--label);font-weight:600;}.storyoption.complete .storycheck{background:#24a148;border-color:#24a148;}.storyoptioncontent{display:flex;min-width:0;flex-direction:column;gap:2px;}.storyoptiontitle{min-width:0;font-weight:600;line-height:1.3;}.storyoptionpurpose{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;color:var(--text2);font-size:var(--label);line-height:1.3;}.storyoptionticket{color:var(--blue-dark);font-size:12px;font-weight:600;}.storyoptionprogress{font-size:var(--label);color:var(--text2);white-space:nowrap;font-variant-numeric:tabular-nums;}",
+      ".storycontinue{margin:8px 10px;width:calc(100% - 20px);}.storycontinue[hidden]{display:none;}",
       ".storyscopetoggle{width:100%;min-height:40px;border:0;background:#fff;color:var(--blue-dark);font:inherit;font-size:var(--label);font-weight:600;text-align:left;padding:8px 10px;cursor:pointer;}.storyscopetoggle:hover{background:var(--blue-bg);}.storyscopetoggle[hidden]{display:none;}",
       ".who label{font-size:var(--label);color:var(--text2);white-space:nowrap;}",
       // Pinned to the top of the scroller: several steps into a section, the
@@ -3176,13 +3590,13 @@
       ".sec{font-size:var(--label);text-transform:uppercase;letter-spacing:.02em;color:var(--text2);font-weight:600;margin:0;}",
       ".seccount{font-size:var(--label);color:var(--text3);font-variant-numeric:tabular-nums;}",
       ".step[hidden]{display:none;}",
-      ".head{display:flex;align-items:flex-start;gap:2px;padding:10px var(--sp4);background:var(--text);color:#fff;}",
-      ".titlebox{flex:1;min-width:0;}",
-      ".title{font-size:var(--heading);font-weight:600;margin:0;}",
-      ".sub{font-size:var(--label);opacity:.8;margin-top:2px;font-variant-numeric:tabular-nums;}",
-      ".icon{background:transparent;border:none;color:inherit;font-size:var(--body);line-height:1;cursor:pointer;min-width:24px;min-height:24px;border-radius:4px;}.icon:hover{background:rgba(255,255,255,.15);}",
+      ".head{display:flex;align-items:center;gap:8px;padding:8px var(--sp4);background:var(--text);color:#fff;}",
+      ".titlebox{flex:1;min-width:0;}.has-story-picker .titlebox{display:flex;align-items:baseline;gap:12px;}",
+      ".title{font-size:18px;font-weight:600;margin:0;}",
+      ".sub{font-size:var(--label);opacity:.8;margin-top:2px;font-variant-numeric:tabular-nums;}.placement{width:auto;min-width:78px;height:30px;border:1px solid #6f6f6f;border-radius:3px;background:#262626;color:#fff;padding:0 6px;font:inherit;font-size:var(--label);}",
+      ".icon{background:transparent;border:none;color:inherit;font-size:var(--body);line-height:1;cursor:pointer;min-width:24px;min-height:24px;border-radius:4px;}.icon:hover{background:rgba(255,255,255,.15);}.icon svg{display:block;}",
       ".statusbox:empty{display:none;}",
-      ".whoami{padding:var(--sp2) var(--sp4);font-size:var(--label);color:var(--text2);border-bottom:1px solid var(--border);}",
+      ".whoami{flex:1;min-width:0;font-size:var(--label);color:var(--text2);}",
       ".whoami[hidden],.signin[hidden]{display:none;}",
       ".signin{padding:var(--sp3) var(--sp4);font-size:var(--label);background:var(--blue-bg);color:var(--blue-dark);border-bottom:1px solid var(--blue-soft);}",
       ".status{padding:var(--sp3) var(--sp4);border-bottom:1px solid var(--border);color:var(--text2);}",
@@ -3196,18 +3610,14 @@
       // Expanded gains width, so spend it: the expected result reads down the
       // left while the answer sits on the right, which roughly halves how tall
       // each step is and puts more of the checklist on screen at once.
-      ".panel.expanded .detail{display:grid;grid-template-columns:1fr 280px;gap:var(--sp2) var(--sp5);align-items:start;}",
-      ".panel.expanded .detail .expect,.panel.expanded .detail .optional{grid-column:1;margin:0;}",
-      ".panel.expanded .detail .marks{grid-column:2;grid-row:1;}",
-      ".panel.expanded .detail .stepnote{grid-column:2;grid-row:2;margin-top:0;}",
-      ".who{padding:var(--sp3) var(--sp4);border-bottom:1px solid var(--border);display:flex;flex-wrap:wrap;align-items:center;gap:var(--sp3);}",
+      ".who{padding:6px var(--sp4);display:flex;flex-wrap:wrap;align-items:center;gap:var(--sp3);}.who .required{color:var(--text2);}",
       ".who input{flex:1;min-width:180px;}.required{color:#a2191f;font-weight:600;}.nameerror{flex-basis:100%;font-size:var(--label);font-weight:600;color:#a2191f;}.nameerror[hidden]{display:none;}",
       "input[type=text],textarea{width:100%;box-sizing:border-box;border:1px solid var(--border-strong);border-radius:4px;padding:5px var(--sp3);font:inherit;color:inherit;}",
       "input:focus-visible,textarea:focus-visible,button:focus-visible,a:focus-visible{outline:2px solid var(--blue);outline-offset:1px;}",
       // Positioned so a row's offsetTop is measured against the scroller itself.
-      ".body{position:relative;flex:1;min-height:0;overflow-y:auto;padding:0 var(--sp4) 10px;}",
-      ".step{border:1px solid var(--border);border-radius:6px;margin-bottom:var(--sp4);background:var(--layer);}",
-      ".step.current{background:#fff;border-color:var(--blue-soft);box-shadow:0 0 0 2px rgba(15,98,254,.12);}",
+      ".body{position:relative;flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;padding:8px var(--sp4) 10px;}",
+      ".step{border:1px solid transparent;border-bottom-color:var(--border);border-radius:0;margin-bottom:var(--sp2);background:#fff;}",
+      ".step.current{background:#fff;border-color:var(--blue-soft);border-radius:4px;}",
       ".steptop{display:flex;gap:var(--sp3);align-items:flex-start;width:100%;text-align:left;background:none;border:none;padding:10px var(--sp4);font:inherit;color:inherit;cursor:pointer;min-height:24px;}",
       ".num{flex:none;width:22px;height:22px;border-radius:50%;border:1.5px solid var(--border-strong);background:#fff;color:var(--text2);display:inline-flex;align-items:center;justify-content:center;font-size:var(--label);font-weight:600;font-variant-numeric:tabular-nums;}",
       ".step[data-state=pass] .num{background:#24a148;border-color:#24a148;color:#fff;}",
@@ -3217,7 +3627,7 @@
       ".step.current .num{box-shadow:0 0 0 3px rgba(15,98,254,.18);}",
       ".step.current[data-state=todo] .num{border-color:var(--blue);color:var(--blue);}",
       ".steplabel{flex:1;padding-top:2px;}",
-      ".panel:not(.expanded) .step:not(.current) .steplabel{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;}",
+      ".step:not(.current) .steplabel{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;}",
       ".step.current .steplabel{font-weight:600;}",
       ".step.answered .steplabel{color:var(--text2);}",
       ".detail:empty{display:none;}",
@@ -3225,7 +3635,6 @@
       // narrow column; aligned under the instruction once there is width for the
       // alignment to be worth it.
       ".detail{padding:0 var(--sp4) var(--sp4);}",
-      ".panel.expanded .detail{padding-left:44px;}",
       // Set apart from the instruction and labelled, so the thing to do and the
       // thing to check stop reading as one long sentence. The label rides beside
       // the text at the label token rather than shrunk below it, which is what had
@@ -3234,12 +3643,14 @@
       ".expectlabel{flex:none;font-size:var(--label);font-weight:600;text-transform:uppercase;letter-spacing:.02em;color:var(--blue-dark);}",
       ".expecttext{color:var(--text);}",
       ".optional{font-size:var(--label);color:var(--text3);margin-bottom:var(--sp2);}",
-      ".marks{display:flex;gap:var(--sp2);}",
-      ".mark{flex:1;border:1px solid var(--border-strong);background:#fff;border-radius:4px;padding:4px 0;font:inherit;font-weight:600;cursor:pointer;color:var(--text2);min-height:24px;}",
+      ".marks{display:flex;gap:var(--sp2);flex-wrap:wrap;}",
+      ".mark{flex:1 1 120px;border:1px solid var(--border-strong);background:#fff;border-radius:4px;padding:6px 8px;font:inherit;font-size:var(--label);font-weight:600;cursor:pointer;color:var(--text2);min-height:32px;}",
       ".mark.pass.on{background:#defbe6;border-color:#24a148;color:#0e6027;}",
       ".mark.fail.on{background:#fff1f1;border-color:#da1e28;color:#a2191f;}",
+      ".mark.blocked.on{background:#fcf4d6;border-color:#f1c21b;color:#684e00;}",
       ".mark.na.on{background:var(--layer);border-color:var(--border-strong);color:var(--text2);}",
-      ".stepnote{margin-top:var(--sp2);}",
+      ".stepnote{margin-top:var(--sp3);}.continue{display:block;margin-top:var(--sp3);margin-left:auto;}.legacyanswer{margin-top:var(--sp2);font-size:var(--label);color:var(--text2);}",
+      ".completion{padding:var(--sp3) var(--sp4);border-top:1px solid var(--border);background:var(--blue-bg);}.completion[hidden]{display:none;}.completiontitle{display:block;}.completionsummary{display:block;margin:2px 0 6px;color:var(--text2);font-size:var(--label);}.completion textarea{min-height:54px;resize:vertical;}",
       ".fb{padding:6px var(--sp4) var(--sp3);border-top:1px solid var(--border);}",
       ".notetoggle{background:none;border:none;color:var(--blue-dark);font:inherit;font-weight:600;cursor:pointer;padding:var(--sp2) 0;min-height:24px;}",
       ".noteform{display:none;margin-top:6px;}",
@@ -3250,11 +3661,11 @@
       ".note{display:grid;grid-template-columns:1fr auto auto;gap:6px;align-items:start;background:var(--layer);border:1px solid var(--border);border-radius:4px;padding:6px var(--sp3);}",
       ".note .icon{color:var(--text2);}",
       ".notemeta{font-size:var(--label);color:var(--text3);font-variant-numeric:tabular-nums;white-space:nowrap;}",
-      ".foot{display:flex;justify-content:flex-end;gap:var(--sp2);padding:10px var(--sp4);border-top:1px solid var(--border);background:#fff;}",
-      ".primary{flex:1;background:var(--blue);color:#fff;border:none;border-radius:4px;padding:6px 0;font:inherit;font-weight:600;cursor:pointer;min-height:24px;}.primary:hover{background:#0353e9;}",
+      ".foot{display:flex;align-items:center;justify-content:flex-end;gap:var(--sp3);padding:8px var(--sp4);background:#fff;}",
+      ".primary{background:var(--blue);color:#fff;border:none;border-radius:4px;padding:8px 20px;font:inherit;font-weight:600;cursor:pointer;min-height:36px;}.primary:hover{background:#0353e9;}.primary:disabled{background:#e0e0e0;color:#6f6f6f;cursor:not-allowed;}",
       ".ghost{background:#fff;color:var(--text2);border:1px solid var(--border-strong);border-radius:4px;padding:6px var(--sp4);font:inherit;cursor:pointer;min-height:24px;}",
       ".more{position:relative;display:flex;}.moretoggle{color:var(--text2);border:1px solid var(--border-strong);background:#fff;min-width:36px;font-weight:700;letter-spacing:1px;}.moretoggle:hover{background:var(--layer);}",
-      ".moremenu{position:absolute;z-index:2;right:0;bottom:calc(100% + var(--sp2));width:220px;box-sizing:border-box;padding:var(--sp2);background:#fff;border:1px solid var(--border-strong);border-radius:4px;box-shadow:0 4px 16px rgba(0,0,0,.2);}",
+      ".moremenu{position:absolute;z-index:5;right:0;bottom:calc(100% + var(--sp2));width:260px;max-height:min(380px,calc(100dvh - 180px));overflow-y:auto;box-sizing:border-box;padding:var(--sp2);background:#fff;border:1px solid var(--border-strong);border-radius:4px;box-shadow:0 4px 16px rgba(0,0,0,.2);}",
       ".moremenu[hidden],.storycontext[hidden]{display:none;}",
       ".morelabel{padding:4px var(--sp3);font-size:var(--label);font-weight:600;color:var(--text2);}",
       ".moregroup{display:flex;flex-direction:column;gap:2px;}",
@@ -3267,7 +3678,7 @@
       // is narrow too but is not over anything, and this rule matches it selector
       // for selector, so without the exclusion source order rather than
       // specificity would decide which layout a 460px review window gets.
-      "@media (max-width:640px){.wrap.open:not(.standalone){left:0;right:0;bottom:0;transform:none;}.wrap.open:not(.standalone) .panel{width:100vw;max-height:70vh;border-radius:8px 8px 0 0;}}",
+      "@media (max-width:640px){.has-story-picker .titlebox{display:block;}.head{gap:4px;}.placement{min-width:70px;}.who label{font-size:13px;}.whoami{font-size:12px;}.expect{display:block;}.expectlabel{display:block;margin-bottom:4px;}.primary{padding:8px 12px;}}",
       "@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important;}}",
     ].join("");
   }

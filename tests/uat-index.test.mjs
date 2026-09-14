@@ -55,6 +55,8 @@ const storyRows = [
     title: "Find and route microbiology work",
     story_order: 0,
     jira: "OGC-782",
+    user_story: "Find the work that needs attention.",
+    version: "2.1",
     hosts: "amr.openelis-global.org",
   }),
   story(12, 1, "AMR-S02", {
@@ -91,6 +93,8 @@ test("lists every real story that has steps", () => {
   assert.equal(first.key, "AMR-S01");
   assert.equal(first.title, "Find and route microbiology work");
   assert.equal(first.jira, "OGC-782");
+  assert.equal(first.purpose, "Find the work that needs attention.");
+  assert.equal(first.version, "2.1");
   assert.equal(first.steps, 2);
   assert.deepEqual(first.hosts, ["amr.openelis-global.org"]);
 });

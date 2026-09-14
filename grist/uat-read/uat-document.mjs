@@ -128,6 +128,8 @@ export function buildUatIndex(metaRecords, stepRecords, storyRecords = []) {
       key,
       title: String(fields.title || "").trim() || `${key} review`,
       jira: String(fields.jira || "").trim(),
+      purpose: String(fields.user_story || "").trim(),
+      version: String(fields.version || "1.0").trim(),
       order: Number(fields.story_order) || 0,
       steps: storySteps.length,
       required,

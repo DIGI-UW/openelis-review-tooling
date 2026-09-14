@@ -139,7 +139,7 @@ cmd_up() {
   ensure_api_key
 
   echo ">> verifying REST authoring identity and document ownership"
-  run_node check-access
+  run_node check-access --create
 
   echo ">> migrating the UAT schema without clearing authored rows"
   run_node migrate

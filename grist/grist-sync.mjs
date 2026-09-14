@@ -14,6 +14,7 @@
 
 import { mkdirSync, readFileSync, writeFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
+import { loadClientConfig } from "./client-config.mjs";
 import { buildUatDocument, parseRequired } from "./uat-read/uat-document.mjs";
 import {
   PAGES,
@@ -25,8 +26,7 @@ import {
   planStoryMigration,
 } from "./schema.mjs";
 
-const URL = process.env.GRIST_URL || "http://grist:8484";
-const KEY = process.env.GRIST_KEY;
+const { url: URL, key: KEY, docId: DOC_ID } = loadClientConfig();
 const ORG = process.env.GRIST_ORG || "openelis";
 const DOC_NAME = process.env.GRIST_DOC_NAME || "UAT Checklists";
 const ADMIN_EMAIL = process.env.GRIST_ADMIN_EMAIL;
@@ -40,11 +40,12 @@ const REVIEW_DIR =
 const EXPORT_DIR =
   process.env.EXPORT_DIR ||
   join(import.meta.dirname, "..", "runtime", "checklists");
-if (!KEY) throw new Error("GRIST_KEY is required");
 
 async function api(path, opts = {}, acceptedStatuses = []) {
   const r = await fetch(URL + path, {
     ...opts,
+    redirect: "error",
+    signal: AbortSignal.timeout(30000),
     headers: {
       Authorization: "Bearer " + KEY,
       "Content-Type": "application/json",
@@ -54,28 +55,36 @@ async function api(path, opts = {}, acceptedStatuses = []) {
   const text = await r.text();
   if (acceptedStatuses.includes(r.status)) return null;
   if (!r.ok)
-    throw new Error(`${opts.method || "GET"} ${path} -> ${r.status} ${text}`);
+    throw new Error(
+      `${opts.method || "GET"} ${path} -> ${r.status} ${text.replaceAll(KEY, "[redacted]")}`,
+    );
   return text ? JSON.parse(text) : null;
 }
 
-async function resolveDoc() {
+async function resolveDoc({ create = false } = {}) {
+  if (DOC_ID) return DOC_ID;
   const wss = await api(`/api/orgs/${ORG}/workspaces`);
   for (const ws of wss) {
     const hit = (ws.docs || []).find((d) => d.name === DOC_NAME);
     if (hit) return hit.id;
   }
+  if (!create)
+    throw new Error(
+      `Grist document ${DOC_NAME} not found; set GRIST_DOC_ID to an existing document`,
+    );
   const ws = wss[0];
+  if (!ws) throw new Error(`No workspace in Grist organization ${ORG}`);
   return await api(`/api/workspaces/${ws.id}/docs`, {
     method: "POST",
     body: JSON.stringify({ name: DOC_NAME }),
   });
 }
 
-async function checkAccess() {
-  const doc = await resolveDoc();
+async function checkAccess({ quiet = false } = {}) {
+  const doc = await resolveDoc({ create: process.argv.includes("--create") });
   const info = await api(`/api/docs/${doc}`);
   const access = String(info.access || "none");
-  console.log(`${info.name || DOC_NAME} ${doc}: ${access}`);
+  if (!quiet) console.log(`${info.name || DOC_NAME} ${doc}: ${access}`);
   if (ADMIN_EMAIL) {
     const [profile, sharing] = await Promise.all([
       api("/api/profile/user"),
@@ -433,7 +442,7 @@ function instancesFromReviewDir() {
 }
 
 async function migrate() {
-  const doc = await resolveDoc();
+  const doc = await resolveDoc({ create: true });
   await ensureTables(doc);
   const steps = (await api(`/api/docs/${doc}/tables/UAT_Steps/records`))
     .records;
@@ -604,30 +613,115 @@ function validateStoryPayload(payload) {
   return { instance, story, steps: payload.steps };
 }
 
-async function applyStory(path) {
-  if (!path) throw new Error("apply-story requires a JSON file");
-  const payload = validateStoryPayload(
-    JSON.parse(readFileSync(path, "utf8")),
+async function readInstance(doc, instance) {
+  const [metas, stories, steps] = await Promise.all(
+    ["UAT_Meta", "UAT_Stories", "UAT_Steps"].map(
+      async (table) =>
+        (await api(`/api/docs/${doc}/tables/${table}/records`)).records,
+    ),
   );
-  const doc = await resolveDoc();
-  await ensureTables(doc);
-  const meta = (
-    await api(
-      `/api/docs/${doc}/tables/UAT_Meta/records?filter=${encodeURIComponent(
-        JSON.stringify({ instance: [payload.instance] }),
-      )}`,
-    )
-  ).records;
-  if (meta.length !== 1)
+  const matches = metas.filter((row) => row.fields.instance === instance);
+  if (matches.length !== 1)
     throw new Error(
-      `expected one UAT_Meta row for ${payload.instance}, received ${meta.length}`,
+      `expected one UAT_Meta row for ${instance}, received ${matches.length}`,
     );
+  const meta = matches[0];
+  return {
+    meta,
+    stories: stories.filter((row) => row.fields.instance === meta.id),
+    steps: steps.filter((row) => row.fields.instance === instance),
+  };
+}
 
-  const storyKey = requiredText(payload.story.story_key, "story.story_key");
+function documentOf(instance, state) {
+  return buildUatDocument(
+    instance,
+    state.meta.fields,
+    state.steps,
+    state.stories,
+  );
+}
+
+function storyIn(state, key) {
+  const matches = state.stories.filter((row) => row.fields.story_key === key);
+  if (matches.length > 1) throw new Error(`duplicate story_key ${key}`);
+  return matches[0];
+}
+
+const STORY_FIELDS = [
+  "story_key",
+  "title",
+  "story_order",
+  "version",
+  "jira",
+  "pr",
+  "mock",
+  "user_story",
+  "hosts",
+];
+const STEP_FIELDS = [
+  "step_key",
+  "required",
+  "step_order",
+  "do",
+  "expect",
+  "route",
+];
+const pickFields = (fields, names) =>
+  Object.fromEntries(
+    names
+      .filter((name) => fields[name] !== undefined)
+      .map((name) => [name, fields[name]]),
+  );
+const fieldsMatch = (actual, expected) =>
+  Object.entries(expected).every(([name, value]) => actual?.[name] === value);
+
+async function readStory(instance, key) {
+  requiredText(instance, "instance");
+  requiredText(key, "story_key");
+  const state = await readInstance(await resolveDoc(), instance);
+  const story = storyIn(state, key);
+  if (!story) throw new Error(`story ${key} not found in ${instance}`);
+  console.log(
+    JSON.stringify(
+      {
+        instance,
+        expected_revision: documentOf(instance, state).checklistRevision,
+        story: pickFields(story.fields, STORY_FIELDS),
+        steps: state.steps
+          .filter((row) => row.fields.story === story.id)
+          .sort((a, b) => a.fields.step_order - b.fields.step_order)
+          .map((row) => pickFields(row.fields, STEP_FIELDS)),
+      },
+      null,
+      2,
+    ),
+  );
+}
+
+async function applyStory(path, { dryRun = false } = {}) {
+  if (!path) throw new Error("apply-story requires a JSON file");
+  const input = JSON.parse(readFileSync(path, "utf8"));
+  const payload = validateStoryPayload(input);
+  const doc = await resolveDoc();
+  await checkAccess({ quiet: true });
+  // Routine authoring never migrates schema or creates documents. Read the
+  // complete instance first so collisions with sibling stories fail before writes.
+  const state = await readInstance(doc, payload.instance);
+  const before = documentOf(payload.instance, state);
+  if (
+    input.expected_revision &&
+    input.expected_revision !== before.checklistRevision
+  )
+    throw new Error(
+      "Checklist changed since it was read; read the story again and reconcile the changes before applying",
+    );
+  const storyKey = payload.story.story_key.trim();
+  const existingStory = storyIn(state, storyKey);
   const storyFields = {
-    instance: meta[0].id,
+    instance: state.meta.id,
     story_key: storyKey,
-    title: requiredText(payload.story.title, "story.title"),
+    title: payload.story.title.trim(),
     story_order: payload.story.story_order,
     version: String(payload.story.version || "1.0").trim(),
     jira: String(payload.story.jira || "").trim(),
@@ -636,82 +730,147 @@ async function applyStory(path) {
     user_story: String(payload.story.user_story || ""),
     hosts: String(payload.story.hosts || ""),
   };
-  const allStories = (
-    await api(`/api/docs/${doc}/tables/UAT_Stories/records`)
-  ).records;
-  const matchingStories = allStories.filter(
-    (record) =>
-      record.fields.instance === meta[0].id &&
-      String(record.fields.story_key || "").trim() === storyKey,
+  let storyId = existingStory?.id ?? -1;
+  const existingSteps = state.steps.filter(
+    (row) => row.fields.story === storyId,
   );
-  if (matchingStories.length > 1)
-    throw new Error(`duplicate story_key ${storyKey} in ${payload.instance}`);
-
-  let storyId;
-  if (matchingStories.length) {
-    storyId = matchingStories[0].id;
-    await patchRecords(doc, "UAT_Stories", [
+  const byKey = new Map(existingSteps.map((row) => [row.fields.step_key, row]));
+  const desired = payload.steps.map((step) => ({
+    instance: payload.instance,
+    story: storyId,
+    step_key: step.step_key.trim(),
+    required: step.required,
+    step_order: step.step_order,
+    do: step.do.trim(),
+    expect: String(step.expect || ""),
+    route: String(step.route || "").trim(),
+  }));
+  const wanted = new Set(desired.map((step) => step.step_key));
+  const stale = existingSteps.filter((row) => !wanted.has(row.fields.step_key));
+  const candidate = {
+    meta: state.meta,
+    stories: [
+      ...state.stories.filter((row) => row.id !== storyId),
       { id: storyId, fields: storyFields },
-    ]);
+    ],
+    steps: [
+      ...state.steps.filter((row) => row.fields.story !== storyId),
+      ...desired.map((fields, index) => ({
+        id: byKey.get(fields.step_key)?.id ?? -index - 1,
+        fields,
+      })),
+    ],
+  };
+  documentOf(payload.instance, candidate);
+  const changes = {
+    instance: payload.instance,
+    story_key: storyKey,
+    expected_revision: before.checklistRevision,
+    story: existingStory
+      ? fieldsMatch(existingStory.fields, storyFields)
+        ? "unchanged"
+        : "update"
+      : "create",
+    add: desired
+      .filter((fields) => !byKey.has(fields.step_key))
+      .map((fields) => fields.step_key),
+    update: desired
+      .filter(
+        (fields) =>
+          byKey.has(fields.step_key) &&
+          !fieldsMatch(byKey.get(fields.step_key).fields, fields),
+      )
+      .map((fields) => fields.step_key),
+    remove: stale.map((row) => row.fields.step_key),
+  };
+  if (dryRun) {
+    console.log(JSON.stringify({ dryRun: true, ...changes }, null, 2));
+    return;
+  }
+  if (existingStory) {
+    if (changes.story === "update")
+      await patchRecords(doc, "UAT_Stories", [
+        { id: storyId, fields: storyFields },
+      ]);
   } else {
-    const created = await addRecords(doc, "UAT_Stories", [storyFields]);
-    storyId = created.records[0].id;
+    storyId = (await addRecords(doc, "UAT_Stories", [storyFields])).records[0]
+      .id;
   }
-
-  const existingSteps = (
-    await api(
-      `/api/docs/${doc}/tables/UAT_Steps/records?filter=${encodeURIComponent(
-        JSON.stringify({ story: [storyId] }),
-      )}`,
-    )
-  ).records;
-  const byKey = new Map();
-  for (const record of existingSteps) {
-    const key = String(record.fields.step_key || "").trim();
-    if (byKey.has(key)) throw new Error(`duplicate step_key ${key}`);
-    byKey.set(key, record);
-  }
-
-  const keep = new Set();
-  const adds = [];
-  const patches = [];
-  for (const step of payload.steps) {
-    const fields = {
-      instance: payload.instance,
-      story: storyId,
-      step_key: requiredText(step.step_key, "step.step_key"),
-      required: step.required,
-      step_order: step.step_order,
-      do: requiredText(step.do, `step ${step.step_key}.do`),
-      expect: String(step.expect || ""),
-      route: String(step.route || "").trim(),
-    };
-    keep.add(fields.step_key);
-    const existing = byKey.get(fields.step_key);
-    if (existing) patches.push({ id: existing.id, fields });
-    else adds.push(fields);
-  }
-  await patchRecords(doc, "UAT_Steps", patches);
-  await addRecords(doc, "UAT_Steps", adds);
-  const stale = existingSteps
-    .filter((record) => !keep.has(String(record.fields.step_key || "").trim()))
-    .map((record) => record.id);
+  desired.forEach((fields) => {
+    fields.story = storyId;
+  });
+  await patchRecords(
+    doc,
+    "UAT_Steps",
+    desired
+      .filter((fields) => changes.update.includes(fields.step_key))
+      .map((fields) => ({ id: byKey.get(fields.step_key).id, fields })),
+  );
+  await addRecords(
+    doc,
+    "UAT_Steps",
+    desired.filter((fields) => changes.add.includes(fields.step_key)),
+  );
   if (stale.length)
-    await userActions(doc, [["BulkRemoveRecord", "UAT_Steps", stale]]);
+    await userActions(doc, [
+      ["BulkRemoveRecord", "UAT_Steps", stale.map((row) => row.id)],
+    ]);
 
-  const finalSteps = (
-    await api(
-      `/api/docs/${doc}/tables/UAT_Steps/records?filter=${encodeURIComponent(
-        JSON.stringify({ story: [storyId] }),
-      )}`,
-    )
-  ).records;
-  const finalStory = (
-    await api(`/api/docs/${doc}/tables/UAT_Stories/records`)
-  ).records.find((record) => record.id === storyId);
-  buildUatDocument(payload.instance, meta[0].fields, finalSteps, [finalStory]);
+  const final = await readInstance(doc, payload.instance);
+  const finalStory = storyIn(final, storyKey);
+  const finalSteps = final.steps.filter((row) => row.fields.story === storyId);
+  if (
+    finalStory?.id !== storyId ||
+    !fieldsMatch(finalStory.fields, storyFields) ||
+    finalSteps.length !== desired.length ||
+    desired.some((fields) => {
+      const row = finalSteps.find(
+        (row) => row.fields.step_key === fields.step_key,
+      );
+      return (
+        !fieldsMatch(row?.fields, fields) ||
+        (byKey.has(fields.step_key) && row.id !== byKey.get(fields.step_key).id)
+      );
+    })
+  )
+    throw new Error(
+      "Grist readback differs from requested story; read current rows before retrying",
+    );
+  for (const row of [finalStory, ...finalSteps]) {
+    if (row.fields.problems)
+      throw new Error(
+        `Grist row ${row.id} has problems: ${JSON.stringify(row.fields.problems)}`,
+      );
+  }
+  const result = documentOf(payload.instance, final);
   console.log(
-    `applied ${storyKey}: ${finalSteps.length} steps in ${payload.instance}`,
+    `applied ${storyKey}: ${finalSteps.length} steps in ${payload.instance}; verified REST revision ${result.checklistRevision}`,
+  );
+}
+
+async function verifyPublic(instance) {
+  requiredText(instance, "instance");
+  if (!/^[a-z0-9-]+$/.test(instance))
+    throw new Error("instance must be a checklist slug");
+  const state = await readInstance(await resolveDoc(), instance);
+  const expected = documentOf(instance, state).checklistRevision;
+  // The read adapter serves a short stale cache. Observe it; never replay writes.
+  for (let attempt = 0; attempt < 8; attempt++) {
+    const response = await fetch(`${URL}/uat/${instance}.json`, {
+      redirect: "error",
+      signal: AbortSignal.timeout(5000),
+    });
+    if (!response.ok)
+      throw new Error(`Public checklist returned ${response.status}`);
+    const publicDoc = await response.json();
+    if (publicDoc.checklistRevision === expected) {
+      console.log(`verified ${instance}: public and REST revision ${expected}`);
+      return;
+    }
+    if (attempt < 7) await new Promise((resolve) => setTimeout(resolve, 5000));
+  }
+  throw new Error(
+    `Public checklist has not reached REST revision ${expected}; inspect read service or concurrent edits, do not replay the write`,
   );
 }
 
@@ -732,7 +891,13 @@ if (mode === "apply") {
 else if (mode === "seed") await seed(process.argv.includes("--replace-all"));
 else if (mode === "generate") await generate();
 else if (mode === "check-access") await checkAccess();
-else if (mode === "apply-story") await applyStory(process.argv[3]);
+else if (mode === "apply-story")
+  await applyStory(process.argv[3], {
+    dryRun: process.argv.includes("--dry-run"),
+  });
+else if (mode === "read-story")
+  await readStory(process.argv[3], process.argv[4]);
+else if (mode === "verify") await verifyPublic(process.argv[3]);
 else if (mode === "publish") {
   const unlist = process.argv.includes("--unlist");
   await publish(
@@ -741,7 +906,7 @@ else if (mode === "publish") {
   );
 } else {
   console.error(
-    "usage: grist-sync.mjs apply [--dry-run] [--rebuild-pages]|apply-story <file>|migrate|seed [--replace-all]|generate|check-access|publish <instance…> [--unlist]",
+    "usage: grist-sync.mjs apply [--dry-run] [--rebuild-pages]|apply-story <file> [--dry-run]|read-story <instance> <key>|verify <instance>|migrate|seed [--replace-all]|generate|check-access|publish <instance…> [--unlist]",
   );
   process.exit(1);
 }

@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "grist": "node grist/grist-sync.mjs",
     "test": "node --test tests/*.test.mjs",
     "test:widget": "playwright test",
     "check": "npm test && npm run test:widget"

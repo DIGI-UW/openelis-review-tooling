@@ -25,6 +25,11 @@ CONTAINER="${CONTAINER:-oe-edge-router}"
 SERVICE="${SERVICE:-router}"
 PROBE_ATTEMPTS="${PROBE_ATTEMPTS:-30}"
 PROBE_DELAY="${PROBE_DELAY:-2}"
+PROBE_PATH="${PROBE_PATH:-/__review/uat-$PROBE_INSTANCE/submissions}"
+case "$PROBE_PATH" in
+  /*) ;;
+  *) echo "PROBE_PATH must be an absolute same-host path" >&2; exit 2 ;;
+esac
 
 label() {
   docker inspect -f "{{index .Config.Labels \"$1\"}}" "$CONTAINER" 2>/dev/null || true
@@ -85,7 +90,7 @@ for _ in $(seq 1 "$PROBE_ATTEMPTS"); do
   # binding 443 yet.
   code="$(curl -sSk -o "$body" -w '%{http_code}' --max-time 10 \
     -X POST -H 'Content-Type: application/json' -d '{"answers":[]}' \
-    "https://$PROBE_DOMAIN/__review/uat-$PROBE_INSTANCE/submissions" 2>/dev/null || true)"
+    "https://$PROBE_DOMAIN$PROBE_PATH" 2>/dev/null || true)"
   [ "$code" = 000 ] || break
   sleep "$PROBE_DELAY"
 done
@@ -97,7 +102,7 @@ done
 case "$code" in
   400 | 501) ;;
   404)
-    echo "router reloaded but /__review/uat-$PROBE_INSTANCE/submissions is still a 404" >&2
+    echo "router reloaded but $PROBE_PATH is still a 404" >&2
     exit 1
     ;;
   *)

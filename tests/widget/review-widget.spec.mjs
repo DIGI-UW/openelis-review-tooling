@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { panelAction } from "./helpers.mjs";
 
 async function openPanel(page) {
   await page.goto("/");
@@ -198,17 +199,17 @@ test("keys answers by stable step key and includes provenance in reports", async
   await widget
     .locator(".step")
     .filter({ hasText: "Find a shipped profile" })
-    .getByText("Pass", { exact: true })
+    .getByText("Worked as expected", { exact: true })
     .click();
 
   const stored = await savedState(page);
-  expect(stored.key).toContain(
-    "oe-review:v2:analyzers:abc123:revision-two",
-  );
+  expect(stored.key).toContain("oe-review:v2:analyzers:abc123:revision-two");
   expect(stored.value.steps["AN-QC-001"].mark).toBe("pass");
   expect(stored.value.steps["0.0"]).toBeUndefined();
 
-  const report = await page.evaluate(() => window.__OE_REVIEW_TEST__.buildReport());
+  const report = await page.evaluate(() =>
+    window.__OE_REVIEW_TEST__.buildReport(),
+  );
   const json = JSON.parse(report.json);
   expect(json.schemaVersion).toBe(2);
   expect(json.checklistRevision).toBe("revision-two");
@@ -263,15 +264,19 @@ test("refresh preserves reordered answers and marks changed instructions stale",
   });
 
   const widget = await openPanel(page);
-  const reordered = widget.locator(".step").filter({ hasText: "Find a shipped profile" });
+  const reordered = widget
+    .locator(".step")
+    .filter({ hasText: "Find a shipped profile" });
   await reordered.locator(".steptop").click();
-  await reordered.getByText("Pass", { exact: true }).click();
+  await reordered.getByText("Worked as expected", { exact: true }).click();
 
   revision = "revision-two";
   firstInstruction = "Find and inspect a shipped profile";
-  await widget.getByRole("button", { name: "Refresh checklist" }).click();
+  await panelAction(widget, "Refresh checklist");
 
-  await expect(widget.getByText("Find and inspect a shipped profile")).toBeVisible();
+  await expect(
+    widget.getByText("Find and inspect a shipped profile"),
+  ).toBeVisible();
   await expect(
     widget
       .locator(".step")
@@ -283,7 +288,9 @@ test("refresh preserves reordered answers and marks changed instructions stale",
   expect(stored.value.steps["AN-QC-001"].stale).toBe(true);
 });
 
-test("shows checklist load failures instead of an empty checklist", async ({ page }) => {
+test("shows checklist load failures instead of an empty checklist", async ({
+  page,
+}) => {
   await page.route("**/tests/widget/uat.json", (route) =>
     route.fulfill({ status: 502, body: "unavailable" }),
   );
@@ -337,7 +344,9 @@ test("drops position-based legacy answers instead of announcing them", async ({
   // from a version of the widget they cannot still be using.
   await expect(widget.locator(".legacy")).toHaveCount(0);
   await expect
-    .poll(() => page.evaluate(() => localStorage.getItem("oe-review:analyzers")))
+    .poll(() =>
+      page.evaluate(() => localStorage.getItem("oe-review:analyzers")),
+    )
     .toBeNull();
 });
 
@@ -360,7 +369,7 @@ test("does not carry answers into a different deployment", async ({ page }) => {
   await widget
     .locator(".step")
     .filter({ hasText: "Find a shipped profile" })
-    .getByText("Pass", { exact: true })
+    .getByText("Worked as expected", { exact: true })
     .click();
 
   deploymentId = "deploy-analyzers-002";
@@ -375,10 +384,13 @@ test("does not carry answers into a different deployment", async ({ page }) => {
   ).not.toHaveClass(/on/);
 });
 
-test("keeps answers when the target fetch fails after a mark", async ({ page }) => {
+test("keeps answers when the target fetch fails after a mark", async ({
+  page,
+}) => {
   let targetAvailable = true;
   await page.route("**/tests/widget/target.json", (route) => {
-    if (!targetAvailable) return route.fulfill({ status: 503, body: "unavailable" });
+    if (!targetAvailable)
+      return route.fulfill({ status: 503, body: "unavailable" });
     return route.fulfill({
       json: {
         instance: "analyzers",
@@ -395,7 +407,7 @@ test("keeps answers when the target fetch fails after a mark", async ({ page }) 
   await widget
     .locator(".step")
     .filter({ hasText: "Find a shipped profile" })
-    .getByText("Pass", { exact: true })
+    .getByText("Worked as expected", { exact: true })
     .click();
 
   // The deployment identity is part of the storage key. A transient target
@@ -403,7 +415,9 @@ test("keeps answers when the target fetch fails after a mark", async ({ page }) 
   targetAvailable = false;
   await page.reload();
   widget = page.locator("#oe-review-host");
-  const marked = widget.locator(".step").filter({ hasText: "Find a shipped profile" });
+  const marked = widget
+    .locator(".step")
+    .filter({ hasText: "Find a shipped profile" });
   await expect(marked.locator(".chip")).toHaveCount(0);
   await expect(marked.locator(".steptop")).toHaveAttribute(
     "aria-label",

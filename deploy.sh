@@ -38,7 +38,7 @@
 #   ./deploy.sh analyzer-runtime status [--deployment <id>]
 #   ./deploy.sh analyzer-runtime verify
 #   ./deploy.sh review deploy --ref <sha> --scope widget|service|all
-#   ./deploy.sh review reload-router [--instance amr] [--domain <host>]
+#   ./deploy.sh review reload-router [--instance amr] [--domain <host>] [--external]
 #                                   # re-render nginx from the template, router only
 #   ./deploy.sh data seed amr --fixture microbiology-mvp --story AMR-S33
 #   ./deploy.sh data seed analyzers --fixture analyzer-mvp
@@ -766,23 +766,30 @@ fi"
 cmd_review_reload_router() {
   shift || true
   require_aws
-  local instance="amr" domain=""
+  local instance="amr" domain="" external=false
   while [ $# -gt 0 ]; do
     case "$1" in
       --instance) instance="${2:-}"; shift 2 ;;
       --domain) domain="${2:-}"; shift 2 ;;
+      --external) external=true; shift ;;
       *) die "unknown reload-router option '$1'" ;;
     esac
   done
-  validate_instance "$instance"
-  if [ -z "$domain" ]; then
+  [[ "$instance" =~ ^[a-z0-9_-]+$ ]] || die "invalid review instance"
+  local probe_path="/__review/uat-$instance/submissions"
+  if [ "$external" = true ]; then
+    domain="${domain:-$GRIST_DOMAIN}"
+    probe_path="/uat/$instance/submissions"
+  elif [ -z "$domain" ]; then
     case "$instance" in
       amr) domain="$AMR_DOMAIN" ;;
       analyzers) domain="$ANALYZERS_DOMAIN" ;;
       phrases) domain="$PHRASES_DOMAIN" ;;
+      *) die "use --external for a site on another server, or supply --domain" ;;
     esac
   fi
-  log "reloading the router (probing $domain/__review/uat-$instance/submissions)"
+  [[ "$domain" =~ ^[A-Za-z0-9.-]+$ ]] || die "invalid probe domain"
+  log "reloading the router (probing $domain$probe_path)"
   ssm_run "set -euo pipefail
 # Shipped as a real script rather than inlined here, so it is covered by
 # shellcheck and by tests that actually run it against stubs.
@@ -790,7 +797,7 @@ cat > /tmp/oe-reload-router.sh <<'RTREOF'
 $(cat "$HERE/scripts/reload-router.sh")
 RTREOF
 chmod +x /tmp/oe-reload-router.sh
-REMOTE_USER='$OS_USER' PROBE_DOMAIN='$domain' PROBE_INSTANCE='$instance' \
+REMOTE_USER='$OS_USER' PROBE_DOMAIN='$domain' PROBE_INSTANCE='$instance' PROBE_PATH='$probe_path' \
 AMR_DOMAIN='$AMR_DOMAIN' ANALYZERS_DOMAIN='$ANALYZERS_DOMAIN' PHRASES_DOMAIN='$PHRASES_DOMAIN' GRIST_DOMAIN='$GRIST_DOMAIN' \
 /tmp/oe-reload-router.sh"
 }

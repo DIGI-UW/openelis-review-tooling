@@ -46,6 +46,12 @@ the first deployment.
 AWS credentials remain in the operator's normal AWS CLI session. They are
 never copied into `.env`, Grist, the widget, or the authoring API.
 
+External application sites register through `REVIEW_EXTRA_BACKENDS` in the
+host runtime `.env`. It extends the configured `REVIEW_BACKENDS` list. Reload
+only the checklist service after editing it; the generic central submission
+route accepts any registered slug. See [the installation procedure](../integration/README.md)
+for layering Review onto an existing server without an application rebuild.
+
 The configured `AWS_PROFILE` region must match `REGION`. Console-login
 credentials are short-lived and the CLI refreshes them through the regional
 AWS Sign-In endpoint that issued the session. Before the first deployment, or
@@ -73,6 +79,13 @@ The Git checkout is replaceable. These paths are not:
 Deployment sync refuses to overwrite tracked changes and preserves untracked
 files. Persistent values still belong in the paths above, never in tracked
 files.
+
+## Agent/operator authoring client
+
+[Configure the direct Grist REST client once](../grist/CLIENT.md) with an
+external profile and credential file. Routine read, dry-run, apply and public
+verification operations then run without browser sign-in, Docker, AWS or SSH.
+Host lifecycle commands below remain for deployment and schema operations.
 
 ## Grist Lifecycle
 
@@ -125,6 +138,13 @@ answer across reordering. Changed instructions are marked stale. Answers from
 before stable keys were keyed by position, so none can be matched to a step;
 they are never mapped, and the pre-v2 key holding them is discarded on sight
 rather than reported.
+
+Story selection and its page context are saved per application tab and survive
+reloads. Another application tab may review a different route or choose a
+different story without redirecting this one. An explicitly opened review window
+exchanges story choices with its own opener; review answers still use the shared
+deployment/checklist/stable-step identity above. This prevents tabs on different
+routes from repeatedly replacing each other's checklist.
 
 ## Deployment Boundary
 

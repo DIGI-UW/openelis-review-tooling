@@ -328,6 +328,23 @@ test("nothing an answer pins is recomputed from the story it points at", () => {
   }
 });
 
+test("an answer has one issue link instead of a second resolution state", () => {
+  const issueUrl = SCHEMA.UAT_Answers.columns.issue_url;
+  assert.ok(issueUrl, "UAT_Answers.issue_url must be declared");
+  assert.equal(issueUrl.type, "Text");
+  assert.deepEqual(JSON.parse(issueUrl.widgetOptions), {
+    widget: "HyperLink",
+  });
+  assert.match(issueUrl.description, /GitHub issue or pull request/);
+  for (const redundant of ["status", "resolution", "resolved_at"]) {
+    assert.equal(
+      SCHEMA.UAT_Answers.columns[redundant],
+      undefined,
+      `${redundant} belongs to the linked issue, not Grist`,
+    );
+  }
+});
+
 test("a review can be read whole, from the person down to the answers", () => {
   const page = PAGES.find((p) => p.name === "Submitted reviews");
   assert.ok(page, "there must be a Submitted reviews page");
@@ -393,9 +410,15 @@ test("one story, every answer anyone gave it", () => {
 test("failures come first among a story's answers", () => {
   const answers = PAGES.find((p) => p.name === "Story results").sections[1];
   assert.deepEqual(answers.sort, ["mark"]);
-  // Which puts fail above na above pass — worth asserting rather than trusting,
-  // because it is alphabetical order doing the work, not a rule anybody wrote.
-  assert.deepEqual(["pass", "fail", "na"].sort(), ["fail", "na", "pass"]);
+  // Which puts blocked and fail above na and pass — worth asserting rather than
+  // trusting, because it is alphabetical order doing the work, not a rule
+  // anybody wrote.
+  assert.deepEqual(["pass", "fail", "blocked", "na"].sort(), [
+    "blocked",
+    "fail",
+    "na",
+    "pass",
+  ]);
 });
 
 test("the two pages that both read as 'reviews' are named apart", () => {

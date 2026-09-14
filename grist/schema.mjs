@@ -273,12 +273,12 @@ export const SCHEMA = {
         type: "Any",
         computed: true,
         description:
-          "The submission at a glance: how many passed, failed, and were not applicable.",
+          "The submission at a glance: how many passed, failed, could not be tried, and were not applicable.",
         isFormula: true,
         formula: [
           "answers = UAT_Answers.lookupRecords(review=$id)",
           'def n(mark): return len([a for a in answers if (a.mark or "") == mark])',
-          'return "{} pass · {} fail · {} n/a".format(n("pass"), n("fail"), n("na"))',
+          'return "{} pass · {} fail · {} couldn\'t try · {} n/a".format(n("pass"), n("fail"), n("blocked"), n("na"))',
         ].join("\n"),
       },
     },
@@ -286,7 +286,7 @@ export const SCHEMA = {
 
   UAT_Answers: {
     title:
-      "One row per step answered. Every field here is a copy taken at the time.",
+      "One row per step answered. Submitted evidence stays fixed; issue_url is the follow-up link.",
     columns: {
       review: {
         type: "Ref:UAT_Submissions",
@@ -323,7 +323,7 @@ export const SCHEMA = {
       mark: {
         type: "Text",
         description:
-          "pass, fail, or na. A step with no answer produces no row at all, so an absent step_key here means it was never reached rather than that it was fine.",
+          "pass, fail, blocked, or historical na. Blocked means the reviewer could not try the step; na remains only for earlier evidence. A step with no answer produces no row at all.",
       },
       note: {
         type: "Text",
@@ -343,6 +343,15 @@ export const SCHEMA = {
         type: "Ref:UAT_Stories",
         description:
           "The story as it stands today, for the same reason as step: navigation. It is also what lets a page show one story's answers across every submission, because Grist links two widgets through a reference and not through matching text. story_key and story_version remain what this answer is a record of.",
+      },
+      // The only mutable follow-up field. GitHub owns the issue or pull
+      // request's state, so Grist does not duplicate it with local status fields.
+      issue_url: {
+        type: "Text",
+        label: "Issue or PR",
+        description:
+          "The canonical GitHub issue or pull request tracking this feedback. Leave blank until the observation has been triaged.",
+        widgetOptions: JSON.stringify({ widget: "HyperLink" }),
       },
     },
   },

@@ -66,7 +66,7 @@ test("lets an anonymous reviewer work anyway", async ({ page }) => {
   await widget
     .locator(".step")
     .first()
-    .getByText("Pass", { exact: true })
+    .getByText("Worked as expected", { exact: true })
     .click();
   await expect(widget.locator(".step").first()).toHaveAttribute(
     "data-state",
@@ -85,13 +85,13 @@ test("keeps what was answered before signing in", async ({ page }) => {
   await widget
     .locator(".step")
     .first()
-    .locator(".stepnote")
-    .fill("noticed before I signed in");
+    .getByText("There was a problem", { exact: true })
+    .click();
   await widget
     .locator(".step")
     .first()
-    .getByText("Pass", { exact: true })
-    .click();
+    .locator(".stepnote")
+    .fill("noticed before I signed in");
 
   // They sign in, and the page reloads as OpenELIS does after login.
   await session(page, {
@@ -109,7 +109,7 @@ test("keeps what was answered before signing in", async ({ page }) => {
   await expect(widget.getByLabel("Your name")).toHaveValue("Piotr Manko");
   await expect(widget.locator(".step").first()).toHaveAttribute(
     "data-state",
-    "pass",
+    "fail",
   );
 
   // Only the step being worked on shows its note, so going back to that one is
@@ -124,7 +124,7 @@ test("keeps what was answered before signing in", async ({ page }) => {
     await page.evaluate(() => window.__OE_REVIEW_TEST__.buildReport().json),
   );
   const first = json.checklist[0].steps[0];
-  expect(first.mark).toBe("pass");
+  expect(first.mark).toBe("fail");
   expect(first.note).toBe("noticed before I signed in");
   expect(json.reviewer).toBe("Piotr Manko");
   expect(json.login).toBe("mmwanza");
@@ -186,7 +186,7 @@ test("carries the entered reviewer and authenticated login separately", async ({
   await widget
     .locator(".step")
     .first()
-    .getByText("Pass", { exact: true })
+    .getByText("Worked as expected", { exact: true })
     .click();
   const report = await page.evaluate(() =>
     window.__OE_REVIEW_TEST__.buildReport(),
