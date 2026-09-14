@@ -27,6 +27,12 @@ def render(config):
     story_scope = config.get("story_scope", "site")
     if story_scope not in ("site", "all"):
         raise ValueError("story_scope must be site or all")
+    suggested = config.get("suggested_stories", [])
+    if not isinstance(suggested, list) or any(
+        not isinstance(value, str) or not re.fullmatch(r"[A-Za-z0-9_-]+(?:--[A-Za-z0-9_-]+)?", value)
+        for value in suggested
+    ):
+        raise ValueError("suggested_stories must be a list of story keys or catalog ids")
     for path in (session, *([build] if build is not None else [])):
         if not isinstance(path, str) or not re.fullmatch(r"/(?!/)[A-Za-z0-9_./-]+", path) or ".." in path:
             raise ValueError("session_path and build_path must be absolute same-origin paths")
@@ -47,6 +53,8 @@ def render(config):
         "data-build-src": build if build is not None else "none",
         "data-story-scope": story_scope,
     }
+    if suggested:
+        attrs["data-suggested-stories"] = ",".join(suggested)
     def attribute(value):
         return html.escape(value, quote=True).replace("$", "&#36;").replace("\\", "&#92;")
 

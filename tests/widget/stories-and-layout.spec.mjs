@@ -17,7 +17,7 @@ async function openPanel(page) {
 async function openStoryChecklist(widget) {
   const trigger = widget.getByRole("button", { name: "Choose story" });
   await trigger.click();
-  const list = widget.getByRole("listbox", { name: /stories/i });
+  const list = widget.getByRole("listbox", { name: /reviews|stories/i });
   await expect(list).toBeVisible();
   return list;
 }
@@ -26,7 +26,7 @@ async function chooseStory(widget, name, { showAll = false } = {}) {
   const list = await openStoryChecklist(widget);
   if (showAll) {
     await widget
-      .getByRole("button", { name: /show all .* server stories/i })
+      .getByRole("button", { name: /browse all/i })
       .click();
   }
   await list.getByRole("option", { name }).click();
@@ -177,7 +177,7 @@ test("uses the production catalog to show one story without aggregate fallback",
     list.getByRole("option", { name: /Work the seeded bacteriology case/ }),
   ).toHaveCount(0);
   await widget
-    .getByRole("button", { name: "Show all 4 server stories" })
+    .getByRole("button", { name: "Browse all 4 reviews" })
     .click();
   await expect(list.getByRole("option")).toHaveCount(4);
   await list
@@ -242,7 +242,7 @@ test("uses the production catalog to show one story without aggregate fallback",
   ).toEqual([]);
   await widget
     .locator(".step.current .detail")
-    .getByRole("button", { name: "Pass" })
+    .getByRole("button", { name: "Worked as expected" })
     .click();
   await expect(widget.locator(".step").first()).toHaveAttribute(
     "data-state",
@@ -320,7 +320,7 @@ test("shows only stories for the current URL by default", async ({ page }) => {
   const list = await openStoryChecklist(widget);
 
   await expect(widget.locator(".storyscope")).toHaveText(
-    "Stories on this page",
+    "Suggested reviews for this page",
   );
   await expect(list.getByRole("option")).toHaveCount(1);
   await expect(list.getByRole("option").first()).toContainText(
@@ -328,7 +328,7 @@ test("shows only stories for the current URL by default", async ({ page }) => {
   );
   await expect(list.getByText("Order entry")).toHaveCount(0);
   await expect(
-    widget.getByRole("button", { name: "Show all 4 server stories" }),
+    widget.getByRole("button", { name: "Browse all 4 reviews" }),
   ).toBeVisible();
 });
 
@@ -386,7 +386,7 @@ test("falls back to every server story when the current URL has no match", async
 
   const widget = await openPanel(page);
   const list = await openStoryChecklist(widget);
-  await expect(widget.locator(".storyscope")).toHaveText("All server stories");
+  await expect(widget.locator(".storyscope")).toHaveText("Available reviews");
   await expect(widget.locator(".storynotice")).toContainText(
     "No stories target this page",
   );
@@ -415,7 +415,7 @@ test("supports arrow-key navigation through the story checklist", async ({
   const widget = await openPanel(page);
   const list = await openStoryChecklist(widget);
   await widget
-    .getByRole("button", { name: /show all .* server stories/i })
+    .getByRole("button", { name: /browse all/i })
     .click();
   const options = list.getByRole("option");
 
@@ -510,7 +510,7 @@ test("switching story loads its checklist and keeps the answers apart", async ({
   const widget = await openPanel(page);
   await widget
     .locator(".step.current .detail")
-    .getByRole("button", { name: "Pass" })
+    .getByRole("button", { name: "Worked as expected" })
     .click();
   await expect(widget.locator(".step").nth(0)).toHaveAttribute(
     "data-state",
@@ -667,43 +667,23 @@ test("keeps a restored panel open when switching to an untouched story", async (
   await expect(restored.locator(".step")).toHaveCount(3);
 });
 
-test("expands to show every step in full, and comes back", async ({ page }) => {
+test("keeps one checkpoint focused even when the pane is wide", async ({ page }) => {
   const widget = await openPanel(page);
-  const compact = await widget.locator(".panel").boundingBox();
   await expect(widget.locator(".expect")).toHaveCount(1);
-
-  await widget.getByRole("button", { name: "Expand panel" }).click();
-  const expanded = await widget.locator(".panel").boundingBox();
-  expect(expanded.width).toBeGreaterThan(compact.width);
-  await expect(widget.locator(".expect")).toHaveCount(3);
-  await expect(
-    widget.locator(".step").nth(2).getByRole("button", { name: "Pass" }),
-  ).toBeVisible();
-
-  // Expanding is worth nothing if each step simply gets taller: the extra width
-  // has to buy a shorter step, so more of the checklist is on screen.
-  const compactStep = await widget.locator(".step.current").boundingBox();
-  await widget.getByRole("button", { name: "Collapse panel" }).click();
+  await widget.getByLabel("Review placement").selectOption("bottom");
   await expect(widget.locator(".expect")).toHaveCount(1);
-  const collapsedStep = await widget.locator(".step.current").boundingBox();
-  expect(compactStep.height).toBeLessThan(collapsedStep.height);
 });
 
 test("never grows its own header off the top of the screen", async ({
   page,
 }) => {
   const widget = await openPanel(page);
-  await widget.getByRole("button", { name: "Expand panel" }).click();
-
   const panel = await widget.locator(".panel").boundingBox();
-  // Expanded is a viewport workspace. Its own return control must stay on screen.
   expect(panel.y).toBeGreaterThanOrEqual(0);
   expect(panel.y + panel.height).toBeLessThanOrEqual(
     page.viewportSize().height,
   );
-  await expect(
-    widget.getByRole("button", { name: "Collapse panel" }),
-  ).toBeInViewport();
+  await expect(widget.getByRole("button", { name: "Minimize" })).toBeInViewport();
 });
 
 test("shows how far each section has got", async ({ page }) => {
@@ -713,7 +693,7 @@ test("shows how far each section has got", async ({ page }) => {
 
   await widget
     .locator(".step.current .detail")
-    .getByRole("button", { name: "Pass" })
+    .getByRole("button", { name: "Worked as expected" })
     .click();
   await expect(first.locator(".seccount")).toHaveText("1/3");
 });
@@ -726,13 +706,17 @@ test("filters down to what still needs doing, and to what failed", async ({
   await steps.nth(0).locator(".steptop").click();
   await widget
     .locator(".step.current .detail")
-    .getByRole("button", { name: "Pass" })
+    .getByRole("button", { name: "Worked as expected" })
     .click();
   await steps.nth(1).locator(".steptop").click();
   await widget
     .locator(".step.current .detail")
-    .getByRole("button", { name: "Fail" })
+    .getByRole("button", { name: "There was a problem" })
     .click();
+  await widget
+    .locator(".step.current .detail")
+    .getByLabel("Explain this answer")
+    .fill("The expected state was missing");
 
   await widget.getByRole("button", { name: "More review actions" }).click();
   await widget.getByRole("button", { name: "To do" }).click();
@@ -754,13 +738,13 @@ test("filters down to what still needs doing, and to what failed", async ({
 
 test("keeps how the panel was set up across a reload", async ({ page }) => {
   const widget = await openPanel(page);
-  await widget.getByRole("button", { name: "Expand panel" }).click();
-  await panelAction(widget, "Move panel");
+  await widget.getByLabel("Review placement").selectOption("left");
   const arranged = await widget.locator(".panel").boundingBox();
 
   await page.reload();
   const reopened = page.locator("#oe-review-host");
-  await expect(reopened.locator(".expect")).toHaveCount(3);
+  await expect(reopened.locator(".expect")).toHaveCount(1);
+  await expect(reopened.getByLabel("Review placement")).toHaveValue("left");
   const restored = await reopened.locator(".panel").boundingBox();
   expect(restored.x).toBeCloseTo(arranged.x, 0);
   expect(restored.width).toBeCloseTo(arranged.width, 0);

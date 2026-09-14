@@ -7,6 +7,8 @@
       "review": "amr",
       "key": "AMR-S01",
       "title": "M1 - Find and route microbiology work",
+      "purpose": "Find routine microbiology work and reach the correct workspace.",
+      "version": "1.0",
       "jira": "OGC-782",
       "order": 0,
       "steps": 3,

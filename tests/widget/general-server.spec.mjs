@@ -84,14 +84,14 @@ test("general server lists every published source despite host and page filters 
   page.on("pageerror", (error) => errors.push(error.message));
   const widget = await generalServer(page);
   await widget.locator(".storytrigger").click();
-  const list = widget.getByRole("listbox", { name: "All published stories" });
+  const list = widget.getByRole("listbox", { name: "Available reviews" });
   await expect(list.getByRole("option")).toHaveCount(2);
   await list.getByRole("option", { name: /Order story/ }).click();
   await expect(widget.locator(".step")).toContainText("Check Order story");
   await widget.getByLabel("Your name").fill("General QA");
   await widget
     .locator(".step")
-    .getByRole("button", { name: "Pass", exact: true })
+    .getByRole("button", { name: "Worked as expected", exact: true })
     .click();
   let sent;
   await page.route(

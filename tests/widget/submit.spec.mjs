@@ -59,17 +59,19 @@ async function openPanel(
 
 // Answers the first step and returns the widget, so each test starts from a
 // review that has something in it to hand in.
-async function answerOneStep(widget, mark = "Fail") {
-  await widget
-    .locator(".step")
-    .first()
-    .locator(".stepnote")
-    .fill("the list was empty");
+async function answerOneStep(widget, mark = "There was a problem") {
   await widget
     .locator(".step")
     .first()
     .getByText(mark, { exact: true })
     .click();
+  if (mark === "There was a problem" || mark === "I couldn't try this") {
+    await widget
+      .locator(".step")
+      .first()
+      .locator(".stepnote")
+      .fill("the list was empty");
+  }
   return widget;
 }
 
@@ -100,7 +102,7 @@ test("sends each answer pinned to the story version it was given against", async
   const sent = await captureSubmit(page, ok);
   const widget = await answerOneStep(await openPanel(page));
   await expect(
-    widget.getByRole("button", { name: "Submit review" }),
+    widget.getByRole("button", { name: "Submit partial feedback" }),
   ).toBeVisible();
   await submitButton(widget).click();
 

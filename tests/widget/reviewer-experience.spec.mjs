@@ -1,5 +1,4 @@
 import { expect, test } from "@playwright/test";
-import { panelAction } from "./helpers.mjs";
 
 // The reviewer works a real application with the checklist on top of it. These
 // tests run against app-fixture.html, which reproduces the layers measured on
@@ -33,7 +32,7 @@ test("keeps the reviewer's place in the checklist when a step is marked", async 
   await expect(step).toHaveClass(/current/);
   const before = await step.boundingBox();
 
-  await step.getByRole("button", { name: "Pass" }).click();
+  await step.getByRole("button", { name: "Worked as expected" }).click();
 
   const after = await step.boundingBox();
   expect(after).not.toBeNull();
@@ -101,7 +100,7 @@ test("answering a step moves the reviewer on to the next one", async ({
   const steps = widget.locator(".step");
   await expect(steps.nth(0)).toHaveClass(/current/);
 
-  await steps.nth(0).getByRole("button", { name: "Pass" }).click();
+  await steps.nth(0).getByRole("button", { name: "Worked as expected" }).click();
 
   await expect(steps.nth(0)).not.toHaveClass(/current/);
   await expect(steps.nth(1)).toHaveClass(/current/);
@@ -143,15 +142,13 @@ function topmostOverPanel(page) {
 
 test("sits above the application's own furniture", async ({ page }) => {
   const widget = await openPanel(page);
-  // Onto the left anchor, where the application pins its side nav at z-index 8000.
-  await panelAction(widget, "Move panel");
-  await panelAction(widget, "Move panel");
-  await expect(widget.locator(".wrap")).toHaveClass(/anchor-left/);
+  await widget.getByLabel("Review placement").selectOption("left");
+  await expect(widget.locator(".wrap")).toHaveClass(/dock-left/);
 
   expect(await topmostOverPanel(page)).toBe("oe-review-host");
 });
 
-test("lets an application modal come over the top of the checklist", async ({
+test("keeps an application modal usable with the checklist open", async ({
   page,
 }) => {
   const widget = await openPanel(page);
@@ -161,12 +158,23 @@ test("lets an application modal come over the top of the checklist", async ({
   expect(Number(layer)).toBeLessThan(9000);
 
   await page.getByRole("button", { name: "Open modal" }).click();
-  // Carbon modals sit at 9000: the dialog a step is asking the reviewer to use
-  // has to be able to come over the checklist that asked for it.
-  expect(await topmostOverPanel(page)).not.toBe("oe-review-host");
-  await expect(
-    page.getByRole("button", { name: "Modal action" }),
-  ).toBeVisible();
+  const action = page.getByRole("button", { name: "Modal action" });
+  await expect(action).toBeVisible();
+  await expect(action).toBeEnabled();
+  // A side dock normally leaves the dialog beside the review. If a host modal
+  // does overlap it, Carbon's modal layer remains above the widget.
+  const [panelBox, dialogBox] = await Promise.all([
+    widget.locator(".panel").boundingBox(),
+    page.getByRole("dialog").boundingBox(),
+  ]);
+  if (boxesOverlap(panelBox, dialogBox)) {
+    const point = await action.boundingBox();
+    const hit = await page.evaluate(
+      ({ x, y }) => document.elementFromPoint(x, y)?.textContent,
+      { x: point.x + point.width / 2, y: point.y + point.height / 2 },
+    );
+    expect(hit).toContain("Modal action");
+  }
 });
 
 test("can be moved off whatever it is covering, and remembers where", async ({
@@ -175,7 +183,7 @@ test("can be moved off whatever it is covering, and remembers where", async ({
   const widget = await openPanel(page);
   const before = await widget.locator(".panel").boundingBox();
 
-  await panelAction(widget, "Move panel");
+  await widget.getByLabel("Review placement").selectOption("left");
   const moved = await widget.locator(".panel").boundingBox();
   expect(moved.x).not.toBeCloseTo(before.x, 0);
 
@@ -193,7 +201,7 @@ test("hands keyboard focus on to the next step after answering", async ({
   const widget = await openPanel(page);
   await widget
     .locator(".step.current .detail")
-    .getByRole("button", { name: "Pass" })
+    .getByRole("button", { name: "Worked as expected" })
     .focus();
   await page.keyboard.press("Enter");
 
@@ -228,7 +236,7 @@ test("numbers every step and says where each one stands", async ({ page }) => {
 
   await widget
     .locator(".step.current .detail")
-    .getByRole("button", { name: "Pass" })
+    .getByRole("button", { name: "Worked as expected" })
     .click();
   await expect(steps.nth(0)).toHaveAttribute("data-state", "pass");
   await expect(steps.nth(1)).toHaveAttribute("data-state", "todo");
@@ -266,7 +274,6 @@ test("keeps the selected story visible while its checklist scrolls", async ({
   page,
 }) => {
   const widget = await openPanel(page);
-  await widget.getByRole("button", { name: "Expand panel" }).click();
   const trigger = widget.getByRole("button", { name: "Choose story" });
   const before = await trigger.boundingBox();
   await widget.locator(".body").evaluate((node) => {
@@ -287,7 +294,7 @@ test("stands the preamble down once, not every time the count changes", async ({
 
   const pass = widget
     .locator(".step.current .detail")
-    .getByRole("button", { name: "Pass" });
+    .getByRole("button", { name: "Worked as expected" });
   await pass.click();
   await expect(intro).toBeHidden();
 
@@ -295,7 +302,7 @@ test("stands the preamble down once, not every time the count changes", async ({
   await widget.locator(".step").nth(0).locator(".steptop").click();
   await widget
     .locator(".step.current .detail")
-    .getByRole("button", { name: "Pass" })
+    .getByRole("button", { name: "Worked as expected" })
     .click();
   await expect(intro).toBeHidden();
 });
@@ -326,7 +333,7 @@ test("shows progress on the collapsed launcher", async ({ page }) => {
   const widget = await openPanel(page);
   await widget
     .locator(".step.current")
-    .getByRole("button", { name: "Pass" })
+    .getByRole("button", { name: "Worked as expected" })
     .click();
   await widget.getByRole("button", { name: /minimi[sz]e/i }).click();
 
@@ -348,7 +355,7 @@ test("is reachable and operable without a mouse", async ({ page }) => {
 
   const pass = widget
     .locator(".step.current .detail")
-    .getByRole("button", { name: "Pass" });
+    .getByRole("button", { name: "Worked as expected" });
   await expect(pass).toHaveAttribute("aria-pressed", "false");
   await pass.click();
 
@@ -358,13 +365,11 @@ test("is reachable and operable without a mouse", async ({ page }) => {
   await expect(
     widget
       .locator(".step.current .detail")
-      .getByRole("button", { name: "Pass" }),
+      .getByRole("button", { name: "Worked as expected" }),
   ).toHaveAttribute("aria-pressed", "true");
 
   await expect(widget.getByLabel("Your name")).toBeVisible();
-  await expect(
-    widget.locator(".step.current").getByLabel(/note/i),
-  ).toBeVisible();
+  await expect(widget.getByLabel("Review placement")).toBeVisible();
 });
 
 test("hands the review over as a single document the reviewer can paste", async ({
@@ -373,7 +378,7 @@ test("hands the review over as a single document the reviewer can paste", async 
   const widget = await openPanel(page);
   await widget
     .locator(".step.current")
-    .getByRole("button", { name: "Fail" })
+    .getByRole("button", { name: "There was a problem" })
     .click();
 
   await widget.getByLabel(/Your name/).fill("Piotr Manko");
@@ -405,7 +410,7 @@ test("keeps secondary review actions out of the primary footer", async ({
 
   await expect(footer.getByRole("button")).toHaveCount(2);
   await expect(
-    footer.getByRole("button", { name: "Submit review" }),
+    footer.getByRole("button", { name: "Submit partial feedback" }),
   ).toBeVisible();
   const more = footer.getByRole("button", { name: "More review actions" });
   const stories = widget.getByRole("button", { name: "Choose story" });
@@ -448,7 +453,7 @@ test("records the page and console errors behind a failure", async ({
   await page.evaluate(() => console.error("worklist filter blew up"));
   await widget
     .locator(".step.current")
-    .getByRole("button", { name: "Fail" })
+    .getByRole("button", { name: "There was a problem" })
     .click();
 
   const report = await page.evaluate(() =>

@@ -28,9 +28,10 @@ class IntegrationTest(unittest.TestCase):
         self.assertEqual(files["embed.html"].count("</script>"), 1)
 
     def test_general_server_can_show_all_stories_without_build_metadata(self):
-        files = configure.render({"instance": "testing", "review_origin": "https://review.example.org", "story_scope": "all", "build_path": None})
+        files = configure.render({"instance": "testing", "review_origin": "https://review.example.org", "story_scope": "all", "build_path": None, "suggested_stories": ["RPT-S01", "reporting--RPT-S04"]})
         self.assertIn('data-story-scope="all"', files["embed.html"])
         self.assertIn('data-build-src="none"', files["embed.html"])
+        self.assertIn('data-suggested-stories="RPT-S01,reporting--RPT-S04"', files["embed.html"])
         self.assertIn('/uat/testing/submissions;', files["routes.conf"])
 
     def test_invalid_configuration_is_rejected_before_writing(self):
@@ -44,6 +45,8 @@ class IntegrationTest(unittest.TestCase):
             {"ca_bundle": "/tmp/ca; proxy_ssl_verify off"},
             {"label": "hello\nreturn 200"},
             {"story_scope": "invalid"},
+            {"suggested_stories": "RPT-S01"},
+            {"suggested_stories": ["RPT S01"]},
         ]
         for overrides in invalid:
             with self.subTest(overrides=overrides), self.assertRaises(ValueError):

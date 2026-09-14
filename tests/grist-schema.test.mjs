@@ -410,9 +410,15 @@ test("one story, every answer anyone gave it", () => {
 test("failures come first among a story's answers", () => {
   const answers = PAGES.find((p) => p.name === "Story results").sections[1];
   assert.deepEqual(answers.sort, ["mark"]);
-  // Which puts fail above na above pass — worth asserting rather than trusting,
-  // because it is alphabetical order doing the work, not a rule anybody wrote.
-  assert.deepEqual(["pass", "fail", "na"].sort(), ["fail", "na", "pass"]);
+  // Which puts blocked and fail above na and pass — worth asserting rather than
+  // trusting, because it is alphabetical order doing the work, not a rule
+  // anybody wrote.
+  assert.deepEqual(["pass", "fail", "blocked", "na"].sort(), [
+    "blocked",
+    "fail",
+    "na",
+    "pass",
+  ]);
 });
 
 test("the two pages that both read as 'reviews' are named apart", () => {

@@ -276,6 +276,21 @@ app.post("/uat/:instance/submissions", async (req, res) => {
       .status(400)
       .json({ error: "a submission needs at least one answered step" });
   }
+  const allowedMarks = new Set(["pass", "fail", "blocked", "na"]);
+  for (const answer of answers) {
+    const mark = String((answer && answer.mark) || "");
+    if (!allowedMarks.has(mark)) {
+      return res.status(400).json({ error: "an answer has an invalid outcome" });
+    }
+    if (
+      (mark === "fail" || mark === "blocked") &&
+      !String((answer && answer.note) || "").trim()
+    ) {
+      return res.status(400).json({
+        error: "problem and couldn't-try answers need an explanation",
+      });
+    }
+  }
   const reviewerName = String((req.body && req.body.reviewer) || "").trim();
   if (!reviewerName) {
     return res.status(400).json({ error: "a reviewer name is required" });

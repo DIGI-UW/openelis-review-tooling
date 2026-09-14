@@ -199,7 +199,7 @@ test("keys answers by stable step key and includes provenance in reports", async
   await widget
     .locator(".step")
     .filter({ hasText: "Find a shipped profile" })
-    .getByText("Pass", { exact: true })
+    .getByText("Worked as expected", { exact: true })
     .click();
 
   const stored = await savedState(page);
@@ -268,7 +268,7 @@ test("refresh preserves reordered answers and marks changed instructions stale",
     .locator(".step")
     .filter({ hasText: "Find a shipped profile" });
   await reordered.locator(".steptop").click();
-  await reordered.getByText("Pass", { exact: true }).click();
+  await reordered.getByText("Worked as expected", { exact: true }).click();
 
   revision = "revision-two";
   firstInstruction = "Find and inspect a shipped profile";
@@ -369,7 +369,7 @@ test("does not carry answers into a different deployment", async ({ page }) => {
   await widget
     .locator(".step")
     .filter({ hasText: "Find a shipped profile" })
-    .getByText("Pass", { exact: true })
+    .getByText("Worked as expected", { exact: true })
     .click();
 
   deploymentId = "deploy-analyzers-002";
@@ -407,7 +407,7 @@ test("keeps answers when the target fetch fails after a mark", async ({
   await widget
     .locator(".step")
     .filter({ hasText: "Find a shipped profile" })
-    .getByText("Pass", { exact: true })
+    .getByText("Worked as expected", { exact: true })
     .click();
 
   // The deployment identity is part of the storage key. A transient target

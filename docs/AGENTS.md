@@ -22,7 +22,8 @@ author those checklists from one source of truth.
   Grist's REST API. Neither clobbers the other
   (edits target specific rows).
 - **Delivery:** a reviewer overlay injected into each demo site reads the
-  checklist live from Grist and captures pass/fail/na + freeform feedback.
+  checklist live from Grist and captures worked/problem/could-not-try outcomes
+  plus freeform feedback. Historical `na` remains distinct.
 - **Return path:** the reviewer downloads a Markdown+JSON report and pastes it
   into Claude, which triages it into Jira/GitHub items.
 
@@ -166,7 +167,9 @@ The panel also refreshes whenever it opens and has an explicit refresh action.
 
 ## Feedback — the submission and report
 
-The reviewer marks each step (pass/fail/na) + optional notes and enters their
+The reviewer marks each step as worked, problem, or could not try. Problems and
+could-not-try outcomes require a short explanation; historical `na` remains
+readable but is not a new response choice. The reviewer enters their
 required name. **Submit review** writes the answers to Grist with both the
 application-verified login and the separately entered reviewer name. The server
 derives the login from the application session and rejects a blank reviewer

@@ -7,7 +7,8 @@ description: Author and edit UAT review checklists for OpenELIS in the central G
 
 UAT checklists tell a reviewer what to try in a running OpenELIS deployment and
 what should happen. They live in one central Grist document; a reviewer overlay
-on each demo site reads them live and captures pass/fail plus notes.
+on each demo site reads them live and captures worked/problem/could-not-try
+outcomes plus notes.
 
 Your job is usually one of three things: **write a new checklist**, **change an
 existing one**, or **triage a report** a reviewer sent back.
@@ -135,12 +136,22 @@ alone; verify the public checklist endpoint after the write.
 
 ## Write steps a reviewer can actually judge
 
+Write for a nontechnical reviewer who may be new to OpenELIS. Each story needs a
+concise purpose, explicit starting conditions, coherent actions, and observable
+outcomes. Put background and troubleshooting in optional help rather than in the
+action. Keep the task short enough to scan while the application remains visible.
+
+Group actions that form one natural user task into one checkpoint. Do not turn
+every click into a separate checkpoint, and do not combine unrelated outcomes
+just to reduce the count. A reviewer should be able to answer the checkpoint
+after one uninterrupted piece of work.
+
 A step is a `do` the reviewer performs and an `expect` they measure against. The
-`expect` is what makes a Fail meaningful — without it, a reviewer can only report
+`expect` is what makes a problem report meaningful — without it, a reviewer can only report
 that they were confused.
 
 Aim the checklist at what you are unsure about. A missing feature is a
-legitimate step: the reviewer marking it **Fail** is exactly the signal worth
+legitimate step: the reviewer choosing **There was a problem** is exactly the signal worth
 having, and it is far more useful than a checklist that only confirms what you
 already know works.
 
@@ -266,8 +277,9 @@ tells the reviewer to use that same surface.
 ## Triaging a returned report
 
 A reviewer's report arrives as Markdown (with a JSON twin) listing each step as
-`[PASS]`/`[FAIL]`/`[N/A]`/`[----]` plus freeform notes. Turn it into ranked,
-actionable items: group by severity, map each FAIL and each critical note to a
+`[PASS]`/`[FAIL]`/`[BLOCKED]`/historical `[N/A]`/`[----]` plus freeform notes.
+Treat BLOCKED as a distinct inability to try the step, not as a failure or as
+not applicable. Turn the report into ranked, actionable items: group by severity, map each FAIL and each critical note to a
 concrete story or task under the instance's Jira epic, and say plainly what
 passed so the reader knows the scope of what was confirmed.
 

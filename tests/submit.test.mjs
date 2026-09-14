@@ -462,6 +462,70 @@ test("every answer is stored under the submission with what it was answered agai
   assert.equal(orphan.fields.step, 0);
 });
 
+test("a reviewer can record that a checkpoint could not be tried", async () => {
+  const doc = seededDoc();
+  await withService(doc, { "JSESSIONID=real": MERCY }, {}, async (base) => {
+    const response = await submit(base, {
+      cookie: "JSESSIONID=real",
+      payload: {
+        answers: [
+          {
+            ...ANSWER,
+            mark: "blocked",
+            note: "The sample needed for this step was unavailable",
+          },
+        ],
+      },
+    });
+    assert.equal(response.status, 201, await response.text());
+  });
+
+  const [answer] = doc.tables.UAT_Answers.records;
+  assert.equal(answer.fields.mark, "blocked");
+  assert.equal(
+    answer.fields.note,
+    "The sample needed for this step was unavailable",
+  );
+});
+
+for (const mark of ["fail", "blocked"]) {
+  test(`${mark} requires an explanation before anything is written`, async () => {
+    const doc = seededDoc();
+    const { response } = await withService(
+      doc,
+      { "JSESSIONID=real": MERCY },
+      {},
+      (base) =>
+        submit(base, {
+          cookie: "JSESSIONID=real",
+          payload: { answers: [{ ...ANSWER, mark, note: "  " }] },
+        }),
+    );
+    assert.equal(response.status, 400);
+    assert.match((await response.json()).error, /explanation/i);
+    assert.equal(doc.tables.UAT_Submissions.records.length, 0);
+    assert.equal(doc.tables.UAT_Answers.records.length, 0);
+  });
+}
+
+test("an unknown checkpoint outcome is refused before anything is written", async () => {
+  const doc = seededDoc();
+  const { response } = await withService(
+    doc,
+    { "JSESSIONID=real": MERCY },
+    {},
+    (base) =>
+      submit(base, {
+        cookie: "JSESSIONID=real",
+        payload: { answers: [{ ...ANSWER, mark: "skipped" }] },
+      }),
+  );
+  assert.equal(response.status, 400);
+  assert.match((await response.json()).error, /outcome/i);
+  assert.equal(doc.tables.UAT_Submissions.records.length, 0);
+  assert.equal(doc.tables.UAT_Answers.records.length, 0);
+});
+
 test("when it was handed in is the server's answer, not the reviewer's", async () => {
   // A clock the submitter controls is not a timestamp, and a review's date is
   // the sort of thing that gets read back months later as fact.

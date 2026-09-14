@@ -230,7 +230,7 @@ test.describe("popping the panel out", () => {
     const { widget, popup } = await popOut(page);
     await popup
       .locator("#oe-review-host")
-      .getByRole("button", { name: "Pass", exact: true })
+      .getByRole("button", { name: "Worked as expected", exact: true })
       .click();
     // The two windows share one store, so the page's launcher counts the answer
     // given in the other window.
@@ -263,7 +263,7 @@ test.describe("popping the panel out", () => {
     await page.goto("/analyzers/types");
     await popup
       .locator("#oe-review-host")
-      .getByRole("button", { name: "Pass", exact: true })
+      .getByRole("button", { name: "Worked as expected", exact: true })
       .click();
 
     // Back to a page carrying the widget, which reloads the answer from the store
