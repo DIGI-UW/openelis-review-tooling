@@ -5,6 +5,10 @@ widget, a Grist-backed authoring layer with REST automation, and the demo deploy
 that ties them together. It **targets** OpenELIS-Global-2 demo builds but is not part
 of that repo, so it can iterate on its own.
 
+[Validation ownership](docs/validation-ownership.md): UAT follows original
+`openelis-work` stories; application E2E provides automated checks and video
+proof; Grist captures review feedback, with `OpenELIS-QA` synchronization planned.
+
 ## The loop, in three lines
 - **Author** — humans edit checklists in a Grist spreadsheet, or agents author them
   through Grist's REST API. See [`docs/AGENTS.md`](docs/AGENTS.md).
@@ -149,3 +153,5 @@ stable `/Microbiology/worklist` route.
 
 ## License
 MIT — see [LICENSE](LICENSE).
+
+For routine agent/operator checklist updates, use the [backend Grist client](grist/CLIENT.md). Configure its credential file once, then read, preview, apply and verify through the REST API from any checkout.

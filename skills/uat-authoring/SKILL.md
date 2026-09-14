@@ -12,7 +12,24 @@ on each demo site reads them live and captures pass/fail plus notes.
 Your job is usually one of three things: **write a new checklist**, **change an
 existing one**, or **triage a report** a reviewer sent back.
 
+## Story and evidence ownership
+
+Follow [the cross-project validation contract](../../docs/validation-ownership.md).
+Start from the original `openelis-work` user stories and approved design; retain
+their links, revisions and identifiers plus explicit implementation-scope deltas.
+Do not write acceptance backwards from passing tests or current screens.
+Implementation E2E owns automated assertions and video proof. Grist owns the
+live story walkthrough and feedback; future `OpenELIS-QA` synchronization uses
+stable keys and evidence links. Never represent automation as human acceptance.
+
 ## Connect
+
+Prefer the [configured backend client](../../grist/CLIENT.md) from an agent or
+operator machine. `npm run --silent grist -- read-story <instance> <story_key>`
+reads the current payload; `apply-story <file> --dry-run` previews it;
+`apply-story <file>` writes it; `verify <instance>` checks public readback.
+The credential file is provisioned once outside the checkout. Routine checklist
+authoring does not require browser sign-in or host access.
 
 Authoring goes through Grist's REST API. Obtain the API key through the approved
 operator/agent secret path and keep it in `GRIST_API_KEY`; never print it or put

@@ -80,6 +80,13 @@ Deployment sync refuses to overwrite tracked changes and preserves untracked
 files. Persistent values still belong in the paths above, never in tracked
 files.
 
+## Agent/operator authoring client
+
+[Configure the direct Grist REST client once](../grist/CLIENT.md) with an
+external profile and credential file. Routine read, dry-run, apply and public
+verification operations then run without browser sign-in, Docker, AWS or SSH.
+Host lifecycle commands below remain for deployment and schema operations.
+
 ## Grist Lifecycle
 
 Validate a checkout without contacting the live system:

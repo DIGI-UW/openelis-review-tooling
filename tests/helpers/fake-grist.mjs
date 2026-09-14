@@ -133,6 +133,11 @@ export async function startFakeGrist(doc) {
       const parsed = body ? JSON.parse(body) : null;
       doc.calls.push(`${req.method} ${path}`);
 
+      if (path === "/uat/test.json" && doc.publicDocument) {
+        doc.publicAuthorization = req.headers.authorization;
+        return send(200, doc.publicDocument);
+      }
+
       if (path.endsWith("/workspaces")) {
         return send(200, [{ id: 1, docs: [{ id: doc.id, name: doc.name }] }]);
       }
