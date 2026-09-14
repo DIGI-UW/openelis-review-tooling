@@ -23,7 +23,7 @@ not a publish step. The overlay sees changes within the router's short cache.
 
 | Table             | Columns                                                                                                      | Role                         |
 | ----------------- | ------------------------------------------------------------------------------------------------------------ | ---------------------------- |
-| `UAT_Meta`        | instance, title, intro, jira                                                                                 | per-module header            |
+| `UAT_Meta`        | instance, title, intro, jira, published, story_scope, suggested_stories                                     | review header and deployment presentation |
 | `UAT_Stories`     | instance, story_key, title, story_order, version, jira, pr, mock, user_story, hosts                          | one row per story            |
 | `UAT_Steps`       | instance, step_key, required, story, step_order, do, expect, route                                           | the checklist                |
 | `UAT_Submissions` | instance, login, reviewer, submitted_at, host, app_sha, checklist_revision                                   | one row per review; login is authenticated and reviewer is entered |
@@ -32,6 +32,13 @@ not a publish step. The overlay sees changes within the router's short cache.
 The first three are authored. The last two are written by a submission. Its
 evidence is not edited by hand; only `UAT_Answers.issue_url` is added later by
 triage.
+
+`story_scope` is either `site` or `all`. `suggested_stories` is an ordered,
+newline-separated list. A local key such as `RPT-S01` resolves within that
+review; cross-review suggestions use the catalog id `review--story-key` and
+require `all` scope. Blank presentation fields retain the target's injected
+settings during migration. Presentation changes do not change evidence
+revisions because they change discovery, not what a reviewer judges.
 
 ### What an answer pins, and why none of it is a formula
 

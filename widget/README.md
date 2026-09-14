@@ -196,6 +196,13 @@ uses another schema, is malformed, or cannot be read is shown as a load failure;
 the widget never disguises a catalog contract failure by rendering the aggregate
 checklist. Point `data-index` somewhere else to override discovery.
 
+A catalog may include one presentation record per deployment. When the current
+instance has one, the widget uses its `site`/`all` scope and ordered suggested
+story ids. This Grist-backed record takes precedence over
+`data-story-scope` and `data-suggested-stories`; those attributes remain a
+migration fallback when no record exists. Scope changes affect discovery only
+and never re-key saved answers.
+
 Each catalog story must provide a stable `review--key` `id`, matching `review`
 and `key`, a non-empty `title`, integer `steps` and `required` counts, and a
 `routes` array. The matching aggregate checklist must contain exactly one section

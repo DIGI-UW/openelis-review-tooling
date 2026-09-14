@@ -3,9 +3,10 @@
   var self = document.currentScript;
   var INSTANCE = (self && self.getAttribute("data-instance")) || "unknown";
   var LABEL = (self && self.getAttribute("data-label")) || INSTANCE;
-  var ALL_STORIES = Boolean(
+  var INJECTED_ALL_STORIES = Boolean(
     self && self.getAttribute("data-story-scope") === "all",
   );
+  var ALL_STORIES = INJECTED_ALL_STORIES;
   var LEGACY_STORE_KEY = "oe-review:" + INSTANCE;
   // One deployment can carry several stories. Answers are keyed by the story
   // being reviewed, so switching never shows one story's marks against another's
@@ -40,7 +41,7 @@
     (self && self.getAttribute("data-src")) ||
     "/__review/uat-" + INSTANCE + ".json";
   var DOCKS = ["right", "left", "bottom"];
-  var SUGGESTED_STORIES = String(
+  var INJECTED_SUGGESTED_STORIES = String(
     (self && self.getAttribute("data-suggested-stories")) || "",
   )
     .split(",")
@@ -48,6 +49,7 @@
       return value.trim();
     })
     .filter(Boolean);
+  var SUGGESTED_STORIES = INJECTED_SUGGESTED_STORIES.slice();
   var FILTERS = ["all", "todo", "failed"];
   // A popped-out panel is this same script running in a window of its own. It is
   // not a copy of the review but a second view of it, driving the window it came
@@ -1210,9 +1212,17 @@
     // current and those stale rows would remain on screen.
     if (!ui || ui.story === storyNavigation.committedId) render();
     return Promise.all([
-      ALL_STORIES && storyNavigation.selectedId === INSTANCE
+      (ALL_STORIES && storyNavigation.selectedId === INSTANCE
         ? Promise.resolve(null)
-        : fetchChecklist(checklistSrc),
+        : fetchChecklist(checklistSrc)
+      ).then(
+        function (value) {
+          return { value: value };
+        },
+        function (error) {
+          return { error: error };
+        },
+      ),
       BUILD_SRC === "none"
         ? Promise.resolve(null)
         : fetch(BUILD_SRC, { cache: "no-store" })
@@ -1238,6 +1248,7 @@
         buildWarning = nextBuildWarning;
         if (values[1]) build = values[1];
         catalog = values[2];
+        applyCatalogPresentation(catalog);
         // A missing catalog is a legitimate single-checklist deployment, but a
         // remembered per-story preference from an earlier deployment cannot be
         // allowed to label that aggregate document.
@@ -1245,13 +1256,14 @@
           clearStorySelection();
         }
         chooseInitialStory();
-        if (!values[0] || currentSrc() !== checklistSrc) {
+        if (currentSrc() !== checklistSrc || values[0].value === null) {
           return fetchChecklist(currentSrc()).then(function (checklist) {
             if (requestVersion !== storyNavigation.requestVersion) return;
             applyChecklist(checklist, build);
           });
         }
-        applyChecklist(values[0], build);
+        if (values[0].error) throw values[0].error;
+        applyChecklist(values[0].value, build);
       })
       .catch(function (error) {
         if (requestVersion !== storyNavigation.requestVersion) return;
@@ -1338,7 +1350,48 @@
         throw new Error(label + " contains invalid hosts.");
       }
     });
+    if (value.deployments === undefined) value.deployments = [];
+    if (!Array.isArray(value.deployments)) {
+      throw new Error("Story catalog deployments must be an array.");
+    }
+    var deploymentIds = {};
+    value.deployments.forEach(function (deployment, index) {
+      var label = "Story catalog deployment " + (index + 1);
+      if (
+        !deployment ||
+        typeof deployment.instance !== "string" ||
+        !/^[a-z0-9_-]+$/.test(deployment.instance) ||
+        (deployment.storyScope !== "site" &&
+          deployment.storyScope !== "all") ||
+        !Array.isArray(deployment.suggestedStories) ||
+        deployment.suggestedStories.some(function (id) {
+          return !ids[id];
+        })
+      ) {
+        throw new Error(label + " does not match the presentation contract.");
+      }
+      if (deploymentIds[deployment.instance]) {
+        throw new Error(
+          "Story catalog contains duplicate deployment " +
+            deployment.instance +
+            ".",
+        );
+      }
+      deploymentIds[deployment.instance] = true;
+    });
     return value;
+  }
+
+  function applyCatalogPresentation(value) {
+    ALL_STORIES = INJECTED_ALL_STORIES;
+    SUGGESTED_STORIES = INJECTED_SUGGESTED_STORIES.slice();
+    if (!value) return;
+    var presentation = (value.deployments || []).find(function (deployment) {
+      return deployment.instance === INSTANCE;
+    });
+    if (!presentation) return;
+    ALL_STORIES = presentation.storyScope === "all";
+    SUGGESTED_STORIES = presentation.suggestedStories.slice();
   }
   function fetchCatalog() {
     if (!INDEX_SRC) return Promise.resolve(null);
@@ -2257,10 +2310,12 @@
     if (!ui || !ui.storyTrigger) return;
     var available = stories();
     var here = storiesForPage();
-    var suggested = available.filter(function (story) {
-      return SUGGESTED_STORIES.some(function (id) {
-        return id === story.id || id === story.key;
+    var suggested = [];
+    SUGGESTED_STORIES.forEach(function (id) {
+      var story = available.find(function (candidate) {
+        return id === candidate.id || id === candidate.key;
       });
+      if (story && suggested.indexOf(story) === -1) suggested.push(story);
     });
     var pageScoped =
       !storyNavigation.showAll &&

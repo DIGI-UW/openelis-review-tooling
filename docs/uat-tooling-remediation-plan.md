@@ -225,7 +225,8 @@ Human newcomer acceptance remains open.
 
 ### Next implementation increments
 
-1. **Grist presentation configuration**
+1. **Grist presentation configuration — implemented in the review-tooling
+   candidate; Grist migration and public deployment remain pending**
    - Add site/all scope and ordered suggested story IDs to `UAT_Meta`.
    - Publish them through checklist/catalog JSON.
    - Make the widget prefer Grist settings while retaining current injected

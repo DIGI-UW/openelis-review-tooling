@@ -134,7 +134,15 @@ test("declares every column the read service and the widget rely on", () => {
       `UAT_Stories.${col} must be declared`,
     );
   }
-  for (const col of ["instance", "title", "intro", "jira", "published"]) {
+  for (const col of [
+    "instance",
+    "title",
+    "intro",
+    "jira",
+    "published",
+    "story_scope",
+    "suggested_stories",
+  ]) {
     assert.ok(SCHEMA.UAT_Meta.columns[col], `UAT_Meta.${col} must be declared`);
   }
 });
