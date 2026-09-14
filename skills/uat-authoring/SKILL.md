@@ -146,6 +146,12 @@ every click into a separate checkpoint, and do not combine unrelated outcomes
 just to reduce the count. A reviewer should be able to answer the checkpoint
 after one uninterrupted piece of work.
 
+When a checkpoint contains several actions or outcomes, put each item on its
+own line and start it with a short label, such as `Report type:`, `Fields:`,
+`Date range:`, or `Next:`. The review widget presents those lines as a compact
+bulleted list with bold labels. Keep a single simple action as ordinary text.
+Do not add Markdown or HTML to a Grist field.
+
 A step is a `do` the reviewer performs and an `expect` they measure against. The
 `expect` is what makes a problem report meaningful — without it, a reviewer can only report
 that they were confused.

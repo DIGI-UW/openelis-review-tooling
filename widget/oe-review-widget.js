@@ -2599,6 +2599,46 @@
     return box;
   }
 
+  function appendInstructionLine(parent, line) {
+    var match = /^([^:]{1,32}):\s+(.+)$/.exec(line);
+    if (match && !/[.!?]/.test(match[1])) {
+      var label = el("strong", "instructionlabel");
+      label.textContent = match[1] + ":";
+      parent.appendChild(label);
+      parent.appendChild(document.createTextNode(" " + match[2]));
+      return;
+    }
+    parent.appendChild(document.createTextNode(line));
+  }
+
+  function fillInstruction(parent, value) {
+    var lines = String(value || "")
+      .split(/\r?\n/)
+      .map(function (line) {
+        return line.trim();
+      })
+      .filter(Boolean);
+    parent.innerHTML = "";
+    if (lines.length < 2) {
+      appendInstructionLine(parent, lines[0] || "");
+      return;
+    }
+
+    var summary = el("span", "instructionsummary");
+    appendInstructionLine(summary, lines[0]);
+    parent.appendChild(summary);
+
+    var list = el("span", "instructionlist");
+    list.setAttribute("role", "list");
+    lines.forEach(function (line) {
+      var item = el("span", "instructionitem");
+      item.setAttribute("role", "listitem");
+      appendInstructionLine(item, line);
+      list.appendChild(item);
+    });
+    parent.appendChild(list);
+  }
+
   function buildRow(step, position) {
     var row = el("div", "step");
     var summary = el("button", "steptop");
@@ -2609,7 +2649,7 @@
     var num = el("span", "num");
     num.textContent = String(position);
     var text = el("span", "steplabel");
-    text.textContent = step.do || step.text || "";
+    fillInstruction(text, step.do || step.text || "");
     summary.appendChild(num);
     summary.appendChild(text);
     summary.onclick = function () {
@@ -2642,8 +2682,8 @@
       var expect = el("div", "expect");
       var expectLabel = el("span", "expectlabel");
       expectLabel.textContent = "Expect";
-      var expectText = el("span", "expecttext");
-      expectText.textContent = step.expect;
+      var expectText = el("div", "expecttext");
+      fillInstruction(expectText, step.expect);
       expect.appendChild(expectLabel);
       expect.appendChild(expectText);
       detail.appendChild(expect);
@@ -3629,6 +3669,12 @@
       ".steplabel{flex:1;padding-top:2px;}",
       ".step:not(.current) .steplabel{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;}",
       ".step.current .steplabel{font-weight:600;}",
+      ".instructionlist{display:none;margin:0;padding-left:20px;}",
+      ".step.current .instructionsummary{display:none;}",
+      ".step.current .instructionlist{display:grid;gap:var(--sp2);font-weight:400;}",
+      ".instructionitem{position:relative;display:block;padding-left:14px;}",
+      ".instructionitem:before{content:'•';position:absolute;left:0;color:var(--blue);}",
+      ".instructionlabel{font-weight:600;}",
       ".step.answered .steplabel{color:var(--text2);}",
       ".detail:empty{display:none;}",
       // Flush in the compact panel, where the indent costs a line of wrapping in a
