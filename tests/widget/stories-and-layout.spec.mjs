@@ -32,6 +32,103 @@ async function chooseStory(widget, name, { showAll = false } = {}) {
   await list.getByRole("option", { name }).click();
 }
 
+test("separate application tabs retain their route and explicit story choices", async ({
+  page,
+  context,
+}) => {
+  const first = await openPanel(page);
+  await expect(first.locator(".storytriggertitle")).toHaveText(
+    "M1 - Find and route microbiology work",
+  );
+  const otherPage = await context.newPage();
+  await otherPage.goto(APP);
+  const second = otherPage.locator("#oe-review-host");
+  await expect(second.locator(".panel")).toBeVisible();
+  await otherPage.getByRole("button", { name: "Go to worklist" }).click();
+  await expect(second.locator(".storytriggertitle")).toHaveText(
+    "M1 - Work the seeded bacteriology case",
+  );
+
+  await chooseStory(first, /AST, critical communication, and reporting/, {
+    showAll: true,
+  });
+  await expect(first.locator(".storytriggertitle")).toHaveText(
+    "M1 - AST, critical communication, and reporting",
+  );
+  await panelAction(first, "Refresh checklist");
+  await expect(
+    first.getByText("Refreshing checklist…", { exact: true }),
+  ).toHaveCount(0);
+  await expect(first.locator(".storytriggertitle")).toHaveText(
+    "M1 - AST, critical communication, and reporting",
+  );
+  await expect(second.locator(".storytriggertitle")).toHaveText(
+    "M1 - Work the seeded bacteriology case",
+  );
+  await panelAction(second, "Refresh checklist");
+  await expect(
+    second.getByText("Refreshing checklist…", { exact: true }),
+  ).toHaveCount(0);
+  const choices = await openStoryChecklist(first);
+  await expect(choices).toBeVisible();
+  await expect(first.locator(".storytriggertitle")).toHaveText(
+    "M1 - AST, critical communication, and reporting",
+  );
+  await otherPage.goto(APP);
+  await expect(second.locator(".storytriggertitle")).toHaveText(
+    "M1 - Find and route microbiology work",
+  );
+  await page.reload();
+  await expect(first.locator(".storytriggertitle")).toHaveText(
+    "M1 - AST, critical communication, and reporting",
+  );
+  await expect(second.locator(".storytriggertitle")).toHaveText(
+    "M1 - Find and route microbiology work",
+  );
+});
+
+test("a popped-out story choice returns to its opener without redirecting another tab", async ({
+  page,
+  context,
+}) => {
+  const first = await openPanel(page);
+  await expect(first.locator(".storytriggertitle")).toHaveText(
+    "M1 - Find and route microbiology work",
+  );
+  const otherPage = await context.newPage();
+  await otherPage.goto(APP);
+  const second = otherPage.locator("#oe-review-host");
+  await expect(second.locator(".panel")).toBeVisible();
+  await otherPage.getByRole("button", { name: "Go to worklist" }).click();
+  await expect(second.locator(".storytriggertitle")).toHaveText(
+    "M1 - Work the seeded bacteriology case",
+  );
+  const opened = page.waitForEvent("popup");
+  await first.getByRole("button", { name: /pop out/i }).click();
+  const popup = await opened;
+  const review = popup.locator("#oe-review-host");
+  await expect(review.locator(".panel")).toBeVisible();
+  await chooseStory(review, /AST, critical communication, and reporting/, {
+    showAll: true,
+  });
+  await expect(review.locator(".storytriggertitle")).toHaveText(
+    "M1 - AST, critical communication, and reporting",
+  );
+  await review
+    .getByRole("button", { name: "Return the checklist to the page" })
+    .click()
+    .catch((error) => {
+      if (!/closed/i.test(error.message)) throw error;
+    });
+  await expect.poll(() => popup.isClosed()).toBe(true);
+  await expect(first.locator(".storytriggertitle")).toHaveText(
+    "M1 - AST, critical communication, and reporting",
+  );
+  await expect(second.locator(".storytriggertitle")).toHaveText(
+    "M1 - Work the seeded bacteriology case",
+  );
+});
+
 test("uses the production catalog to show one story without aggregate fallback", async ({
   page,
 }) => {
@@ -118,20 +215,25 @@ test("uses the production catalog to show one story without aggregate fallback",
   await list
     .getByRole("option", { name: /M1 - Find and route microbiology work/ })
     .click();
+  await expect(widget.locator(".storytriggertitle")).toHaveText(
+    "M1 - Find and route microbiology work",
+  );
   const overview = widget.locator(".storydescription");
   await expect(overview).toBeVisible();
-  expect(
-    await overview.evaluate((node) => {
-      const body = node.closest(".body");
-      const description = node.getBoundingClientRect();
-      const viewport = body.getBoundingClientRect();
-      return (
-        body.scrollTop > 0 &&
-        description.top >= viewport.top &&
-        description.bottom <= viewport.bottom
-      );
-    }),
-  ).toBe(true);
+  await expect
+    .poll(() =>
+      overview.evaluate((node) => {
+        const body = node.closest(".body");
+        const description = node.getBoundingClientRect();
+        const viewport = body.getBoundingClientRect();
+        return (
+          body.scrollTop > 0 &&
+          description.top >= viewport.top &&
+          description.bottom <= viewport.bottom
+        );
+      }),
+    )
+    .toBe(true);
   await panelAction(widget, "Refresh checklist");
   await expect(trigger).toContainText("M1 - Find and route microbiology work");
   await expect(widget.locator(".step")).toHaveCount(3);
@@ -532,6 +634,9 @@ test("remembers the story the reviewer was last working on", async ({
     showAll: true,
   });
   await expect(widget.locator(".step")).toHaveCount(3);
+  await expect(widget.locator(".storytriggertitle")).toHaveText(
+    "M1 - Work the seeded bacteriology case",
+  );
 
   await page.reload();
   const reopened = page.locator("#oe-review-host");

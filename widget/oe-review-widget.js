@@ -198,6 +198,8 @@
   // happen to be working through.
   var IDENTITY_KEY = "oe-review:v2:" + INSTANCE + ":last-identity";
   var PREFS_KEY = "oe-review:v2:" + INSTANCE + ":prefs";
+  var STORY_PREFS_KEY = "oe-review:v2:" + INSTANCE + ":tab-story";
+  var linkedReviewWindow = null;
   // Which window the panel is in, rather than what the review says, so it is not
   // keyed by story: the pop-out belongs to the deployment the reviewer is looking
   // at. Written by the popped-out window itself; the page it came from reads it to
@@ -210,7 +212,7 @@
       /^[A-Za-z0-9_-]+--[A-Za-z0-9_-]+$/.test(value)
     );
   }
-  function loadPrefs() {
+  function loadPrefs(sharedStory) {
     var stored = null;
     try {
       stored = JSON.parse(localStorage.getItem(PREFS_KEY) || "null");
@@ -218,6 +220,19 @@
       stored = null;
     }
     stored = stored && typeof stored === "object" ? stored : {};
+    if (!sharedStory) {
+      try {
+        var navigation = JSON.parse(
+          sessionStorage.getItem(STORY_PREFS_KEY) || "null",
+        );
+        if (navigation) {
+          stored.story = navigation.story;
+          stored.storyPath = navigation.storyPath;
+        }
+      } catch (e) {
+        /* In-memory navigation still works when session storage is unavailable. */
+      }
+    }
     return {
       anchor: ANCHORS.indexOf(stored.anchor) === -1 ? null : stored.anchor,
       filter: FILTERS.indexOf(stored.filter) === -1 ? "all" : stored.filter,
@@ -232,6 +247,17 @@
   }
   function savePrefs() {
     try {
+      sessionStorage.setItem(
+        STORY_PREFS_KEY,
+        JSON.stringify({
+          story: prefs.story,
+          storyPath: prefs.storyPath,
+        }),
+      );
+    } catch (e) {
+      /* Keep this tab's in-memory choice when persistence is unavailable. */
+    }
+    try {
       localStorage.setItem(PREFS_KEY, JSON.stringify(prefs));
     } catch (e) {
       /* storage unavailable — the panel simply opens the default way next time */
@@ -241,6 +267,7 @@
     prefs.story = story === INSTANCE ? null : story;
     prefs.storyPath = path;
     savePrefs();
+    notifyLinkedStory();
   }
   function persistStorySelection() {
     persistStoryPreference(
@@ -539,6 +566,7 @@
     window.addEventListener("resize", scheduleReposition);
     window.addEventListener("popstate", scheduleReposition);
     window.addEventListener("storage", adoptOtherWindow);
+    window.addEventListener("message", adoptLinkedStory);
     var pageObserver = new MutationObserver(scheduleReposition);
     pageObserver.observe(document.body, { childList: true, subtree: true });
     if (typeof ResizeObserver !== "undefined") {
@@ -654,6 +682,72 @@
       // The opener navigated somewhere this window cannot see.
       return null;
     }
+  }
+
+  function navigationOrigin() {
+    try {
+      return new URL(reviewedUrl()).origin;
+    } catch (e) {
+      return location.origin;
+    }
+  }
+
+  function notifyLinkedStory(request) {
+    var peer = STANDALONE ? openerWindow() : linkedReviewWindow;
+    if (!peer || peer.closed) return;
+    try {
+      peer.postMessage(
+        {
+          type: "oe-review-navigation",
+          instance: INSTANCE,
+          request: Boolean(request),
+          story: storyNavigation.committedId,
+          path: storyNavigation.committedPath,
+        },
+        navigationOrigin(),
+      );
+    } catch (e) {
+      /* The other window may have closed or navigated away. */
+    }
+  }
+
+  function adoptLinkedStory(event) {
+    var message = event.data;
+    if (
+      event.origin !== navigationOrigin() ||
+      !message ||
+      !event.source ||
+      message.type !== "oe-review-navigation" ||
+      message.instance !== INSTANCE
+    )
+      return;
+    try {
+      if (
+        STANDALONE
+          ? event.source !== openerWindow()
+          : event.source.opener !== window
+      )
+        return;
+    } catch (e) {
+      return;
+    }
+    if (!STANDALONE) linkedReviewWindow = event.source;
+    if (message.request) {
+      notifyLinkedStory();
+      return;
+    }
+    if (!knownStory(message.story)) return;
+    if (
+      message.path !== null &&
+      (typeof message.path !== "string" || !message.path.startsWith("/"))
+    )
+      return;
+    if (
+      message.story === storyNavigation.committedId &&
+      message.path === storyNavigation.committedPath
+    )
+      return;
+    activateStory(message.story, { path: message.path, refresh: true });
   }
 
   // The page under review is in the opener, so that is what a mark is evidence
@@ -787,6 +881,7 @@
       return;
     }
     popoutBlocked = false;
+    linkedReviewWindow = win;
     var populated = false;
     try {
       populated =
@@ -817,9 +912,9 @@
     window.close();
   }
 
-  // The other window wrote something. Whatever it decided is what this window
-  // shows: they are two views of one review, and the reviewer is only ever in one
-  // of them at a time, so last write wins is what they mean by it.
+  // Answers and panel preferences are shared. Route and story selection belong
+  // to each application tab; only an explicit pop-out exchanges navigation with
+  // its opener. Broadcasting selection makes unrelated tabs fight their routes.
   function adoptOtherWindow(event) {
     if (!event || !event.key) return;
     if (event.key === POPOUT_KEY) {
@@ -828,7 +923,7 @@
     }
     if (event.key === PREFS_KEY) {
       var hidden = prefs.hidden;
-      var incomingPrefs = loadPrefs();
+      var incomingPrefs = loadPrefs(true);
       // Hiding is this window's own answer to its own query string; adopting it
       // from the other one would make a popped-out panel able to unmount the page.
       incomingPrefs.hidden = hidden;
@@ -847,16 +942,17 @@
         applyAnchor();
         return;
       }
+      incomingPrefs.story =
+        storyNavigation.committedId === INSTANCE
+          ? null
+          : storyNavigation.committedId;
+      incomingPrefs.storyPath = storyNavigation.committedPath;
       prefs = incomingPrefs;
-      if (story !== storyNavigation.committedId) {
-        activateStory(story, {
-          path: incomingPrefs.storyPath,
-          refresh: true,
-        });
-        return;
-      }
-      setStorySelection(story, incomingPrefs.storyPath);
-      commitStorySelection();
+      if (
+        STANDALONE &&
+        storyNavigation.selectedId === storyNavigation.committedId
+      )
+        notifyLinkedStory(true);
       if (ui) syncPanel();
       applyAnchor();
       return;
@@ -1283,7 +1379,7 @@
     // better default than stale preference state from somewhere else in the app.
     if (
       selected &&
-      (storyNavigation.selectedPath === location.pathname ||
+      (storyNavigation.selectedPath === reviewedPath() ||
         !here.length ||
         coversHere(selected))
     )
@@ -1296,18 +1392,26 @@
   // A story is about this page when one of its steps points here. Query strings
   // pick a filter rather than a page, so the catalog publishes paths only.
   function coversHere(story) {
-    var here = location.pathname;
+    var here = reviewedPath();
     return (story.routes || []).some(function (route) {
       return here === route || here.indexOf(route + "/") === 0;
     });
   }
   function selectStory(story) {
     activateStory(story, {
-      path: location.pathname,
+      path: reviewedPath(),
       refresh: true,
       focus: true,
       reveal: true,
     });
+  }
+
+  function reviewedPath() {
+    try {
+      return new URL(reviewedUrl()).pathname;
+    } catch (e) {
+      return location.pathname;
+    }
   }
 
   // ---- placement ------------------------------------------------------------
