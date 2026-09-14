@@ -54,6 +54,30 @@ test("AWS preflight rejects a login profile from a different region", () => {
   assert.doesNotMatch(requireAws, /sleep/);
 });
 
+test("remote commands default to one reusable SSH connection with SSM fallback", () => {
+  assert.match(deployScript, /DEPLOY_TRANSPORT="\$\{DEPLOY_TRANSPORT:-ssh\}"/);
+  assert.match(deployScript, /SSH_HOST="\$\{SSH_HOST:-\$\{EIP:-\}\}"/);
+  assert.match(deployScript, /ControlMaster=auto/);
+  assert.match(deployScript, /ControlPersist=120/);
+  assert.match(
+    deployScript,
+    /SSH_CONTROL_PATH="\$\{SSH_CONTROL_PATH:-\/tmp\/oe-review-ssh-%C\}"/,
+  );
+  assert.match(deployScript, /ControlPath="\$SSH_CONTROL_PATH"/);
+  assert.match(
+    deployScript,
+    /printf '%s\\n' "\$script" \| ssh .*"sudo bash -se"/s,
+  );
+  assert.match(
+    deployScript,
+    /remote_run\(\).*ssh\) ssh_run "\$1".*ssm\) ssm_run "\$1"/s,
+  );
+  assert.match(
+    deployScript,
+    /SSH connection to \$OS_USER@\$SSH_HOST failed.*DEPLOY_TRANSPORT=ssm/,
+  );
+});
+
 test("remote repository operations run as the checkout owner", () => {
   assert.match(
     deployScript,
@@ -113,7 +137,8 @@ test("targeted Grist deployment uses the checked-out bootstrap only", () => {
     deployScript.indexOf("cmd_grist_up()"),
     deployScript.indexOf("cmd_grist_apply()"),
   );
-  assert.match(gristUp, /require_aws/);
+  assert.match(gristUp, /require_remote/);
+  assert.match(gristUp, /remote_run/);
   assert.match(gristUp, /sudo -u '\$OS_USER' bash grist\/bootstrap\.sh up/);
   assert.doesNotMatch(gristUp, /cmd_deploy|cmd_app|docker compose/);
   assert.match(deployScript, /cmd_grist_apply_story\(\)/);
@@ -159,7 +184,7 @@ test("targeted app status resolves and validates the requested instance", () => 
   );
 });
 
-test("targeted app logs use SSM instead of the legacy SSH path", () => {
+test("targeted app logs use the selected non-interactive transport", () => {
   assert.match(
     deployScript,
     /app logs <instance> \[--since <duration>\] \[--tail <lines>\] \[--errors\]/,
@@ -169,11 +194,11 @@ test("targeted app logs use SSM instead of the legacy SSH path", () => {
     deployScript.indexOf("cmd_app_logs()"),
     deployScript.indexOf("cmd_app_verify()"),
   );
-  assert.match(appLogs, /require_aws/);
-  assert.match(appLogs, /ssm_run .*docker logs/s);
+  assert.match(appLogs, /require_remote/);
+  assert.match(appLogs, /remote_run .*docker logs/s);
   assert.match(appLogs, /openELIS\.log/);
   assert.match(appLogs, /error-backup-\*/);
-  assert.doesNotMatch(appLogs, /ssh|allow_ssh_ingress/);
+  assert.doesNotMatch(appLogs, /allow_ssh_ingress/);
 });
 
 test("targeted analyzer fixture setup uses only the existing analyzer harness", () => {

@@ -70,11 +70,13 @@ cp .env.example .env      # fill in your host, domains, email, repos/branches
 ./deploy.sh status        # instance + HTTPS codes + container states
 ```
 
-`configure` + `deploy` need no DNS (stacks come up on self-signed, verifiable via
-Host-header curl); only `certs` needs DNS (ACME HTTP-01). Commands run over **SSM**
-(`aws ssm send-command`), not SSH — no inbound SSH rule required, only a live `aws`
-session. `./deploy.sh connect` is the one SSH command (interactive shell), and adds
-your current IP to the security group automatically.
+`configure` + `deploy` need no application DNS (stacks come up on self-signed,
+verifiable via Host-header curl); only `certs` needs application DNS (ACME
+HTTP-01). Commands use a multiplexed **SSH** connection by default, so routine
+deploys do not require an AWS login. Set `DEPLOY_TRANSPORT=ssm` to use Systems
+Manager when direct SSH is unavailable. With that fallback selected,
+`./deploy.sh connect` can authorize the caller's current address before opening
+an interactive SSH shell.
 
 After the initial environment exists, deploy either OpenELIS app independently
 at an exact pushed SHA:
@@ -106,9 +108,9 @@ chain from container labels, keeps the other apps and shared review
 infrastructure running, and publishes `/__review/target.json` only after health
 and route smoke checks pass.
 
-Runtime logs use the same SSM transport as deployment, so diagnostics do not
-require SSH ingress or an interactive shell. Use `--errors` to search the
-current and rotated OpenELIS application logs for exception context.
+Runtime logs use the selected deployment transport and do not require an
+interactive shell. Use `--errors` to search the current and rotated OpenELIS
+application logs for exception context.
 
 Local deploy configuration comes from `.env.example` and lives in a git-ignored
 `.env`. Grist/Dex secrets use the separate `grist/.env.example` template and

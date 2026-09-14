@@ -37,14 +37,22 @@ the first deployment.
 | `AMR_DOMAIN`, `ANALYZERS_DOMAIN`, `PHRASES_DOMAIN`, `GRIST_DOMAIN` | Router hosts and certificates     | No                                               |
 | `LETSENCRYPT_EMAIL`, `LETSENCRYPT_STAGING`                    | ACME registration                    | No                                               |
 | `AMR_BRANCH`, `ANALYZERS_BRANCH`, `PHRASES_BRANCH`            | Application deployment inputs        | No                                               |
-| `REGION`, `INSTANCE_ID`, `EIP`, `SG_ID`, `OS_USER`, `SSH_KEY` | AWS/SSM host access                  | `SSH_KEY` is a local path; do not commit the key |
+| `DEPLOY_TRANSPORT`, `SSH_HOST`, `EIP`, `OS_USER`, `SSH_KEY`   | Direct SSH host access               | `SSH_KEY` is a local path; do not commit the key |
+| `AWS_PROFILE`, `REGION`, `INSTANCE_ID`, `SG_ID`               | Optional Systems Manager fallback    | No                                                |
 | `EDGE_DIR`, `AMR_DIR`, `ANALYZERS_DIR`, `PHRASES_DIR`         | Host checkout layout                 | No                                               |
 | `GRIST_STATE_DIR`                                             | Server-side API-key mount            | No                                               |
 | `DEX_GRIST_CLIENT_SECRET`                                     | Dex-to-Grist OIDC client             | Yes                                              |
 | `DEX_REVIEWER_PASSWORD_HASH`                                  | Demo reviewer login hash             | Yes                                              |
 
-AWS credentials remain in the operator's normal AWS CLI session. They are
-never copied into `.env`, Grist, the widget, or the authoring API.
+SSH is the default transport. `deploy.sh` reuses one multiplexed connection for
+the duration of an invocation, including long deployment polling. This avoids
+repeated connections if the caller's public route changes mid-run. Set
+`SSH_HOST` when private DNS or a stable overlay address should be used instead
+of `EIP`.
+
+When `DEPLOY_TRANSPORT=ssm`, AWS credentials remain in the operator's normal
+AWS CLI session. They are never copied into `.env`, Grist, the widget, or the
+authoring API.
 
 External application sites register through `REVIEW_EXTRA_BACKENDS` in the
 host runtime `.env`. It extends the configured `REVIEW_BACKENDS` list. Reload
@@ -52,10 +60,10 @@ only the checklist service after editing it; the generic central submission
 route accepts any registered slug. See [the installation procedure](../integration/README.md)
 for layering Review onto an existing server without an application rebuild.
 
-The configured `AWS_PROFILE` region must match `REGION`. Console-login
-credentials are short-lived and the CLI refreshes them through the regional
-AWS Sign-In endpoint that issued the session. Before the first deployment, or
-after changing regions, configure and log in once with matching values:
+For the optional Systems Manager fallback, the configured `AWS_PROFILE` region
+must match `REGION`. Console-login credentials are short-lived and the CLI
+refreshes them through the regional AWS Sign-In endpoint that issued the
+session. Before using that fallback, configure and log in with matching values:
 
 ```bash
 aws configure set region us-west-2 --profile default
