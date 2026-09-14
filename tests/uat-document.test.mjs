@@ -52,6 +52,27 @@ test("emits schema v2, stable step keys, required flags, and a revision", () => 
   assert.equal(document.sections[1].steps[0].required, false);
 });
 
+test("publishes configured presentation without changing evidence revision", () => {
+  const baseline = buildUatDocument("analyzers", meta, rows, stories);
+  const configured = buildUatDocument(
+    "analyzers",
+    {
+      ...meta,
+      story_scope: "all",
+      suggested_stories: "amr--AMR-S01\nAN-PROFILES",
+    },
+    rows,
+    stories,
+  );
+
+  assert.deepEqual(configured.presentation, {
+    storyScope: "all",
+    suggestedStories: ["amr--AMR-S01", "AN-PROFILES"],
+  });
+  assert.equal(configured.checklistRevision, baseline.checklistRevision);
+  assert.equal(baseline.presentation, undefined);
+});
+
 test("revision is deterministic and changes when reviewed content changes", () => {
   const first = buildUatDocument("analyzers", meta, rows, stories);
   const same = buildUatDocument("analyzers", { ...meta }, structuredClone(rows), stories);

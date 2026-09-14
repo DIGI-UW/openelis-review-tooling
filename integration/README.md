@@ -47,10 +47,15 @@ Grist edits do not require a merge or code deployment. Verify
 `https://grist.openelis-global.org/uat/<instance>.json`, then publish the
 metadata row when the walkthrough is ready for discovery in the catalog.
 
-For a general testing server, set `"story_scope": "all"` in the target-side
-configuration. The widget then lists every published story regardless of its
-review, host, or page filters. No duplicate stories or site-specific Grist rows
-are needed. The default `"site"` scope retains the existing filtering behavior.
+Set `story_scope` and `suggested_stories` on the site's published `UAT_Meta` row
+in Grist. The widget reads those values from the public catalog. `all` lists
+every published story regardless of its review, host, or page filters; `site`
+keeps the review and host filtering behavior. Suggestions are ordered, one stable
+story id per line. No duplicate stories are needed.
+
+The same fields in the target-side JSON remain a migration fallback for a site
+whose Grist row has not been configured yet. Once Grist has either field, Grist
+wins and later presentation changes need no proxy reload.
 Submissions still authenticate against the current site's configured session
 backend; `reviewInstance` identifies the source checklist and its story/step
 references. Grist records the source review and the actual testing host.

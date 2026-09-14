@@ -40,6 +40,17 @@ export const SCHEMA = {
         description:
           "Lists this review in the public catalog every deployment can read. Off until someone says otherwise: the catalog names the slug and title of whatever is in it, so an unreleased review stays out of it by default.",
       },
+      story_scope: {
+        type: "Choice",
+        description:
+          "How this deployment chooses reviews. Use site for stories owned by this review, or all for the complete published catalog. Leave blank during migration to keep the site's injected fallback.",
+        widgetOptions: JSON.stringify({ choices: ["site", "all"] }),
+      },
+      suggested_stories: {
+        type: "Text",
+        description:
+          "The reviews suggested first on this deployment, in order, one stable story id per line. A local story key such as RPT-S01 means this review; use review--story-key for another published review when story_scope is all.",
+      },
     },
   },
 

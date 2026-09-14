@@ -46,7 +46,8 @@ own application session-verification backend and review identity.
 
 - Document **"UAT Checklists"**, id `hvZ4rzsyGJuqggkZBko8gc`.
 - Table **`UAT_Meta`** — one row per review: `instance, title, intro, jira,
-published`.
+published, story_scope, suggested_stories`. The last two control that
+deployment's chooser and are ordinary manually editable Grist cells.
 - Table **`UAT_Stories`** — one row per story: `instance` (ref → `UAT_Meta`),
   `story_key, title, story_order`, plus where it came from — `jira, pr, mock`
   (one link each), `user_story` (prose) and `hosts` (deployments it applies to,
@@ -60,16 +61,23 @@ do, expect, route`.
   count is a failed validation even when the JSON still contains story sections.
   `route` is the app path a reviewer opens for that step (for example,
   `/Microbiology/worklist`).
-- The deployed story checklist is scoped to the injected review/server first and
-  to stories matching the current URL by default. If the URL has no matching
-  story, it explicitly falls back to all stories on that server. Reviewers can
-  expand to all server stories themselves; an explicit choice must survive a
-  refresh, while real navigation resets the route-relevant default.
-- A general test server can explicitly use `data-story-scope="all"`. It shows
-  all published catalog stories without review, host, or page filtering. Feedback
-  authenticates against the injected deployment and links to the selected
-  story's original Grist review. Keep the deployment identity and source review
-  distinct; never copy stories merely to expose them on another server.
+- A configured `UAT_Meta.story_scope` is `site` or `all`.
+  `suggested_stories` is an ordered newline-separated list. A local story key
+  resolves within that review; a cross-review suggestion uses
+  `review--story-key` and requires `all` scope. Grist settings take precedence;
+  injected `data-story-scope` and `data-suggested-stories` remain a migration
+  fallback only while both Grist fields are blank.
+- With `site` scope, the chooser starts with configured suggestions or stories
+  matching the current URL. If no story matches the URL, it explicitly falls
+  back to all stories owned by that review. Reviewers can browse all applicable
+  stories; an explicit choice survives refresh, while real navigation resets the
+  route-relevant default.
+- A general test server uses `story_scope=all` in its Grist row. It can suggest
+  stories from any published review and lists the complete published catalog
+  without review, host, or page filtering. Feedback authenticates against the
+  current deployment and links to the selected story's original Grist review.
+  Keep deployment identity and source review distinct; never copy stories merely
+  to expose them on another server.
 - Both story and step tables carry a computed `problems` column: empty means the
   row is publishable.
 - `step_key` is immutable and unique within an instance. Reordering a row must
@@ -164,6 +172,9 @@ box-side read service that reshapes live Grist rows into the widget's JSON
 (30-second serve-stale cache). So an edit in Grist or via REST shows up in the
 overlay within ~30s — no publish step.
 The panel also refreshes whenever it opens and has an explicit refresh action.
+The shared `/uat/index.json` catalog carries each configured deployment's scope
+and ordered suggestions. Invalid references are omitted with a catalog warning;
+they never expand a site beyond its configured scope.
 
 ## Feedback — the submission and report
 

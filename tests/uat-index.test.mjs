@@ -99,6 +99,88 @@ test("lists every real story that has steps", () => {
   assert.deepEqual(first.hosts, ["amr.openelis-global.org"]);
 });
 
+test("publishes Grist-owned deployment scope and ordered suggestions", () => {
+  const configuredMeta = structuredClone(metaRows);
+  configuredMeta[0].fields.story_scope = "site";
+  configuredMeta[0].fields.suggested_stories = "AMR-S02\nAMR-S01\nAMR-S02";
+  configuredMeta[1].fields.story_scope = "all";
+  configuredMeta[1].fields.suggested_stories =
+    "amr--AMR-S01, analyzers--AN-S01";
+
+  const index = buildUatIndex(
+    configuredMeta,
+    [
+      step("amr", "AMR-1", 11),
+      step("amr", "AMR-2", 12),
+      step("analyzers", "AN-1", 21),
+    ],
+    storyRows,
+  );
+
+  assert.deepEqual(index.deployments, [
+    {
+      instance: "amr",
+      storyScope: "site",
+      suggestedStories: ["amr--AMR-S02", "amr--AMR-S01"],
+    },
+    {
+      instance: "analyzers",
+      storyScope: "all",
+      suggestedStories: ["amr--AMR-S01", "analyzers--AN-S01"],
+    },
+  ]);
+});
+
+test("leaves unconfigured deployments on their injected migration fallback", () => {
+  const index = buildUatIndex(
+    metaRows,
+    [step("amr", "AMR-1", 11)],
+    storyRows,
+  );
+
+  assert.deepEqual(index.deployments, []);
+});
+
+test("omits invalid suggestions without changing a site's safe scope", () => {
+  const configuredMeta = structuredClone(metaRows);
+  configuredMeta[0].fields.story_scope = "site";
+  configuredMeta[0].fields.suggested_stories = [
+    "AMR-S01",
+    "missing--NOPE",
+    "analyzers--AN-S01",
+  ].join("\n");
+
+  const index = buildUatIndex(
+    configuredMeta,
+    [step("amr", "AMR-1", 11), step("analyzers", "AN-1", 21)],
+    storyRows,
+  );
+
+  assert.deepEqual(index.deployments, [
+    {
+      instance: "amr",
+      storyScope: "site",
+      suggestedStories: ["amr--AMR-S01"],
+    },
+  ]);
+  assert.match(index.warnings.join("\n"), /missing--NOPE/);
+  assert.match(index.warnings.join("\n"), /analyzers--AN-S01.*site scope/);
+});
+
+test("reports an invalid deployment scope without publishing it", () => {
+  const configuredMeta = structuredClone(metaRows);
+  configuredMeta[0].fields.story_scope = "everything";
+
+  const index = buildUatIndex(
+    configuredMeta,
+    [step("amr", "AMR-1", 11)],
+    storyRows,
+  );
+
+  assert.deepEqual(index.deployments, []);
+  assert.match(index.warnings.join("\n"), /story_scope must be site or all/);
+});
+
 test("omits a story that has no steps", () => {
   const index = buildUatIndex(metaRows, [step("amr", "AMR-1", 11)], storyRows);
 

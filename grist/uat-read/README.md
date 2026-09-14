@@ -18,6 +18,11 @@
   endpoint `deploy.sh review deploy --scope service` is gated on. The checklist
   document still refuses that route outright, which is where a reviewer would
   actually be sent.
+- The catalog also carries configured deployment presentation from published
+  `UAT_Meta` rows: `site` or `all` scope plus ordered suggested story ids.
+  Missing settings intentionally leave older injected attributes in control
+  during migration. Invalid or unavailable suggestions are omitted and named in
+  `warnings`; one site's bad reference does not hide other published reviews.
 - `GET /healthz` provides liveness.
 
 ## What is public

@@ -30,6 +30,30 @@ export function parsePublished(value) {
   return Boolean(value);
 }
 
+const STORY_TOKEN = /^[A-Za-z0-9_-]+(?:--[A-Za-z0-9_-]+)?$/;
+
+function presentationOf(fields) {
+  const rawScope = String(fields.story_scope || "").trim().toLowerCase();
+  const rawSuggestions = String(fields.suggested_stories || "").trim();
+  if (!rawScope && !rawSuggestions) return null;
+  if (rawScope && rawScope !== "site" && rawScope !== "all") {
+    throw new Error(`story_scope must be site or all, received ${rawScope}`);
+  }
+  const suggestedStories = [];
+  for (const value of rawSuggestions.split(/[\n,]/)) {
+    const token = value.trim();
+    if (!token || suggestedStories.includes(token)) continue;
+    if (!STORY_TOKEN.test(token)) {
+      throw new Error(`suggested story id is invalid: ${token}`);
+    }
+    suggestedStories.push(token);
+  }
+  return {
+    storyScope: rawScope || "site",
+    suggestedStories,
+  };
+}
+
 // A prefix test is not enough: "/\evil.com" starts with a single slash, but the
 // URL parser treats the backslash as an authority separator and resolves it to
 // another origin. Anyone who can edit a checklist row could otherwise put an
@@ -147,7 +171,50 @@ export function buildUatIndex(metaRecords, stepRecords, storyRecords = []) {
   );
   for (const story of stories) delete story._reviewOrder;
 
-  return { schemaVersion: 2, warnings, stories };
+  const storyIds = new Map(stories.map((story) => [story.id, story]));
+  const deployments = [];
+  for (const record of metaRecords || []) {
+    const fields = record.fields || {};
+    const instance = String(fields.instance || "").trim();
+    if (!instance || !parsePublished(fields.published)) continue;
+    let presentation;
+    try {
+      presentation = presentationOf(fields);
+    } catch (error) {
+      warnings.push(`${instance}: ${error.message}`);
+      continue;
+    }
+    // A blank row means this deployment has not migrated yet. Its injected
+    // attributes remain the fallback until an author deliberately configures it.
+    if (!presentation) continue;
+
+    const suggestedStories = [];
+    for (const value of presentation.suggestedStories) {
+      const id = value.includes("--") ? value : `${instance}--${value}`;
+      const story = storyIds.get(id);
+      if (!story) {
+        warnings.push(
+          `${instance}: suggested story ${value} is not in the published catalog`,
+        );
+        continue;
+      }
+      if (presentation.storyScope === "site" && story.review !== instance) {
+        warnings.push(
+          `${instance}: suggested story ${value} is outside site scope`,
+        );
+        continue;
+      }
+      if (!suggestedStories.includes(id)) suggestedStories.push(id);
+    }
+    deployments.push({
+      instance,
+      storyScope: presentation.storyScope,
+      suggestedStories,
+    });
+  }
+  deployments.sort((a, b) => a.instance.localeCompare(b.instance));
+
+  return { schemaVersion: 2, warnings, deployments, stories };
 }
 
 // A story's links, as an author filled them in. One of each and no more: the set
@@ -270,5 +337,8 @@ export function buildUatDocument(instance, meta, records, storyRecords = []) {
     sections,
   };
 
-  return { ...content, checklistRevision: contentHash(content) };
+  const result = { ...content, checklistRevision: contentHash(content) };
+  const presentation = presentationOf(meta);
+  if (presentation) result.presentation = presentation;
+  return result;
 }

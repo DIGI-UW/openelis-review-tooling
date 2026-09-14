@@ -1,6 +1,10 @@
 import { expect, test } from "@playwright/test";
 
-async function generalServer(page, buildSource = "/__review/target.json") {
+async function generalServer(
+  page,
+  buildSource = "/__review/target.json",
+  gristOwned = false,
+) {
   const stories = [
     {
       id: "amr--AMR-S01",
@@ -26,11 +30,25 @@ async function generalServer(page, buildSource = "/__review/target.json") {
   await page.route("**/general", (route) =>
     route.fulfill({
       contentType: "text/html",
-      body: `<!doctype html><html><body><main>General testing</main><script src="/widget/oe-review-widget.js" data-instance="testing" data-story-scope="all" data-src="/uat/testing.json" data-build-src="${buildSource}"></script></body></html>`,
+      body: `<!doctype html><html><body><main>General testing</main><script src="/widget/oe-review-widget.js" data-instance="testing" ${gristOwned ? "" : 'data-story-scope="all"'} data-src="/uat/testing.json" data-build-src="${buildSource}"></script></body></html>`,
     }),
   );
   await page.route("**/uat/index.json", (route) =>
-    route.fulfill({ json: { schemaVersion: 2, stories } }),
+    route.fulfill({
+      json: {
+        schemaVersion: 2,
+        deployments: gristOwned
+          ? [
+              {
+                instance: "testing",
+                storyScope: "all",
+                suggestedStories: ["orders--ORD-S01"],
+              },
+            ]
+          : [],
+        stories,
+      },
+    }),
   );
   for (const story of stories) {
     await page.route(`**/uat/${story.review}.json`, (route) =>
@@ -125,4 +143,18 @@ test("a site can disable optional build metadata without making a failing reques
       (url) => url.endsWith("/__review/target.json") || url.endsWith("/none"),
     ),
   ).toBe(false);
+});
+
+test("Grist all-scope can bootstrap a site with no checklist of its own", async ({
+  page,
+}) => {
+  const widget = await generalServer(page, "none", true);
+  await expect(widget.locator(".storyscope")).toHaveText(
+    "Suggested reviews for this deployment",
+  );
+  const list = widget.getByRole("listbox", {
+    name: "Suggested reviews for this deployment",
+  });
+  await expect(list).toBeVisible();
+  await expect(list.getByRole("option").first()).toContainText("Order story");
 });

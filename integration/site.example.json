@@ -2,6 +2,5 @@
   "instance": "my-lab",
   "label": "My lab review",
   "review_origin": "https://grist.openelis-global.org",
-  "suggested_stories": ["RPT-S01", "RPT-S04"],
   "session_path": "/api/OpenELIS-Global/session"
 }

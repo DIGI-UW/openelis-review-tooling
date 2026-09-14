@@ -250,6 +250,43 @@ test("uses the production catalog to show one story without aggregate fallback",
   );
 });
 
+test("uses Grist deployment settings ahead of injected presentation fallback", async ({
+  page,
+}) => {
+  await page.route("**/tests/widget/uat-index.json", async (route) => {
+    const response = await route.fetch();
+    const index = await response.json();
+    await route.fulfill({
+      json: {
+        ...index,
+        deployments: [
+          {
+            instance: "amr",
+            storyScope: "all",
+            suggestedStories: ["orders--ORD-S01", "amr--AMR-S03"],
+          },
+        ],
+      },
+    });
+  });
+
+  const widget = await openPanel(page);
+  await expect(widget.locator(".storyscope")).toHaveText(
+    "Suggested reviews for this deployment",
+  );
+  const list = widget.getByRole("listbox", {
+    name: "Suggested reviews for this deployment",
+  });
+  await expect(list).toBeVisible();
+  await expect(list.getByRole("option")).toHaveCount(2);
+  await expect(list.getByRole("option").first()).toContainText("Order entry");
+  await expect(list.getByRole("option").nth(1)).toContainText(
+    "AST, critical communication, and reporting",
+  );
+  await list.getByRole("option").first().click();
+  await expect(widget.locator(".storytriggertitle")).toHaveText("Order entry");
+});
+
 test("refuses a schema-v1 catalog instead of rendering its aggregate checklist", async ({
   page,
 }) => {
