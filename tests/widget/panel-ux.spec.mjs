@@ -125,6 +125,41 @@ test("requires an explanation for problems and preserves unfinished drafts", asy
   );
 });
 
+test("renders newline-separated instructions as compact labelled lists", async ({
+  page,
+}) => {
+  await page.route("**/tests/widget/uat-amr.json", async (route) => {
+    const response = await route.fetch();
+    const checklist = await response.json();
+    checklist.sections[0].steps[0].do =
+      "Report type: Select Referrals.\nFields: Add Accession Number and Referral ID.\nDate range: Use May 7, 2026.\nNext: Continue to Review.";
+    checklist.sections[0].steps[0].expect =
+      "Fields: The chosen fields appear in order.\nScope: The review only includes referrals.";
+    await route.fulfill({ response, json: checklist });
+  });
+
+  const widget = await open(page);
+  const current = widget.locator(".step.current");
+  const actions = current.locator(".steplabel .instructionlist");
+  const outcomes = current.locator(".expecttext .instructionlist");
+
+  await expect(actions).toBeVisible();
+  await expect(actions.getByRole("listitem")).toHaveCount(4);
+  await expect(actions.locator(".instructionlabel")).toHaveText([
+    "Report type:",
+    "Fields:",
+    "Date range:",
+    "Next:",
+  ]);
+  await expect(outcomes.getByRole("listitem")).toHaveCount(2);
+  await expect(outcomes.locator(".instructionlabel")).toHaveText([
+    "Fields:",
+    "Scope:",
+  ]);
+  await expect(current.locator(".instructionsummary")).toHaveCount(2);
+  await expect(current.locator(".instructionsummary:visible")).toHaveCount(0);
+});
+
 test("story search matches ticket and stable key and supports keyboard selection", async ({
   page,
 }) => {
