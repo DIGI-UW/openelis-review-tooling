@@ -75,6 +75,14 @@ A story carries two versions, because they answer different questions:
 - **`revision`** — a content hash, computed. Catches the edit nobody thought to
   raise a version for.
 
+## Routine backend authoring
+
+Use the [direct client workflow](CLIENT.md) from a configured agent/operator
+machine: `npm run --silent grist -- check-access`, `read-story`,
+`apply-story --dry-run`, `apply-story`, and `verify`. Its credential file and
+profile live outside the checkout. Browser sign-in and host access are not
+part of routine authoring.
+
 ## Run (on the box, as `ubuntu`)
 
 ```bash

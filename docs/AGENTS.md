@@ -6,12 +6,20 @@ below is the live contract, not aspiration.
 
 ## What this is
 
+Read [validation ownership](validation-ownership.md) before defining acceptance.
+UAT reflects the original stories and approved design in `openelis-work`, with
+explicit MVP scope deltas. Implementation-specific E2E and video proof belong
+with the application code. Grist owns the live walkthrough and feedback, not a
+replacement product specification. Future `OpenELIS-QA` synchronization preserves
+the original story IDs, stable walkthrough keys and evidence revisions.
+
 A self-hosted authoring + feedback loop that lets stakeholders review in-progress
 OpenELIS features against a structured checklist, and lets humans _or_ agents
 author those checklists from one source of truth.
 
-- **Source of truth:** a Grist document ("UAT Checklists"). Humans edit it in the
-  Grist UI; agents edit it over Grist's REST API. Neither clobbers the other
+- **Source of truth:** a Grist document ("UAT Checklists") for live walkthroughs
+  and submitted reviews. Humans edit it in the Grist UI; agents edit it over
+  Grist's REST API. Neither clobbers the other
   (edits target specific rows).
 - **Delivery:** a reviewer overlay injected into each demo site reads the
   checklist live from Grist and captures pass/fail/na + freeform feedback.
@@ -114,7 +122,13 @@ Send that body with `POST` to
 `$GRIST_API_ROOT/tables/UAT_Steps/records`. Updates use `PATCH` and include each
 record's numeric `id`; deletes use `DELETE` with `records: [<id>]`.
 
-From an authorized review-tooling checkout, prefer the scoped wrapper for a
+From a configured agent/operator machine, use the [direct Grist client](../grist/CLIENT.md).
+Read a story with `npm run --silent grist -- read-story <instance> <story_key>`,
+preview with `apply-story <file> --dry-run`, apply it, then `verify <instance>`.
+The configured credential file survives checkout changes; routine authoring
+does not depend on browser sign-in or access to the Grist host.
+
+When using the host-managed path, use the scoped wrapper for a
 complete story. It uses the server-side API key, applies the story and its exact
 step set by stable keys, and leaves every sibling story alone:
 

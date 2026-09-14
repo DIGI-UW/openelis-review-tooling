@@ -6,6 +6,10 @@ this repository.
 
 Repository-wide rules:
 
+- Follow [validation ownership](docs/validation-ownership.md): original
+  `openelis-work` stories govern UAT; implementation E2E supplies automated
+  assertions and video proof; Grist presents stories and records feedback;
+  synchronization with `OpenELIS-QA` is future work.
 - Grist `UAT_Meta` and `UAT_Steps` are the checklist source of truth.
 - Agents author through the authenticated Grist REST API. There is no custom
   checklist write service.
