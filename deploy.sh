@@ -12,15 +12,13 @@
 # analyzer + microbiology seed fixtures, and the deploy-vector-demo.sh
 # detached-runner-with-polling pattern (from-source builds take 20-40 min).
 #
-# TRANSPORT: every automated command runs over SSM (aws ssm send-command), not
-# SSH. This was an SSH-based script originally; SSH proved unreliable here
-# (client egress IP churns between calls, breaking the SG /32 rule mid-poll —
-# it once silently masked a build stall as "still building"). SSM needs no SG
-# rule, no key, no stable client IP — only a live `aws` session. `connect` is
-# the one exception (a human wanting an interactive shell) and still uses SSH.
+# TRANSPORT: automated commands use SSH by default. One multiplexed connection
+# is reused throughout each invocation so a long deploy does not open a new TCP
+# connection for every poll. Set DEPLOY_TRANSPORT=ssm to use AWS Systems Manager
+# when direct SSH is unavailable.
 #
 # USAGE
-#   ./deploy.sh status              # AWS + all HTTPS endpoints + container states + drift (read-only)
+#   ./deploy.sh status              # HTTPS endpoints + container states + drift (read-only)
 #   ./deploy.sh drift               # is what's RUNNING what's in git? (read-only)
 #   ./deploy.sh connect [cmd…]      # SSH shell — interactive only, needs your IP in the SG (see below)
 #   ./deploy.sh configure           # install Docker/git, install renew cron (idempotent)
@@ -57,12 +55,27 @@ else
   exit 1
 fi
 
-: "${REGION:?}" "${INSTANCE_ID:?}" "${EIP:?}" "${SG_ID:?}" "${OS_USER:?}" "${SSH_KEY:?}"
+: "${OS_USER:?}"
 : "${AMR_DOMAIN:?}" "${ANALYZERS_DOMAIN:?}" "${PHRASES_DOMAIN:?}" "${GRIST_DOMAIN:?}"
 : "${AMR_BRANCH:?}" "${ANALYZERS_BRANCH:?}" "${PHRASES_BRANCH:?}"
 : "${EDGE_DIR:?}" "${AMR_DIR:?}" "${ANALYZERS_DIR:?}" "${PHRASES_DIR:?}" "${LETSENCRYPT_EMAIL:?}"
 export AWS_PROFILE="${AWS_PROFILE:-default}"
-SSH_KEY_EXPANDED="${SSH_KEY/#\~/$HOME}"
+DEPLOY_TRANSPORT="${DEPLOY_TRANSPORT:-ssh}"
+case "$DEPLOY_TRANSPORT" in
+  ssh)
+    SSH_HOST="${SSH_HOST:-${EIP:-}}"
+    : "${SSH_HOST:?set SSH_HOST or EIP for DEPLOY_TRANSPORT=ssh}"
+    : "${SSH_KEY:?set SSH_KEY for DEPLOY_TRANSPORT=ssh}"
+    EIP="${EIP:-$SSH_HOST}"
+    ;;
+  ssm)
+    : "${REGION:?}" "${INSTANCE_ID:?}"
+    SSH_HOST="${SSH_HOST:-${EIP:-}}"
+    ;;
+  *) echo "!! DEPLOY_TRANSPORT must be ssh or ssm" >&2; exit 1 ;;
+esac
+SSH_KEY_EXPANDED="${SSH_KEY:-}"
+SSH_KEY_EXPANDED="${SSH_KEY_EXPANDED/#\~/$HOME}"
 # Two repos: this harness (cloned into EDGE_DIR) and the OpenELIS app it builds
 # (cloned into the instance-specific directories). They are separate checkouts.
 HARNESS_REPO="${HARNESS_REPO:-https://github.com/DIGI-UW/openelis-review-tooling.git}"
@@ -111,8 +124,10 @@ require_aws() {
 }
 my_ip() { curl -fsS --max-time 10 https://checkip.amazonaws.com | tr -d '[:space:]'; }
 
-# ---- SSM transport: base64-encode the script body (sidesteps all quoting),
-# send it, poll for terminal status, print stdout, propagate failure. ----
+# ---- Remote command transports. ----
+# SSM base64-encodes the script body to sidestep shell quoting, then polls for
+# completion. SSH streams the same script to a root shell over one multiplexed
+# connection, preserving the execution semantics existing host scripts expect.
 SSM_POLL_TIMEOUT="${SSM_POLL_TIMEOUT:-600}"
 ssm_run() {
   local script="$1" b64 cmdid status deadline
@@ -144,6 +159,46 @@ ssm_fire() {
     --document-name "AWS-RunShellScript" \
     --parameters "commands=[\"tmp=\$(mktemp /tmp/deploy-cmd.XXXXXX) || exit 1; echo $b64 | base64 -d > \$tmp && bash \$tmp; status=\$?; rm -f \$tmp; exit \$status\"]" \
     --query "Command.CommandId" --output text 2>&1
+}
+
+# OpenSSH limits Unix socket paths (104 bytes on macOS), while TMPDIR there is
+# commonly very long. %C keeps this short path unique to the connection tuple.
+SSH_CONTROL_PATH="${SSH_CONTROL_PATH:-/tmp/oe-review-ssh-%C}"
+SSH_OPTS=(
+  -i "$SSH_KEY_EXPANDED"
+  -o BatchMode=yes
+  -o StrictHostKeyChecking=accept-new
+  -o ConnectTimeout=20
+  -o ServerAliveInterval=30
+  -o ServerAliveCountMax=4
+  -o ControlMaster=auto
+  -o ControlPersist=120
+  -o ControlPath="$SSH_CONTROL_PATH"
+)
+
+ssh_run() {
+  local script="$1"
+  printf '%s\n' "$script" | ssh "${SSH_OPTS[@]}" "$OS_USER@$SSH_HOST" "sudo bash -se"
+}
+
+require_remote() {
+  case "$DEPLOY_TRANSPORT" in
+    ssh)
+      command -v ssh >/dev/null || die "ssh is required for DEPLOY_TRANSPORT=ssh"
+      [ -r "$SSH_KEY_EXPANDED" ] || die "SSH key is not readable: $SSH_KEY_EXPANDED"
+      ssh_run "true" >/dev/null || die "SSH connection to $OS_USER@$SSH_HOST failed. Confirm port 22 is reachable, or set DEPLOY_TRANSPORT=ssm."
+      ;;
+    ssm) require_aws ;;
+    *) die "DEPLOY_TRANSPORT must be ssh or ssm" ;;
+  esac
+}
+
+remote_run() {
+  case "$DEPLOY_TRANSPORT" in
+    ssh) ssh_run "$1" ;;
+    ssm) ssm_run "$1" ;;
+    *) die "DEPLOY_TRANSPORT must be ssh or ssm" ;;
+  esac
 }
 
 render_mock_url_setup() {
@@ -182,8 +237,8 @@ curl -skfsS -u "$bridge_user:$bridge_pass" "$bridge_admin_url/actuator/health" >
 REMOTE
 }
 
-# ---- SSH: interactive `connect` only. Needs the caller's current IP allowed
-# in the SG (idempotent, same approach deploy-vector-demo.sh uses). ----
+# ---- Interactive SSH. If SSH ingress is not already configured, operators
+# using the SSM transport may authorize their current address first. ----
 allow_ssh_ingress() {
   local ip; ip="$(my_ip)"
   aws ec2 describe-security-groups --region "$REGION" --group-ids "$SG_ID" \
@@ -194,8 +249,6 @@ allow_ssh_ingress() {
     --ip-permissions "IpProtocol=tcp,FromPort=22,ToPort=22,IpRanges=[{CidrIp=$ip/32,Description=deploy.sh-connect}]" \
     >/dev/null 2>&1 || warn "ingress authorize failed (may already exist)"
 }
-SSH_OPTS=(-i "$SSH_KEY_EXPANDED" -o StrictHostKeyChecking=accept-new -o ConnectTimeout=20 -o ServerAliveInterval=30)
-
 # ---- the on-box deploy runner (heredoc; local vars interpolate here, \$(...) runs remote) ----
 _runner_script() {
   cat <<RUNNER
@@ -322,10 +375,10 @@ _poll() {
   local deadline=$(( $(date +%s) + DEPLOY_TIMEOUT )) out
   while [ "$(date +%s)" -lt "$deadline" ]; do
     sleep 45
-    out="$(ssm_run "tail -3 '$REMOTE_LOG' 2>/dev/null; echo ---; grep -q '$DONE_MARK' '$REMOTE_LOG' && echo DONE_OK; pgrep -f oe-dual-deploy.run.sh >/dev/null && echo RUNNING || echo STOPPED" 2>/dev/null || echo SSMFAIL)"
-    # SSMFAIL must NOT be silently treated as "still building" — it means we
-    # lost visibility (e.g. a transient AWS API error), not that the build progressed.
-    if [ "$out" = SSMFAIL ]; then warn "SSM unreachable this round — can't read build state; retrying"; continue; fi
+    out="$(remote_run "tail -3 '$REMOTE_LOG' 2>/dev/null; echo ---; grep -q '$DONE_MARK' '$REMOTE_LOG' && echo DONE_OK; pgrep -f oe-dual-deploy.run.sh >/dev/null && echo RUNNING || echo STOPPED" 2>/dev/null || echo REMOTEFAIL)"
+    # A transport failure must not be silently treated as "still building" —
+    # it means visibility was lost, not that the build progressed.
+    if [ "$out" = REMOTEFAIL ]; then warn "$DEPLOY_TRANSPORT connection failed this round — can't read build state; retrying"; continue; fi
     printf '%s\n' "$out" | grep -vE '^(DONE_OK|RUNNING|STOPPED|---)$' | sed 's/^/   /'
     printf '%s' "$out" | grep -q DONE_OK && { log "runner finished"; return 0; }
     printf '%s' "$out" | grep -q STOPPED && { warn "runner stopped without success marker — inspect: ./deploy.sh connect \"tail -60 $REMOTE_LOG\""; return 1; }
@@ -335,15 +388,15 @@ _poll() {
 }
 
 cmd_configure() {
-  require_aws
+  require_remote
   log "installing Docker + git on the host (idempotent)"
-  ssm_run '
+  remote_run '
     if ! command -v docker >/dev/null; then curl -fsSL https://get.docker.com | sudo sh; sudo usermod -aG docker '"$OS_USER"'; fi
     command -v git >/dev/null || { sudo apt-get update -qq && sudo apt-get install -y -qq git; }
     command -v envsubst >/dev/null || { sudo apt-get update -qq && sudo apt-get install -y -qq gettext-base; }  # bootstrap.sh renders templates
     docker --version; docker compose version | head -1' || die "configure failed"
   log "installing certbot renewal cron"
-  ssm_run "sudo tee /etc/cron.d/oe-edge-certbot-renew >/dev/null <<'CRON'
+  remote_run "sudo tee /etc/cron.d/oe-edge-certbot-renew >/dev/null <<'CRON'
 # twice-daily LE renewal for the dual-subdomain demo (installed by deploy.sh)
 17 3,15 * * * $OS_USER LETSENCRYPT_DIR=$LE_DIR CERTBOT_WEBROOT=$WEBROOT_DIR ROUTER_CONTAINER_NAME=oe-edge-router bash $EDGE_DIR/scripts/certbot-renew.sh >> /home/$OS_USER/certbot-renew.log 2>&1
 CRON" || die "cron install failed"
@@ -352,26 +405,26 @@ CRON" || die "cron install failed"
 
 cmd_deploy() {
   [ "${1:-}" = "--yes" ] || die "deploy rebuilds both stacks (long). Re-run: ./deploy.sh deploy --yes"
-  require_aws
+  require_remote
   log "writing detached runner + launching (nohup) — amr=$AMR_BRANCH analyzers=$ANALYZERS_BRANCH"
-  ssm_run "cat > '$REMOTE_RUNNER' <<'RUNNEREOF'
+  remote_run "cat > '$REMOTE_RUNNER' <<'RUNNEREOF'
 $(_runner_script)
 RUNNEREOF
 chmod +x '$REMOTE_RUNNER'" >/dev/null || die "failed to write runner"
-  ssm_run "cd ~ && nohup bash '$REMOTE_RUNNER' > '$REMOTE_LOG' 2>&1 & echo launched pid \$!" || die "failed to launch runner"
+  remote_run "cd ~ && nohup bash '$REMOTE_RUNNER' > '$REMOTE_LOG' 2>&1 & echo launched pid \$!" || die "failed to launch runner"
   log "polling until both stacks are up (safe to Ctrl-C; box keeps building — resume by re-running deploy, or connect+tail)"
   _poll || die "deploy did not complete cleanly"
   log "STACKS UP (self-signed). Once DNS resolves to $EIP: ./deploy.sh certs, then ./deploy.sh seed"
 }
 
 cmd_certs() {
-  require_aws
+  require_remote
   for d in "$AMR_DOMAIN" "$ANALYZERS_DOMAIN" "$PHRASES_DOMAIN" "$GRIST_DOMAIN"; do
     got="$(dig +short "$d" | tail -1)"
     [ "$got" = "$EIP" ] || warn "DNS: $d -> ${got:-<none>} (expected $EIP) — ACME will fail until this resolves"
   done
   log "issuing certs for all demo domains on the host"
-  ssm_run "AMR_DOMAIN=$AMR_DOMAIN ANALYZERS_DOMAIN=$ANALYZERS_DOMAIN PHRASES_DOMAIN=$PHRASES_DOMAIN GRIST_DOMAIN=$GRIST_DOMAIN LETSENCRYPT_EMAIL=$LETSENCRYPT_EMAIL LETSENCRYPT_STAGING=${LETSENCRYPT_STAGING:-false} LETSENCRYPT_DIR=$LE_DIR CERTBOT_WEBROOT=$WEBROOT_DIR bash $EDGE_DIR/scripts/generate-certs.sh" \
+  remote_run "AMR_DOMAIN=$AMR_DOMAIN ANALYZERS_DOMAIN=$ANALYZERS_DOMAIN PHRASES_DOMAIN=$PHRASES_DOMAIN GRIST_DOMAIN=$GRIST_DOMAIN LETSENCRYPT_EMAIL=$LETSENCRYPT_EMAIL LETSENCRYPT_STAGING=${LETSENCRYPT_STAGING:-false} LETSENCRYPT_DIR=$LE_DIR CERTBOT_WEBROOT=$WEBROOT_DIR bash $EDGE_DIR/scripts/generate-certs.sh" \
     || die "cert issuance failed"
   cmd_status
 }
@@ -384,15 +437,15 @@ cmd_certs() {
 #               classification cases, provisioned through OpenELIS services) so
 #               the configured order, worklist, and case routes are reviewable.
 cmd_seed() {
-  require_aws
+  require_remote
   log "seeding analyzers.openelis-global.org (9-device fleet via the harness's own seed script)"
-  ssm_run "set -euo pipefail
+  remote_run "set -euo pipefail
 $(render_mock_url_setup "$MOCK_URL")
 cd '$ANALYZERS_DIR/projects/analyzer-harness'
 BASE_URL=https://$ANALYZERS_DOMAIN MOCK_URL=\"\$mock_url\" DB_CONTAINER=analyzers-openelisglobal-database ./seed-analyzers.sh" \
     || warn "analyzer seed failed — see output above"
   log "seeding amr.openelis-global.org (microbiology worklist and classification cases)"
-  ssm_run "cat > /tmp/seed-microbiology.sh <<'SEEDEOF'
+  remote_run "cat > /tmp/seed-microbiology.sh <<'SEEDEOF'
 $(cat "$HERE/scripts/seed-microbiology.sh")
 SEEDEOF
 chmod +x /tmp/seed-microbiology.sh
@@ -451,14 +504,14 @@ cmd_app_deploy() {
   select_instance_config "$instance"
   validate_sha "$ref"
   validate_scope "$scope"
-  require_aws
+  require_remote
 
   deployment_id="$(date -u +%Y%m%dT%H%M%SZ)-${ref:0:12}"
   deployment_dir="$EDGE_DIR/runtime/deployments/$deployment_id"
   remote_runner="/home/$OS_USER/oe-app-deploy-$deployment_id.sh"
   remote_log="/home/$OS_USER/oe-app-deploy-$deployment_id.log"
   log "launching targeted $instance $scope deploy at exact SHA $ref"
-  ssm_run "mkdir -p '$deployment_dir'
+  remote_run "mkdir -p '$deployment_dir'
 cat > '$remote_runner' <<'RUNNEREOF'
 INSTANCE='$instance'
 APP_DIR='$SELECTED_APP_DIR'
@@ -490,8 +543,8 @@ cmd_app_status() {
     esac
   done
   select_instance_config "$instance"
-  require_aws
-  ssm_run "deployment_id='$deployment_id'
+  require_remote
+  remote_run "deployment_id='$deployment_id'
 instance='$instance'
 app_container='$instance-openelisglobal-webapp'
 running_configs=\$(docker inspect -f '{{index .Config.Labels \"com.docker.compose.project.config_files\"}}' \"\$app_container\" 2>/dev/null || true)
@@ -535,12 +588,12 @@ cmd_app_logs() {
   [[ "$since" =~ ^[1-9][0-9]*[smhd]$ ]] || die "--since must be a positive duration such as 10m or 2h"
   [[ "$tail_lines" =~ ^[1-9][0-9]*$ ]] || die "--tail must be a positive line count"
   [ "$tail_lines" -le 5000 ] || die "--tail must not exceed 5000 lines"
-  require_aws
+  require_remote
   if [ "$errors" = true ]; then
-    ssm_run "docker exec '$instance-openelisglobal-webapp' sh -c 'for file in /var/lib/openelis-global/logs/openELIS.log /var/lib/openelis-global/logs/error-backup-*.log.gz; do [ -f \"\$file\" ] || continue; case \"\$file\" in *.gz) gzip -cd \"\$file\" ;; *) cat \"\$file\" ;; esac; done | grep -E -C 25 \"ERROR|Exception|Caused by|filter-options|MicroWhonet\" || true'"
+    remote_run "docker exec '$instance-openelisglobal-webapp' sh -c 'for file in /var/lib/openelis-global/logs/openELIS.log /var/lib/openelis-global/logs/error-backup-*.log.gz; do [ -f \"\$file\" ] || continue; case \"\$file\" in *.gz) gzip -cd \"\$file\" ;; *) cat \"\$file\" ;; esac; done | grep -E -C 25 \"ERROR|Exception|Caused by|filter-options|MicroWhonet\" || true'"
     return
   fi
-  ssm_run "docker logs --since '$since' --tail '$tail_lines' '$instance-openelisglobal-webapp' 2>&1"
+  remote_run "docker logs --since '$since' --tail '$tail_lines' '$instance-openelisglobal-webapp' 2>&1"
 }
 
 cmd_app_verify() {
@@ -549,7 +602,7 @@ cmd_app_verify() {
   if [ "$instance" = analyzers ]; then
     runtime_containers="'analyzers-openelis-analyzer-bridge' 'analyzers-openelis-astm-simulator'"
   fi
-  require_aws
+  require_remote
   log "verified target metadata"
   curl -fsSk "https://$SELECTED_APP_DOMAIN/__review/target.json"
   echo
@@ -557,20 +610,20 @@ cmd_app_verify() {
   printf '   / -> HTTP %s\n' "$(curl -sk -o /dev/null -w '%{http_code}' --max-time 15 "https://$SELECTED_APP_DOMAIN/")"
   printf '   %s -> HTTP %s\n' "$SELECTED_APP_SMOKE_PATH" \
     "$(curl -sk -o /dev/null -w '%{http_code}' --max-time 15 "https://$SELECTED_APP_DOMAIN$SELECTED_APP_SMOKE_PATH")"
-  ssm_run "docker inspect -f '{{.Name}}: running={{.State.Running}} health={{if .State.Health}}{{.State.Health.Status}}{{else}}n/a{{end}} image={{.Image}} started={{.State.StartedAt}}' \
+  remote_run "docker inspect -f '{{.Name}}: running={{.State.Running}} health={{if .State.Health}}{{.State.Health.Status}}{{else}}n/a{{end}} image={{.Image}} started={{.State.StartedAt}}' \
     '$instance-openelisglobal-webapp' '$instance-openelisglobal-front-end' $runtime_containers"
 }
 
 cmd_app_rollback() {
   local instance="${1:-}" deployment_id remote_runner
   select_instance_config "$instance"
-  require_aws
+  require_remote
   deployment_id="$(curl -fsSk "https://$SELECTED_APP_DOMAIN/__review/target.json" |
     sed -n 's/.*"deploymentId":"\([^"]*\)".*/\1/p')"
   [ -n "$deployment_id" ] || die "could not determine current $instance deployment"
   remote_runner="/home/$OS_USER/oe-app-rollback-$deployment_id.sh"
   log "rolling back targeted deployment $deployment_id"
-  ssm_run "cat > '$remote_runner' <<'ROLLBACKEOF'
+  remote_run "cat > '$remote_runner' <<'ROLLBACKEOF'
 INSTANCE='$instance'
 APP_DIR='$SELECTED_APP_DIR'
 EDGE_DIR='$EDGE_DIR'
@@ -608,13 +661,13 @@ cmd_analyzer_runtime_deploy() {
     esac
   done
   validate_sha "$ref"
-  require_aws
+  require_remote
   deployment_id="runtime-$(date -u +%Y%m%dT%H%M%SZ)-${ref:0:12}"
   deployment_dir="$EDGE_DIR/runtime/deployments/$deployment_id"
   remote_runner="/home/$OS_USER/oe-analyzer-runtime-deploy-$deployment_id.sh"
   remote_log="/home/$OS_USER/oe-analyzer-runtime-deploy-$deployment_id.log"
   log "launching analyzer-only Bridge/mock deploy from exact OpenELIS SHA $ref"
-  ssm_run "mkdir -p '$deployment_dir'
+  remote_run "mkdir -p '$deployment_dir'
 cat > '$remote_runner' <<'RUNNEREOF'
 APP_DIR='$ANALYZERS_DIR'
 EDGE_DIR='$EDGE_DIR'
@@ -641,8 +694,8 @@ cmd_analyzer_runtime_status() {
       *) die "unknown analyzer-runtime status argument '$1'" ;;
     esac
   done
-  require_aws
-  ssm_run "deployment_id='$deployment_id'
+  require_remote
+  remote_run "deployment_id='$deployment_id'
 edge_dir='$EDGE_DIR'
 if [ -z \"\$deployment_id\" ]; then
   latest=\$(find \"\$edge_dir/runtime/deployments\" -mindepth 1 -maxdepth 1 -type d -name 'runtime-*' 2>/dev/null | sort | tail -1)
@@ -658,10 +711,10 @@ tail -12 \"\$log\" 2>/dev/null || true"
 }
 
 cmd_analyzer_runtime_verify() {
-  require_aws
+  require_remote
   curl -fsSk "https://$ANALYZERS_DOMAIN/__review/target.json"
   echo
-  ssm_run "docker exec analyzers-openelis-analyzer-bridge /app/healthcheck.sh >/dev/null
+  remote_run "docker exec analyzers-openelis-analyzer-bridge /app/healthcheck.sh >/dev/null
 [ \"\$(docker inspect -f '{{.State.Health.Status}}' analyzers-openelis-astm-simulator)\" = healthy ]
 echo 'analyzer Bridge and mock are healthy'"
 }
@@ -691,9 +744,9 @@ cmd_review_deploy() {
     widget | service | all) ;;
     *) die "--scope must be widget, service or all" ;;
   esac
-  require_aws
+  require_remote
   log "deploying review $scope at exact harness SHA $ref"
-  ssm_run "set -euo pipefail
+  remote_run "set -euo pipefail
 exec 9>/var/lock/openelis-review-deploy.lock
 flock -n 9 || { echo 'another review-host deployment is already running' >&2; exit 1; }
 router_workdir=\$(docker inspect -f '{{index .Config.Labels \"com.docker.compose.project.working_dir\"}}' oe-edge-router)
@@ -765,7 +818,7 @@ fi"
 # with it and so interrupts anybody mid-review; this is the narrow path.
 cmd_review_reload_router() {
   shift || true
-  require_aws
+  require_remote
   local instance="amr" domain="" external=false
   while [ $# -gt 0 ]; do
     case "$1" in
@@ -790,7 +843,7 @@ cmd_review_reload_router() {
   fi
   [[ "$domain" =~ ^[A-Za-z0-9.-]+$ ]] || die "invalid probe domain"
   log "reloading the router (probing $domain$probe_path)"
-  ssm_run "set -euo pipefail
+  remote_run "set -euo pipefail
 # Shipped as a real script rather than inlined here, so it is covered by
 # shellcheck and by tests that actually run it against stubs.
 cat > /tmp/oe-reload-router.sh <<'RTREOF'
@@ -817,9 +870,9 @@ cmd_review() {
 cmd_grist_up() {
   shift || true
   [ "$#" -eq 0 ] || die "grist up takes no arguments"
-  require_aws
+  require_remote
   log "reconciling the open-source Grist runtime"
-  ssm_run "set -euo pipefail
+  remote_run "set -euo pipefail
 router_workdir=\$(docker inspect -f '{{index .Config.Labels \"com.docker.compose.project.working_dir\"}}' oe-edge-router)
 edge_dir=\${router_workdir%/router}
 cd \"\$edge_dir\"
@@ -828,10 +881,10 @@ sudo -u '$OS_USER' bash grist/bootstrap.sh up"
 
 cmd_grist_apply() {
   shift || true
-  require_aws
+  require_remote
   local flags="$*"
   log "applying the Grist schema${flags:+ ($flags)}"
-  ssm_run "set -euo pipefail
+  remote_run "set -euo pipefail
 router_workdir=\$(docker inspect -f '{{index .Config.Labels \"com.docker.compose.project.working_dir\"}}' oe-edge-router)
 edge_dir=\${router_workdir%/router}
 cd \"\$edge_dir\"
@@ -846,9 +899,9 @@ cmd_grist_apply_story() {
   local file="$2" payload
   [ -f "$file" ] || die "story file not found: $file"
   payload="$(base64 <"$file" | tr -d '\n')"
-  require_aws
+  require_remote
   log "applying one Grist UAT story from $file"
-  ssm_run "set -euo pipefail
+  remote_run "set -euo pipefail
 router_workdir=\$(docker inspect -f '{{index .Config.Labels \"com.docker.compose.project.working_dir\"}}' oe-edge-router)
 edge_dir=\${router_workdir%/router}
 story_file=\$(sudo -u '$OS_USER' mktemp /tmp/uat-story.XXXXXX.json)
@@ -861,9 +914,9 @@ sudo -u '$OS_USER' bash grist/bootstrap.sh apply-story \"\$story_file\""
 cmd_grist_check_access() {
   shift || true
   [ "$#" -eq 0 ] || die "grist check-access takes no arguments"
-  require_aws
+  require_remote
   log "checking the Grist authoring identity"
-  ssm_run "set -euo pipefail
+  remote_run "set -euo pipefail
 router_workdir=\$(docker inspect -f '{{index .Config.Labels \"com.docker.compose.project.working_dir\"}}' oe-edge-router)
 edge_dir=\${router_workdir%/router}
 cd \"\$edge_dir\"
@@ -906,9 +959,9 @@ cmd_data_seed() {
     story_values="${stories[*]}"
   fi
   if [ "$instance:$fixture" = "analyzers:analyzer-mvp" ]; then
-    require_aws
+    require_remote
     log "seeding the analyzer acceptance fixture without touching AMR"
-    ssm_run "set -euo pipefail
+    remote_run "set -euo pipefail
 $(render_mock_url_setup "$MOCK_URL")
 $(render_bridge_admin_setup)
 cd '$ANALYZERS_DIR'
@@ -941,9 +994,9 @@ bash projects/analyzer-harness/seed-mvp-traffic.sh"
     return
   fi
   select_instance_config "$instance"
-  require_aws
+  require_remote
   log "seeding $instance fixture $fixture"
-  ssm_run "cat > /tmp/seed-microbiology.sh <<'SEEDEOF'
+  remote_run "cat > /tmp/seed-microbiology.sh <<'SEEDEOF'
 $(cat "$HERE/scripts/seed-microbiology.sh")
 SEEDEOF
 chmod +x /tmp/seed-microbiology.sh
@@ -960,14 +1013,19 @@ cmd_data() {
 }
 
 cmd_status() {
-  require_aws
-  log "instance"; aws ec2 describe-instances --region "$REGION" --instance-ids "$INSTANCE_ID" \
-    --query "Reservations[0].Instances[0].[State.Name,PublicIpAddress,InstanceType]" --output text | sed 's/^/   /'
+  require_remote
+  log "host"
+  if [ "$DEPLOY_TRANSPORT" = ssm ]; then
+    aws ec2 describe-instances --region "$REGION" --instance-ids "$INSTANCE_ID" \
+      --query "Reservations[0].Instances[0].[State.Name,PublicIpAddress,InstanceType]" --output text | sed 's/^/   /'
+  else
+    printf '   transport=ssh host=%s user=%s\n' "$SSH_HOST" "$OS_USER"
+  fi
   for d in "$AMR_DOMAIN" "$ANALYZERS_DOMAIN" "$PHRASES_DOMAIN" "$GRIST_DOMAIN"; do
     printf '   https://%s/ -> HTTP %s\n' "$d" "$(curl -sk -o /dev/null -w '%{http_code}' --max-time 15 "https://$d/" 2>/dev/null || echo 000)"
   done
   echo "   containers:"
-  ssm_run "docker ps --format '{{.Names}}: {{.Status}}' | grep -E 'amr-|analyzers-|phrases-|oe-edge' || true" | sed 's/^/     /' \
+  remote_run "docker ps --format '{{.Names}}: {{.Status}}' | grep -E 'amr-|analyzers-|phrases-|oe-edge' || true" | sed 's/^/     /' \
     || warn "remote status failed"
   cmd_drift
 }
@@ -977,14 +1035,14 @@ cmd_status() {
 # invisible otherwise — the read service once served four-commit-old code while
 # every container reported healthy and every endpoint returned 200.
 cmd_drift() {
-  require_aws
+  require_remote
   echo "   drift:"
   # Built with a quoted heredoc so nothing expands locally: every $ below is for
   # the remote shell.
   local script=""
   IFS= read -r -d '' script <<'DRIFT' || true
 cd EDGE_DIR_PLACEHOLDER 2>/dev/null || { echo "checkout missing"; exit 0; }
-# SSM runs as root and the fetch below writes loose objects. Fetching as root
+# Remote commands run as root and the fetch below writes loose objects. Fetching as root
 # leaves root-owned fanout directories under .git/objects that the deploy path —
 # which correctly runs as the checkout's owner — can no longer write into, so a
 # read-only drift check would break the next deploy.
@@ -1019,7 +1077,7 @@ DRIFT
   script="${script//EDGE_DIR_PLACEHOLDER/$EDGE_DIR}"
   script="${script//BRANCH_PLACEHOLDER/$HARNESS_BRANCH}"
   script="${script//OS_USER_PLACEHOLDER/$OS_USER}"
-  ssm_run "$script" | sed 's/^/     /' || warn "drift check failed"
+  remote_run "$script" | sed 's/^/     /' || warn "drift check failed"
 }
 
 cmd_up_to_certs() { cmd_configure; cmd_deploy "${1:-}"; cmd_certs; cmd_seed; }
@@ -1030,10 +1088,13 @@ main() {
     status) cmd_status ;;
     drift) cmd_drift ;;
     connect)
-      allow_ssh_ingress
+      if [ "$DEPLOY_TRANSPORT" = ssm ]; then
+        require_aws
+        allow_ssh_ingress
+      fi
       # Arguments intentionally expand on the client before the remote command runs.
       # shellcheck disable=SC2029
-      if [ "$#" -gt 0 ]; then ssh "${SSH_OPTS[@]}" "$OS_USER@$EIP" "$@"; else ssh -t "${SSH_OPTS[@]}" "$OS_USER@$EIP"; fi ;;
+      if [ "$#" -gt 0 ]; then ssh "${SSH_OPTS[@]}" "$OS_USER@$SSH_HOST" "$@"; else ssh -t "${SSH_OPTS[@]}" "$OS_USER@$SSH_HOST"; fi ;;
     configure) cmd_configure ;;
     deploy) cmd_deploy "$@" ;;
     certs) cmd_certs ;;
