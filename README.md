@@ -8,6 +8,9 @@ of that repo, so it can iterate on its own.
 [Validation ownership](docs/validation-ownership.md): UAT follows original
 `openelis-work` stories; application E2E provides automated checks and video
 proof; Grist captures review feedback, with `OpenELIS-QA` synchronization planned.
+The accepted [UAT tooling remediation and OpenELIS integration
+contract](docs/uat-tooling-remediation-plan.md) defines the target reviewer
+experience, Grist ownership boundary and toggleable site lifecycle.
 
 ## The loop, in three lines
 - **Author** — humans edit checklists in a Grist spreadsheet, or agents author them

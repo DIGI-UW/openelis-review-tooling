@@ -1,5 +1,11 @@
 # Add Review to an existing OpenELIS deployment
 
+The accepted target lifecycle and its enable/disable requirements are recorded
+in the [UAT tooling remediation and OpenELIS integration
+contract](../docs/uat-tooling-remediation-plan.md). This page describes the
+currently deployed manual integration until that lifecycle is implemented and
+verified.
+
 The widget runs on an existing site. It needs no OpenELIS rebuild, replacement
 Compose stack, or dependency on an infrastructure repository.
 
