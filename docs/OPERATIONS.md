@@ -132,6 +132,13 @@ before stable keys were keyed by position, so none can be matched to a step;
 they are never mapped, and the pre-v2 key holding them is discarded on sight
 rather than reported.
 
+Story selection and its page context are saved per application tab and survive
+reloads. Another application tab may review a different route or choose a
+different story without redirecting this one. An explicitly opened review window
+exchanges story choices with its own opener; review answers still use the shared
+deployment/checklist/stable-step identity above. This prevents tabs on different
+routes from repeatedly replacing each other's checklist.
+
 ## Deployment Boundary
 
 `./deploy.sh deploy --yes` remains the current full-environment path: it
