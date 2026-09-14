@@ -1,0 +1,255 @@
+{
+  "schemaVersion": 1,
+  "prototypeOnly": true,
+  "title": "Review guide interaction prototype",
+  "deployment": {
+    "id": "prototype-reporting-20260914",
+    "label": "Reporting test site · design prototype",
+    "checklistRevision": "14333b9e6281374aac57eeb38177a7fca0bba1ff340f380457261af19e3b3481",
+    "suggestedStoryIds": [
+      "prototype-routine-export",
+      "prototype-report-navigation"
+    ],
+    "observedApplicationRevision": "d48cd790c49294ddb4a36c9333d3acc744ebb3c4",
+    "observedReviewToolingRevision": "54b99f8d76bac9b46a2082e3549a7d013e8406ff",
+    "applicationReferenceRevision": "5b2df7e34ff5ad1f983f24c0e9e0ba4db5e8697f",
+    "reviewToolingBaseRevision": "64b08c214ee3d2ac1fb98830150a715637d86d36"
+  },
+  "stories": [
+    {
+      "id": "prototype-routine-export",
+      "title": "Download a routine report",
+      "purpose": "Check a sample report from choosing columns to downloading and revisiting it.",
+      "feature": "Reporting",
+      "tickets": ["OGC-479"],
+      "source": {
+        "storyKey": "RPT-S01",
+        "instructionRevision": "prototype-dc3bed8f1312",
+        "checklistRevision": "14333b9e6281374aac57eeb38177a7fca0bba1ff340f380457261af19e3b3481",
+        "jira": "OGC-479",
+        "pr": "https://github.com/DIGI-UW/OpenELIS-Global-2/pull/4292",
+        "mock": "https://github.com/DIGI-UW/openelis-work/blob/5b2df7e34ff5ad1f983f24c0e9e0ba4db5e8697f/designs/reports/custom-data-export.html",
+        "contract": "https://github.com/DIGI-UW/openelis-work/blob/5b2df7e34ff5ad1f983f24c0e9e0ba4db5e8697f/designs/reports/custom-data-export.md",
+        "originalInstructionRevision": "c01b9f151fc8"
+      },
+      "startingConditions": [
+        "Use the reporting example beside this guide. No sign-in is needed.",
+        "This example contains August 2026 Virology results. Have a spreadsheet application or text viewer ready to open a downloaded file.",
+        "Begin at the export overview. If a report is already open, choose Export overview."
+      ],
+      "steps": [
+        {
+          "id": "prototype-routine-start",
+          "title": "Start a report",
+          "action": "Choose Start a new export, then Sample & Testing.",
+          "expectations": [
+            "The overview offers Create a new export and Use a saved report.",
+            "The new report opens at Choose columns with no fields selected.",
+            "Choosing Sample & Testing shows its field groups, initially folded."
+          ],
+          "help": {
+            "title": "Need a little guidance?",
+            "paragraphs": [
+              "If the application is already showing a report, choose Export overview near the page heading first.",
+              "Choose the Sample & Testing card before looking for fields. Leave Use fictional virology example alone for now; the next checkpoint lets you build a small report yourself."
+            ]
+          },
+          "required": true,
+          "route": "reporting-reference.html",
+          "sourceStepKeys": ["RPT-001"]
+        },
+        {
+          "id": "prototype-routine-columns",
+          "title": "Choose and arrange columns",
+          "action": "Find and Add Accession Number, Collection Date and Result Value. Clear search after each addition, then move Collection Date above Accession Number.",
+          "expectations": [
+            "Fields have Add and Added controls.",
+            "Clearing search returns the field groups to their folded state.",
+            "Your CSV columns and the preview show Collection Date, Accession Number and Result Value, in that order."
+          ],
+          "help": {
+            "title": "Need a little guidance?",
+            "paragraphs": [
+              "Use the field search to enter one name. Choose Add beside the matching field, then Clear search before finding the next one.",
+              "In Your CSV columns, use the up arrow beside Collection Date, or drag it above Accession Number. Both methods should leave the same final order."
+            ]
+          },
+          "required": true,
+          "route": "reporting-reference.html",
+          "sourceStepKeys": ["RPT-002"]
+        },
+        {
+          "id": "prototype-routine-spreadsheet",
+          "title": "Download the spreadsheet",
+          "action": "Continue to Set Filters. Enter August 1–31, 2026, choose HIV viral load and Validated (finalized), then review and create the CSV. In My Report Queue, download your newest report when Ready.",
+          "expectations": [
+            "Review shows August 1–31, Virology, HIV viral load and Validated (finalized), with Collection Date, Accession Number and Result Value in the chosen order.",
+            "The newest queue entry reaches Ready and offers Download.",
+            "The file has five data rows. DEMO-0831 appears twice, with results 1200 and 1250. The result for DEMO-0824 is blank."
+          ],
+          "help": {
+            "title": "Need a little guidance?",
+            "paragraphs": [
+              "Enter August 1, 2026 in Date From and August 31, 2026 in Date To. Lab Sections already shows Virology. Set Test to HIV viral load and Result Status to Validated (finalized). Leave the other filters unchanged.",
+              "Choose Next: Review & Submit, then Create CSV and add to queue. Use My Report Queue near the page heading. Your new entry is at the top and has Submitted At set to Just now; do not use the older August virology example entry.",
+              "CSV is a spreadsheet file. Download and open the newest ready file in a spreadsheet application or text viewer. The first row contains the three column names. Count the five rows below it.",
+              "The two DEMO-0831 readings are separate results and should both remain. DEMO-0824 has a missing result, so its result cell should be empty. You should also see DEMO-0801 with <20 and DEMO-0812 with 430."
+            ]
+          },
+          "required": true,
+          "route": "reporting-reference.html",
+          "sourceStepKeys": ["RPT-002", "RPT-003"]
+        },
+        {
+          "id": "prototype-routine-detailed",
+          "title": "Change the report and download again",
+          "action": "Choose Continue current export. Change Selected Fields, add Test Name, then continue through the same filters and create another CSV. Download the newest ready entry from My Report Queue.",
+          "expectations": [
+            "The original three fields remain in order, with Test Name added last.",
+            "The August dates, HIV viral load test and Validated (finalized) status remain selected.",
+            "The new file has the same five data rows, with HIV viral load in the new Test Name column."
+          ],
+          "help": {
+            "title": "Need a little guidance?",
+            "paragraphs": [
+              "Continue current export is near the queue heading. In Review & Submit, find Selected Fields and choose its Change button.",
+              "Search for Test Name, choose Add and Clear search. Continue through Set Filters and Review & Submit without changing the period or other filters.",
+              "Create the CSV, open My Report Queue and use the Download action on the newest ready row. Keep the first file open if you want to compare column order and results side by side."
+            ]
+          },
+          "required": true,
+          "route": "reporting-reference.html",
+          "sourceStepKeys": ["RPT-004"]
+        },
+        {
+          "id": "prototype-routine-resume",
+          "title": "Return to your unfinished report",
+          "action": "From My Report Queue, open Export overview and choose Continue current export. Use Change beside Selected Fields, visit the queue again, then Continue current export once more.",
+          "expectations": [
+            "The overview gives you a clear Continue current export action.",
+            "Your report retains Collection Date, Accession Number, Result Value and Test Name in that order, with the August reporting period.",
+            "After returning from the queue a second time, Choose columns is still open with those same fields."
+          ],
+          "help": {
+            "title": "Need a little guidance?",
+            "paragraphs": [
+              "This check moves between the pages inside the reporting example. Use its Export overview, My Report Queue and Continue current export buttons.",
+              "On the first return, check the period and columns on Review & Submit. Choose Change beside Selected Fields before visiting the queue again. On the second return, you should be back at the columns you were editing."
+            ]
+          },
+          "required": true,
+          "route": "reporting-reference.html",
+          "sourceStepKeys": ["RPT-005"]
+        },
+        {
+          "id": "prototype-routine-compact",
+          "title": "Check the builder in a narrower pane",
+          "action": "Make the application pane narrower until Available fields and Your columns appear as separate choices. Switch between them, move a column with its arrows, then search and Clear search.",
+          "expectations": [
+            "One field pane appears at a time, with the same selected columns retained when switching.",
+            "The arrows change the order as requested. Search and Clear search keep that order and return the groups to their folded state.",
+            "The labels and controls remain usable. The review guide keeps your current checkpoint while its own pane is resized."
+          ],
+          "help": {
+            "title": "Need a little guidance?",
+            "paragraphs": [
+              "Use the divider between the application and guide to change the available space. If you prefer, open the guide in a separate window and narrow the application window.",
+              "Try moving one column down and back up. Search for a field or group, clear the search, then compare your selections. Restore a wider application pane when finished."
+            ]
+          },
+          "required": true,
+          "route": "reporting-reference.html",
+          "sourceStepKeys": ["RPT-005"]
+        }
+      ]
+    },
+    {
+      "id": "prototype-report-navigation",
+      "title": "Find reports and keep your place",
+      "purpose": "Check that you can find a report, visit its queue and return to your unfinished work.",
+      "feature": "Navigation",
+      "tickets": ["OGC-479"],
+      "source": {
+        "storyKey": "RPT-S06",
+        "instructionRevision": "prototype-5599123149d1",
+        "checklistRevision": "14333b9e6281374aac57eeb38177a7fca0bba1ff340f380457261af19e3b3481",
+        "jira": "OGC-479",
+        "pr": "https://github.com/DIGI-UW/OpenELIS-Global-2/pull/4295",
+        "mock": "https://github.com/DIGI-UW/openelis-work/blob/5b2df7e34ff5ad1f983f24c0e9e0ba4db5e8697f/designs/reports/custom-data-export.html",
+        "contract": "https://github.com/DIGI-UW/openelis-work/blob/5b2df7e34ff5ad1f983f24c0e9e0ba4db5e8697f/designs/reports/custom-data-export.md",
+        "originalInstructionRevision": "49b4699fa1a3"
+      },
+      "startingConditions": [
+        "Use the reporting example beside this guide. No sign-in is needed.",
+        "Start with a wide application pane so the Reports sidebar is visible."
+      ],
+      "steps": [
+        {
+          "id": "prototype-navigation-find",
+          "title": "Find the reporting tools",
+          "action": "Find Reports in the sidebar. Open My Report Queue, then use the sidebar’s Custom Data Export button to return to the overview.",
+          "expectations": [
+            "Reports contains clearly named Custom Data Export and My Report Queue buttons.",
+            "Each button opens the matching page heading, with only that reporting entry selected.",
+            "Returning to Custom Data Export shows the new-export and saved-report choices."
+          ],
+          "help": {
+            "title": "Need a little guidance?",
+            "paragraphs": [
+              "Use a wide application pane for this checkpoint so the sidebar is visible.",
+              "The two working reporting buttons are grouped beneath Reports. Try finding them by their names before following them. You do not need to open other menu destinations."
+            ]
+          },
+          "required": true,
+          "route": "reporting-reference.html",
+          "sourceStepKeys": ["RPT-501"]
+        },
+        {
+          "id": "prototype-navigation-resume",
+          "title": "Leave and resume a report",
+          "action": "Start a Sample & Testing export and Add Accession Number. Open My Report Queue, return to Export overview and choose Continue current export.",
+          "expectations": [
+            "The queue is reachable without completing the unfinished report.",
+            "The overview offers Continue current export.",
+            "Continuing returns to Choose columns with Accession Number still selected."
+          ],
+          "help": {
+            "title": "Need a little guidance?",
+            "paragraphs": [
+              "From the overview choose Start a new export, then Sample & Testing. Search for Accession Number and choose Add.",
+              "Open My Report Queue using the sidebar or the button near the page heading. On the queue, choose Export overview, then Continue current export.",
+              "Look at Your CSV columns when you return. You should not need to find or add Accession Number again."
+            ]
+          },
+          "required": true,
+          "route": "reporting-reference.html",
+          "sourceStepKeys": ["RPT-502"]
+        },
+        {
+          "id": "prototype-navigation-access",
+          "title": "Use reporting controls with the keyboard",
+          "action": "Use Tab and Enter to open My Report Queue, then return with Continue current export. Try the same journey with a narrower application pane, using the buttons near the page headings.",
+          "expectations": [
+            "Tab gives the reporting button a visible focus outline, and Enter opens the expected page.",
+            "My Report Queue and Continue current export remain reachable when the sidebar is hidden.",
+            "Returning keeps Accession Number selected, and the page heading and action buttons remain readable.",
+            "Resizing or moving the review guide keeps this checkpoint and your existing answers in place."
+          ],
+          "help": {
+            "title": "Need a little guidance?",
+            "paragraphs": [
+              "Start at Choose columns with Accession Number selected. Press Tab until My Report Queue has a visible focus outline, then press Enter. On the queue, use Tab to reach Continue current export and press Enter to return.",
+              "If the sidebar is visible, either reporting button there is a useful keyboard target. When the application pane is narrower, the sidebar hides; the My Report Queue button near the page heading provides the same route.",
+              "Use the guide’s divider or placement controls to give the application less width, then repeat the journey using the page-header buttons. Keep the guide open so you can see whether the checkpoint stays in place.",
+              "After returning, inspect Your CSV columns. If you cannot find a button, see its focus outline or read its entire label, choose There was a problem and describe the point where you got stuck."
+            ]
+          },
+          "required": true,
+          "route": "reporting-reference.html",
+          "sourceStepKeys": ["RPT-503"]
+        }
+      ]
+    }
+  ],
+  "fixtureRevision": "2026-09-14-mock-aligned-2"
+}

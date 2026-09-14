@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>OpenELIS · Review guide design preview</title>
+    <link rel="stylesheet" href="prototype.css" />
+  </head>
+  <body>
+    <div class="preview-bar">
+      <span
+        ><strong>Design preview</strong>
+        <span class="preview-divider">/</span> OpenELIS review guide</span
+      >
+      <span class="preview-disclaimer">Demo answers stay in this browser</span>
+      <details class="preview-tools">
+        <summary>Preview tools</summary>
+        <div class="preview-tools-menu">
+          <label
+            ><input id="simulate-failure" type="checkbox" /> Simulate a
+            submission failure</label
+          >
+          <button id="reset-demo" type="button">Reset demo answers</button>
+          <a href="provenance.json" target="_blank" rel="noopener"
+            >Preview sources</a
+          >
+        </div>
+      </details>
+    </div>
+    <main id="workspace" class="workspace">
+      <section
+        id="application"
+        class="application"
+        aria-label="OpenELIS application preview"
+      >
+        <iframe
+          id="application-frame"
+          src="reporting-reference.html"
+          title="Approved OpenELIS Reporting design"
+          allow="clipboard-write"
+        ></iframe>
+      </section>
+      <div
+        id="splitter"
+        class="splitter"
+        role="separator"
+        tabindex="0"
+        aria-label="Resize review guide"
+        aria-controls="review-guide"
+        aria-orientation="vertical"
+        aria-valuemin="360"
+        aria-valuemax="520"
+        aria-valuenow="420"
+      >
+        <span></span>
+      </div>
+      <aside id="review-guide" class="review-guide" aria-label="Review guide">
+        <header class="guide-header">
+          <div>
+            <span class="eyebrow">OPENELIS</span>
+            <h1>Review guide</h1>
+          </div>
+          <button
+            id="minimize"
+            class="quiet-button"
+            type="button"
+            aria-label="Minimize review guide"
+          >
+            Minimize <span aria-hidden="true">−</span>
+          </button>
+        </header>
+        <div id="placement" class="placement" aria-label="Guide placement">
+          <div class="placement-options" role="group" aria-label="Dock guide">
+            <button type="button" data-dock="left">Left</button>
+            <button type="button" data-dock="right">Right</button>
+            <button type="button" data-dock="bottom">Bottom</button>
+          </div>
+          <button id="popout" class="quiet-button" type="button">
+            Open in separate window <span aria-hidden="true">↗</span>
+          </button>
+        </div>
+        <div
+          id="guide-message"
+          role="status"
+          class="guide-message"
+          hidden
+        ></div>
+        <div id="guide-content" class="guide-content">
+          <p>Loading review preview…</p>
+        </div>
+        <footer id="guide-footer" class="guide-footer"></footer>
+      </aside>
+    </main>
+    <button id="restore" class="restore primary" type="button" hidden>
+      Open review guide
+    </button>
+    <div
+      id="announcement"
+      class="sr-only"
+      role="status"
+      aria-live="polite"
+    ></div>
+    <script type="module" src="prototype.js"></script>
+  </body>
+</html>

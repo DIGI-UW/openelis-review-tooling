@@ -1,0 +1,42 @@
+{
+  "kind": "isolated-interaction-prototype",
+  "iteration": 1,
+  "artifactRevision": "a35ee6d420b9",
+  "designAcceptance": "pending",
+  "sharedRendererChanged": false,
+  "realSubmissions": false,
+  "applicationPane": "Unmodified approved Reporting design reference; not the deployed OpenELIS application",
+  "sources": {
+    "id": "prototype-reporting-20260914",
+    "label": "Reporting test site \u00b7 design prototype",
+    "checklistRevision": "14333b9e6281374aac57eeb38177a7fca0bba1ff340f380457261af19e3b3481",
+    "suggestedStoryIds": [
+      "prototype-routine-export",
+      "prototype-report-navigation"
+    ],
+    "observedApplicationRevision": "d48cd790c49294ddb4a36c9333d3acc744ebb3c4",
+    "observedReviewToolingRevision": "54b99f8d76bac9b46a2082e3549a7d013e8406ff",
+    "applicationReferenceRevision": "5b2df7e34ff5ad1f983f24c0e9e0ba4db5e8697f",
+    "reviewToolingBaseRevision": "64b08c214ee3d2ac1fb98830150a715637d86d36"
+  },
+  "fixtureRevision": "2026-09-14-mock-aligned-2",
+  "files": {
+    "index.html": "a1022e1e0f3f7a2254f8adf9b759e06aad7083d0f72cd1835d9c564ef6bb3d18",
+    "prototype.css": "9d0345860998bd662d6c4037fca3227f88ab2b88199964e2b189af293240aef2",
+    "prototype.js": "973112af6cc9074f193d80756c742e61bfb329b64b8995ecd564a108a0ec1c70",
+    "stories.json": "e9515afa040bb93b2434e18986ce65ccfb5fe9b3ad20c96331d6502478159517",
+    "reporting-reference.html": "5e0d4386ee29d55e269759dea3c5c326daacdff65117876043e696bc0a7c44e9",
+    "custom-data-export-example.js": "92b009491d5758616cd4f047079c2b097f5f3ccc56cd5d74252e4b4c6cbec936"
+  },
+  "validation": {
+    "environment": "local isolated browser tests",
+    "passed": 9,
+    "failed": 0,
+    "retries": 0,
+    "skipped": 0,
+    "browserErrors": 0,
+    "durationSeconds": 11.4,
+    "command": "npx playwright test --config prototypes/uat-review/playwright.config.mjs",
+    "humanAcceptance": false
+  }
+}
