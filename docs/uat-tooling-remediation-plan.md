@@ -469,9 +469,36 @@ newcomer acceptance must be recorded separately; local checks are not acceptance
      The separate in-app application walkthrough reached the nine NC fields
      but stopped at native date entry; do not count it as a completed workflow.
      The native thread's published CSV/recording remains the qualification
-     evidence. A screenshot also shows limited instruction space with a short
-     bottom pane; this usability finding remains open for review. None of these
-     checks establishes newcomer acceptance.
+     evidence. A screenshot also exposed limited instruction space with a short
+     bottom pane; the correction and its evidence are recorded below. None of
+     these checks establishes newcomer acceptance.
+
+### Published reading-space correction — September 15 UTC
+
+- Widget source `bbc3d4783bb1d2e5488c2105c61a6cbfeb573946`, included in runtime
+  candidate `d0cfd4202a8351dbdda500db35101a628ad24270`, is published. Its SHA256 is
+  `6f208c113fee8f22120fbf2bee0d976a8d089903a681d779d08e625ea070989b`.
+  Public bytes match on the shared host, AMR and Analyzers. Reporting and Testing
+  each inject that shared script exactly once; their installations needed no
+  change. The previous router configuration is retained in the runtime candidate.
+- Long checkpoints focus their instruction without scrolling past it to an
+  answer button. Reviewer name and page-note controls scroll with the checklist;
+  Submit remains fixed. The 340px fixture pane previously left 62px for reading;
+  the regression now requires at least 140px and passes. At Reporting's saved
+  440px panel size, live inspection found 257px of reading space with the first
+  instruction visible and focused.
+- Eighteen affected browser checks passed in two focused runs, with recorded
+  evidence and inspected screenshots. They cover long-step selection/advance,
+  short-step focus, instruction lists, reviewer-name validation, draft reload,
+  failed-submit recovery, versioned answers, overview/reset, popout and docking.
+  JavaScript syntax and whitespace checks passed. CI run `34926572593` is queued
+  as of this publication; it is not recorded as passing.
+- The router, Grist, Dex and checklist service retained their container IDs and
+  start times. Reporting still runs application `3de726b8d38ba102ac2fa564c95ac59a2a4e02b7`;
+  its public target now identifies the new widget/runtime and hash. No shared
+  deployment PR was merged. Testing's persistent-hook migration remains deferred
+  for team review. Newcomer acceptance and remaining authenticated site checks
+  are still open.
 
 ## Required validation
 

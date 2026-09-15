@@ -129,31 +129,34 @@ when it stands down.
 
 ## What the reviewer gets
 
-Every step is listed so the scope of the review is visible, but only the step being
-worked spells out its expected result and its **pass / fail / n-a** buttons; the
-rest collapse to a line and a numbered state marker. A route is recorded in the
-report, not presented as a link, so the reviewer must assess the real navigation
-and workflow. Answering a step opens the next unanswered one, and clicking any line
-goes back to it. Marking never scrolls the checklist away from where the reviewer is.
+A fresh Review opening presents the review overview: suggestions, saved progress,
+Continue for unfinished work, and Browse/search. After choosing a story, every
+checkpoint is listed, while only the current one expands its action and expected
+result. Newline-separated instructions render as labelled lists. Long checkpoints
+start at their first instruction instead of scrolling past it to an answer button.
+
+**Worked as expected** saves and advances. **There was a problem** and
+**I couldn't try this** keep the checkpoint open for an explanation, followed by
+Continue. Historical not-applicable answers remain readable. Clicking a checkpoint
+returns to it for editing. Routes are recorded in feedback; reviewers follow the
+written application navigation rather than a shortcut supplied by the guide.
 
 Reordering keeps the answer; changed instructions mark the answer stale until it is
 reviewed again. Answers never carry into a different deployment, and old
 position-based state is not reused.
 
-The panel floats over the application rather than reflowing it — a host app's fixed
-header and side nav do not move for an injected margin. It steps aside from fixed
-application furniture it would otherwise cover, sits below the host's modals so a
-dialog a step asks for can come over the top, and **Move panel** cycles it between
-the right, centre and left; a side chosen by hand is remembered and never
-overridden. Below 640px the open panel becomes a bottom sheet.
+**Left**, **Right** and **Bottom** reserve application space. The panes scroll
+independently; the divider resizes the guide. Right is the initial choice when
+both panes fit, otherwise Bottom. Placement and size are remembered without
+automatically switching modes during a review. Resizing does not expand every
+checkpoint. Application dialogs can appear above the guide.
 
-**Expand panel** widens it and opens every step at once, laying the expected result
-down the left and the answer on the right so more of the checklist fits. The footer
-keeps one primary action, **Submit review**. The `...` menu contains the occasional
-controls: **All steps / To do / Failed**, copy/download, reset, and current-story
-sources. Each section heading carries its own count. How the panel is arranged —
-side, expanded, filter, and which story was open — is remembered per deployment, so
-it survives a reload and a story switch.
+Reviewer name and page-note controls scroll with the checklist, leaving the fixed
+footer for **Submit feedback** or **Submit partial feedback** and the `...` menu.
+That menu holds filters, copy/download, reset and story sources. A completed review
+shows a summary and optional overall note. Submission failures retain answers and
+notes. Reset requires confirmation, clears only the current story, and returns to
+the overview; **Back to all reviews** preserves work without resetting it.
 
 ### Popping it out
 
@@ -176,17 +179,18 @@ blocks the window says so in the panel rather than doing nothing.
 
 A deployment review usually contains several independently reviewable stories.
 The schema-v2 catalog names each real story and its parent review instance. The
-widget limits the story checklist to the instance injected on that deployment,
-then renders only the selected story from the instance's aggregate checklist.
-By default, the checklist offers only stories whose step routes match the current
-path. **Show all server stories** deliberately expands that set; when no story has
-a route for the page, all server stories are shown automatically and the widget
-says why. A route change resets the default, while an explicit story choice
-survives refresh on the same page.
+widget uses the deployment's Grist-owned scope and suggestions, then renders only
+the selected story. Site scope offers relevant suggestions and Browse for all
+applicable reviews. A general server with `all` scope browses the full published
+catalog. Suggestions invite testing; they do not certify implementation status.
+Without configured suggestions, page relevance supplies a starting list, falling
+back to server stories when no route matches. Application navigation never
+replaces an explicitly selected review.
 
-The story control is an in-panel disclosure and listbox rather than a native
-select. It shows each story's saved progress, supports arrow-key navigation, and
-keeps Escape local to the disclosure instead of minimizing the whole review.
+The overview has its own scrolling list, saved progress, ticket/title search and
+keyboard selection. It occupies the guide pane before a story is chosen, instead
+of appearing as a disclosure above an automatically opened checkpoint. The chosen
+view survives reload in that tab and transfers with popout/return.
 This keeps a milestone or project from appearing as one giant story while
 preserving one Grist source and one checklist endpoint.
 
@@ -218,9 +222,9 @@ between visits falls back to a current story from the injected review.
 
 Story prose is presented as a labeled, full-size description above the steps. It
 is not squeezed into the link metadata or pinned with the section heading, so it
-remains readable and scrolls away naturally when work begins. Route-selected
-defaults open on the first actionable step; deliberately choosing a story brings
-its description into view first.
+remains readable and scrolls away naturally when work begins. Deliberately
+choosing a story brings its description into view first; selecting or continuing
+a checkpoint brings its instruction into view.
 
 The `...` menu's **Copy report** action puts the whole review on the clipboard,
 which is what the reviewer is asked to paste into Claude. **Download report** writes
