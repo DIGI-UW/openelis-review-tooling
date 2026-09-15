@@ -1,10 +1,10 @@
 {
   "instance": "reporting",
-  "expected_revision": "b5c5738b94937e62b8fd5d3401f977695032eb429c0271c1ebf16e931a6953ab",
+  "expected_revision": "b518273517ad09a68465c1b150b74a52e1691786978cfd25df19e3503bdfcd05",
   "story": {
     "story_key": "RPT-S01",
     "title": "Routine exports in both layouts",
-    "story_order": 1,
+    "story_order": 0,
     "version": "1.1",
     "jira": "OGC-479",
     "pr": "https://github.com/DIGI-UW/OpenELIS-Global-2/pull/4292",
