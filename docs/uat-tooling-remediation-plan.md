@@ -603,7 +603,21 @@ newcomer acceptance must be recorded separately; local checks are not acceptance
   Reporting implementation task confirmed the correct narrow maintenance path:
   add a fresh failed synthetic job with the current definition, preserve the old
   job, parameterize the fixture/test identity, then rerun only failed retry.
-  No passing retry result is claimed yet. The implementation task owns that work.
+  Reporting commit `a344a1747dd30858681b501580ea4f5b5eac5241` implements
+  that maintenance. The new failed parent is
+  `00b7277c-1092-41cd-88aa-62c020c5b8b9`; the focused public authentication
+  and retry run passed in 29 seconds, producing ready child
+  `27bd6ce7-2c1a-4e3c-bcb9-3937b86cfd21`. The receipt records a database
+  backup, current version-4 definition and unchanged old fixture. The test log
+  and ready screenshot were inspected; exact repeated-value CSV, frozen request,
+  lineage and browser-navigation assertions passed. This supersedes the failed
+  fixture preflight, without erasing that failure.
+  `docs/reporting-rpt-s04-readable.story.json` prepares version 1.2 with only
+  RPT-302's action link and route changed to the new parent. Its revision
+  precondition remains the live `c1bfb0df…` revision above. Publication is pending:
+  the configured Grist operator SSH host timed out, and no local direct-client
+  credential is provisioned. The live guide still points to the old fixture;
+  do not claim that checkpoint is ready until managed apply and public readback.
 - Public checks reconfirmed widget SHA256 `903f8af2c53099bd52981f6feaf1c2254f221442182ba762015477577b3944f2`
   on the central host, AMR and Analyzers. Testing injects that central script.
   Reporting's target identifies widget `f1dc136` and application

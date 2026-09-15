@@ -5,7 +5,7 @@
     "story_key": "RPT-S04",
     "title": "Return to reports and recover queued, failed or expired exports",
     "story_order": 3,
-    "version": "1.1",
+    "version": "1.2",
     "jira": "OGC-479",
     "pr": "https://github.com/DIGI-UW/OpenELIS-Global-2/pull/4309",
     "mock": "https://github.com/DIGI-UW/openelis-work/blob/5b2df7e34ff5ad1f983f24c0e9e0ba4db5e8697f/designs/reports/custom-data-export.html",
@@ -25,9 +25,9 @@
       "step_key": "RPT-302",
       "required": true,
       "step_order": 1,
-      "do": "Open: While signed in as admin, open My Report Queue.\nAddress: In the browser address bar, open /reports/custom-data-export?view=queue&job=47900000-0000-4000-8000-000000000101.\nRetry: Choose Retry on the Failed card.\nWait: Wait for the new queue row to show Ready to download.\nReload: Reload the page.\nDownload: Download the new row's CSV.\nNavigate: Use browser Back to return to the failed example, then Forward to return to the new report.",
+      "do": "Open: While signed in as admin, open My Report Queue.\nAddress: In the browser address bar, open /reports/custom-data-export?view=queue&job=00b7277c-1092-41cd-88aa-62c020c5b8b9.\nRetry: Choose Retry on the Failed card.\nWait: Wait for the new queue row to show Ready to download.\nReload: Reload the page.\nDownload: Download the new row's CSV.\nNavigate: Use browser Back to return to the failed example, then Forward to return to the new report.",
       "expect": "Original: The supplied example remains Failed.\nRecovery: The new report remains reachable after reload and browser navigation.\nColumns: Its CSV has Accession Number and Viral Load in that order.\nResults: It contains two REPORTING-MVP-REPEAT rows, each with Viral Load 450.\nFixture: Retrying is repeatable and does not consume the original example.",
-      "route": "/reports/custom-data-export?view=queue&job=47900000-0000-4000-8000-000000000101"
+      "route": "/reports/custom-data-export?view=queue&job=00b7277c-1092-41cd-88aa-62c020c5b8b9"
     },
     {
       "step_key": "RPT-304",
