@@ -72,6 +72,21 @@ async function applyStory(doc, payload) {
   }
 }
 
+async function setPresentation(doc, args) {
+  const grist = await startFakeGrist(doc);
+  try {
+    return await run("node", [SYNC, "set-presentation", ...args], {
+      env: {
+        ...process.env,
+        GRIST_URL: grist.url,
+        GRIST_KEY: "test-key",
+      },
+    });
+  } finally {
+    await grist.stop();
+  }
+}
+
 test("testing stories reconcile by stable keys without changing sibling reviews", async () => {
   const doc = legacyDoc();
   await apply(doc);
@@ -142,6 +157,59 @@ test("check-access requires the server authoring identity to own the document", 
       return true;
     },
   );
+});
+
+test("set-presentation previews and writes only deployment discovery fields", async () => {
+  const doc = legacyDoc();
+  await apply(doc);
+  const before = structuredClone(doc.tables.UAT_Meta.records[0].fields);
+
+  const dryRun = await setPresentation(doc, [
+    "amr",
+    "--scope",
+    "site",
+    "--suggested",
+    "AMR-S03,AMR-S01",
+    "--dry-run",
+  ]);
+  assert.match(dryRun.stdout, /would set amr: scope=site/);
+  assert.deepEqual(doc.tables.UAT_Meta.records[0].fields, before);
+
+  const applied = await setPresentation(doc, [
+    "amr",
+    "--scope",
+    "site",
+    "--suggested",
+    "AMR-S03,AMR-S01",
+  ]);
+  assert.match(applied.stdout, /verified amr: scope=site/);
+  assert.deepEqual(doc.tables.UAT_Meta.records[0].fields, {
+    ...before,
+    story_scope: "site",
+    suggested_stories: "AMR-S03\nAMR-S01",
+  });
+});
+
+test("set-presentation refuses malformed scope and story ids before writing", async () => {
+  const doc = legacyDoc();
+  await apply(doc);
+  const before = structuredClone(doc.tables.UAT_Meta.records[0].fields);
+
+  await assert.rejects(
+    setPresentation(doc, ["amr", "--scope", "everything"]),
+    /scope must be site or all/,
+  );
+  await assert.rejects(
+    setPresentation(doc, [
+      "amr",
+      "--scope",
+      "site",
+      "--suggested",
+      "AMR-S01,not valid",
+    ]),
+    /invalid suggested story id/,
+  );
+  assert.deepEqual(doc.tables.UAT_Meta.records[0].fields, before);
 });
 
 // A document as it was before stories existed: steps carrying their group as a

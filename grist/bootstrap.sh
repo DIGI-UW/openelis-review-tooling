@@ -206,6 +206,13 @@ cmd_publish() {
   run_node publish "$@"
 }
 
+cmd_set_presentation() {
+  require_runtime
+  [ -s "$KEYFILE" ] || die "$KEYFILE is missing; run up first"
+  copy_runtime_scripts
+  run_node set-presentation "$@"
+}
+
 cmd_seed_examples() {
   [ "${1:-}" = "--replace-all" ] ||
     die "seed-examples replaces committed checklist instances; re-run with --replace-all"
@@ -232,6 +239,10 @@ main() {
       shift
       cmd_publish "$@"
       ;;
+    set-presentation)
+      shift
+      cmd_set_presentation "$@"
+      ;;
     seed-examples)
       shift
       cmd_seed_examples "$@"
@@ -246,6 +257,7 @@ Usage:
   ./grist/bootstrap.sh generate
   ./grist/bootstrap.sh check-access
   ./grist/bootstrap.sh apply-story <file.json>
+  ./grist/bootstrap.sh set-presentation <instance> --scope site|all --suggested <ids> [--dry-run]
   ./grist/bootstrap.sh publish <instance…> [--unlist]
   ./grist/bootstrap.sh seed-examples --replace-all
 USAGE

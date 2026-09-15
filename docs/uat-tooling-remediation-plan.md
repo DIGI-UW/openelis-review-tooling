@@ -217,22 +217,27 @@ migration, frontend build or alternate checklist store is introduced.
 - Focused checkpoint responses, blocked outcome, draft preservation, versioned
   evidence and completion summary.
 - Plain-text labelled instruction lists for scannability.
-- Public widget revision `fab665f2c08c1d758885d3f5178a2ce922b3dd13`
+- Grist-backed site/all scope and ordered suggestions in the public catalog,
+  with a narrow dry-run/write/readback operator command.
+- Public widget revision `7e45214eaf0be66b899807c60e61840f3efe284e`
   deployed to Reporting, AMR and Analyzers; Testing consumes the same exact
-  central widget bytes.
+  central widget bytes. All four serve SHA-256
+  `78d205c43fe95d4b3cc54ebcde0d0acc1ec20415b73053ac7c9d617b45b7eb8e`.
+- Reporting now reads `site` scope and ordered suggestions `RPT-S01`, `RPT-S03`,
+  `RPT-S04`, `RPT-S06` from Grist. Its injected tag and target identity no
+  longer duplicate those values. Checklist revision
+  `4bdd608102e5144ea109b5972df480207d2be3d9067552f3d35545cdcb668d4a`
+  remained unchanged during the migration.
 
 Human newcomer acceptance remains open.
 
 ### Next implementation increments
 
-1. **Grist presentation configuration — implemented in the review-tooling
-   candidate; Grist migration and public deployment remain pending**
-   - Add site/all scope and ordered suggested story IDs to `UAT_Meta`.
-   - Publish them through checklist/catalog JSON.
-   - Make the widget prefer Grist settings while retaining current injected
-     attributes only as a migration fallback.
+1. **Remaining Grist ownership cleanup**
    - Move Phrases stories to their correct review instance and remove normal
      dependence on hostname targeting.
+   - Remove injected presentation fallbacks after remaining deployments have
+     migrated to Grist-owned settings.
 
 2. **Inert OpenELIS extension points**
    - Add empty review includes and a persistent read-only review directory mount

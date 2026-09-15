@@ -53,6 +53,20 @@ every published story regardless of its review, host, or page filters; `site`
 keeps the review and host filtering behavior. Suggestions are ordered, one stable
 story id per line. No duplicate stories are needed.
 
+An operator can make and verify the same narrow edit from this checkout. Always
+preview it first:
+
+```bash
+./deploy.sh grist set-presentation lab-one \
+  --scope site --suggested LAB-S01,LAB-S03 --dry-run
+./deploy.sh grist set-presentation lab-one \
+  --scope site --suggested LAB-S01,LAB-S03
+```
+
+This command changes only the two presentation cells and reads them back after
+the write. Checklist wording, evidence revisions and reviewer answers remain
+untouched. Passing an explicit empty `--suggested ''` clears the suggestion list.
+
 The same fields in the target-side JSON remain a migration fallback for a site
 whose Grist row has not been configured yet. Once Grist has either field, Grist
 wins and later presentation changes need no proxy reload.

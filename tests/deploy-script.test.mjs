@@ -148,6 +148,17 @@ test("targeted Grist deployment uses the checked-out bootstrap only", () => {
     deployScript.indexOf("cmd_grist_apply_story()"),
     deployScript.indexOf("cmd_grist_check_access()"),
   );
+  assert.match(deployScript, /cmd_grist_set_presentation\(\)/);
+  assert.match(deployScript, /suggested_set=false/);
+  assert.match(
+    deployScript,
+    /\[ "\$suggested_set" = true \] \|\|\s+die "--suggested is required;/,
+  );
+  assert.match(
+    deployScript,
+    /set-presentation\) cmd_grist_set_presentation "\$@"/,
+  );
+  assert.match(deployScript, /grist\/bootstrap\.sh set-presentation/);
   assert.match(
     applyStory,
     /story_file=\\\$\(sudo -u '\$OS_USER' mktemp \/tmp\/uat-story/,

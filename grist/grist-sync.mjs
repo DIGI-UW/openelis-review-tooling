@@ -573,6 +573,75 @@ async function publish(instances, listed) {
   );
 }
 
+async function setPresentation(args) {
+  const instance = requiredText(args[0], "instance");
+  if (!/^[a-z0-9_-]+$/.test(instance) || instance === "index") {
+    throw new Error("instance must be a checklist slug other than index");
+  }
+  let scope;
+  let suggested;
+  let dryRun = false;
+  for (let index = 1; index < args.length; index += 1) {
+    const arg = args[index];
+    if (arg === "--scope") scope = args[++index];
+    else if (arg === "--suggested") suggested = args[++index];
+    else if (arg === "--dry-run") dryRun = true;
+    else throw new Error(`unknown set-presentation argument: ${arg}`);
+  }
+  if (scope !== "site" && scope !== "all") {
+    throw new Error("scope must be site or all");
+  }
+  if (suggested === undefined) {
+    throw new Error("suggested stories are required; pass an empty value to clear them");
+  }
+  const stories = [];
+  for (const value of String(suggested).split(/[\n,]/)) {
+    const id = value.trim();
+    if (!id || stories.includes(id)) continue;
+    if (!/^[A-Za-z0-9_-]+(?:--[A-Za-z0-9_-]+)?$/.test(id)) {
+      throw new Error(`invalid suggested story id: ${id}`);
+    }
+    stories.push(id);
+  }
+
+  const doc = await resolveDoc();
+  const records = (
+    await api(`/api/docs/${doc}/tables/UAT_Meta/records`)
+  ).records.filter(
+    (record) => String(record.fields.instance || "").trim() === instance,
+  );
+  if (records.length !== 1) {
+    throw new Error(
+      `expected one UAT_Meta row for ${instance}, received ${records.length}`,
+    );
+  }
+  const fields = {
+    story_scope: scope,
+    suggested_stories: stories.join("\n"),
+  };
+  if (dryRun) {
+    console.log(
+      `would set ${instance}: scope=${scope}, suggested=${stories.join(",") || "none"}`,
+    );
+    return;
+  }
+
+  await patchRecords(doc, "UAT_Meta", [{ id: records[0].id, fields }]);
+  const readback = (
+    await api(`/api/docs/${doc}/tables/UAT_Meta/records`)
+  ).records.find((record) => record.id === records[0].id);
+  if (
+    !readback ||
+    readback.fields.story_scope !== fields.story_scope ||
+    readback.fields.suggested_stories !== fields.suggested_stories
+  ) {
+    throw new Error(`presentation readback did not match for ${instance}`);
+  }
+  console.log(
+    `verified ${instance}: scope=${scope}, suggested=${stories.join(",") || "none"}`,
+  );
+}
+
 function requiredText(value, name) {
   const text = String(value || "").trim();
   if (!text) throw new Error(`${name} is required`);
@@ -898,6 +967,8 @@ else if (mode === "apply-story")
 else if (mode === "read-story")
   await readStory(process.argv[3], process.argv[4]);
 else if (mode === "verify") await verifyPublic(process.argv[3]);
+else if (mode === "set-presentation")
+  await setPresentation(process.argv.slice(3));
 else if (mode === "publish") {
   const unlist = process.argv.includes("--unlist");
   await publish(
@@ -906,7 +977,7 @@ else if (mode === "publish") {
   );
 } else {
   console.error(
-    "usage: grist-sync.mjs apply [--dry-run] [--rebuild-pages]|apply-story <file> [--dry-run]|read-story <instance> <key>|verify <instance>|migrate|seed [--replace-all]|generate|check-access|publish <instance…> [--unlist]",
+    "usage: grist-sync.mjs apply [--dry-run] [--rebuild-pages]|apply-story <file> [--dry-run]|read-story <instance> <key>|verify <instance>|set-presentation <instance> --scope site|all --suggested <ids> [--dry-run]|migrate|seed [--replace-all]|generate|check-access|publish <instance…> [--unlist]",
   );
   process.exit(1);
 }

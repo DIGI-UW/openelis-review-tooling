@@ -67,6 +67,10 @@ do, expect, route`.
   `review--story-key` and requires `all` scope. Grist settings take precedence;
   injected `data-story-scope` and `data-suggested-stories` remain a migration
   fallback only while both Grist fields are blank.
+- Change these deployment presentation fields through Grist's UI or the narrow
+  `./deploy.sh grist set-presentation <instance> --scope site|all --suggested
+  <ids> [--dry-run]` command. The command edits only those two cells and verifies
+  exact readback; it must not be used to rewrite checklist content or evidence.
 - With `site` scope, the chooser starts with configured suggestions or stories
   matching the current URL. If no story matches the URL, it explicitly falls
   back to all stories owned by that review. Reviewers can browse all applicable
