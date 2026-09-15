@@ -312,12 +312,14 @@ newcomer acceptance must be recorded separately; local checks are not acceptance
 ### Next implementation increments
 
 1. **Remaining Grist ownership cleanup**
+
    - Move Phrases stories to their correct review instance and remove normal
      dependence on hostname targeting.
    - Remove injected presentation fallbacks after remaining deployments have
      migrated to Grist-owned settings.
 
 2. **Inert OpenELIS extension points**
+
    - Add empty review includes and a persistent read-only review directory mount
      to current development, production and installer proxy definitions.
    - Prove that disabled effective configuration and page bytes are unchanged.
@@ -347,6 +349,7 @@ newcomer acceptance must be recorded separately; local checks are not acceptance
      compliance. These hooks have not been migrated onto public applications.
 
 3. **Review-site lifecycle**
+
    - Implement enable, disable, status and verify in review tooling.
    - Support local execution and authorized SSH orchestration with the same
      generated artifact.
@@ -499,6 +502,41 @@ newcomer acceptance must be recorded separately; local checks are not acceptance
   deployment PR was merged. Testing's persistent-hook migration remains deferred
   for team review. Newcomer acceptance and remaining authenticated site checks
   are still open.
+
+### Published session-initialization correction — September 15 UTC
+
+- The native Reporting workflow exposed simultaneous application and widget
+  `/session` requests after login. The widget request was only a display probe;
+  the resulting CSRF initialization race could invalidate the token held by
+  OpenELIS and cause the next report-generation request to fail.
+- Widget `814d8341a3714759d9b88bf42ac52a246c106fd6`, integrated into runtime
+  `57fbe3e3d8baed918dd7685adcf97d674fb30d2e`, removes that probe. Existing embed
+  attributes retain the cookie-scoped submission path. Authentication stays in
+  the submission service; successful feedback identifies the verified account.
+  Downloads identify the entered name with `login: null`, without claiming
+  verified account attribution. Reviewer drafts and historical Grist rows are
+  unaffected.
+- Seven identity checks and nine submission checks passed. A regression first
+  observed two startup requests, then verified one application request per load
+  and reload and none added by popout. Tests also cover rejected submission,
+  retry, draft/name preservation, account confirmation and cookie path. The
+  confirmation screenshot was reviewed and videos retained. An initial popout
+  test failed with startup mocks still installed; releasing those completed
+  mocks before opening the real popup resolved it, with passive request
+  observation retained. Syntax and whitespace checks passed.
+- Public SHA256 `727abba5442cd33a98710ce27e1cc0dd7d81f49c2e6f9022c33daa4cb677adac`
+  matches the shared host and AMR/Analyzers scripts. Reporting and Testing each
+  inject that shared script exactly once. Existing router, Grist, Dex and reader
+  container IDs and start times are unchanged. Reporting application remains
+  `3de726b8d38ba102ac2fa564c95ac59a2a4e02b7`; its widget identity was updated
+  separately under the Review deployment lock with an earlier-target backup.
+- The native Reporting owner has the exact public candidate for repeating the
+  ordinary-user login and report-generation workflow. That live regression is
+  pending. Candidate CI run `34928305358` is queued; the preceding reading-space
+  runtime run `34926572593` has now passed. These are separate from newcomer
+  acceptance and the still-open authenticated site feedback checks. Testing's
+  deployment-hook PR remains deferred; no application or deployment PR merge
+  was required for this correction.
 
 ## Required validation
 
