@@ -101,7 +101,7 @@ test("general server lists every published source despite host and page filters 
   const errors = [];
   page.on("pageerror", (error) => errors.push(error.message));
   const widget = await generalServer(page);
-  await widget.locator(".storytrigger").click();
+  await expect(widget.locator(".storymenu")).toBeVisible();
   const list = widget.getByRole("listbox", { name: "Available reviews" });
   await expect(list.getByRole("option")).toHaveCount(2);
   await list.getByRole("option", { name: /Order story/ }).click();
@@ -149,7 +149,7 @@ test("Grist all-scope can bootstrap a site with no checklist of its own", async 
   page,
 }) => {
   const widget = await generalServer(page, "none", true);
-  await expect(widget.locator(".storyscope")).toHaveText(
+  await expect(widget.locator(".storymenutitle")).toHaveText(
     "Suggested reviews for this deployment",
   );
   const list = widget.getByRole("listbox", {

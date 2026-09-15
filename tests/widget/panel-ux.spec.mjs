@@ -6,6 +6,9 @@ async function open(page, width = 1440, height = 900) {
   const widget = page.locator("#oe-review-host");
   await widget.getByRole("button", { name: "Review", exact: false }).click();
   await expect(widget.locator(".panel")).toBeVisible();
+  await widget
+    .getByRole("option", { name: /Find and route microbiology/ })
+    .click();
   return widget;
 }
 
@@ -58,9 +61,9 @@ test("keeps placement compact and secondary actions in one menu", async ({
   await expect(
     widget.getByRole("button", { name: "Refresh checklist" }),
   ).toBeVisible();
-  await expect(
-    widget.getByRole("button", { name: "Move panel" }),
-  ).toHaveCount(0);
+  await expect(widget.getByRole("button", { name: "Move panel" })).toHaveCount(
+    0,
+  );
 });
 
 test("moves between every dock and remembers the choice", async ({ page }) => {
@@ -82,7 +85,9 @@ test("resizes a bottom split with the keyboard and remembers it", async ({
   const widget = await open(page);
   await widget.getByLabel("Review placement").selectOption("bottom");
   const before = await widget.locator(".panel").boundingBox();
-  const splitter = widget.getByRole("separator", { name: "Resize review panel" });
+  const splitter = widget.getByRole("separator", {
+    name: "Resize review panel",
+  });
   await splitter.focus();
   await splitter.press("ArrowUp");
   const after = await widget.locator(".panel").boundingBox();
@@ -99,13 +104,13 @@ test("requires an explanation for problems and preserves unfinished drafts", asy
 }) => {
   const widget = await open(page);
   const current = widget.locator(".step.current");
-  await current
-    .getByRole("button", { name: "There was a problem" })
-    .click();
+  await current.getByRole("button", { name: "There was a problem" }).click();
   await expect(current).toHaveClass(/current/);
   const explanation = current.getByLabel("Explain this answer");
   await expect(explanation).toBeFocused();
-  await expect(current.getByRole("button", { name: "Continue" })).toBeDisabled();
+  await expect(
+    current.getByRole("button", { name: "Continue" }),
+  ).toBeDisabled();
   await explanation.fill("The expected result did not appear");
   await expect(current.getByRole("button", { name: "Continue" })).toBeEnabled();
 
@@ -188,10 +193,12 @@ test("opens on deployment suggestions and keeps browsing secondary", async ({
   const widget = page.locator("#oe-review-host");
   await widget.getByRole("button", { name: /review/i }).click();
   await expect(widget.locator(".storymenu")).toBeVisible();
-  await expect(widget.locator(".storyscope")).toHaveText(
+  await expect(widget.locator(".storymenutitle")).toHaveText(
     "Suggested reviews for this deployment",
   );
   await expect(widget.locator(".storylist").getByRole("option")).toHaveCount(2);
   await expect(widget.locator(".storynotice")).toBeHidden();
-  await expect(widget.getByRole("button", { name: "Browse all 4 reviews" })).toBeVisible();
+  await expect(
+    widget.getByRole("button", { name: "Browse all 4 reviews" }),
+  ).toBeVisible();
 });

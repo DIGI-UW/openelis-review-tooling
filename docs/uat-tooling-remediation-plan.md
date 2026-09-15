@@ -134,6 +134,20 @@ The corresponding review directory is mounted read-only from a persistent host
 directory. An empty directory is the disabled state and must produce the same
 effective proxy behavior as an installation without Review.
 
+The shared filesystem contract is:
+
+- `REVIEW_CONFIG_DIR` supplies the host directory mounted at
+  `/etc/nginx/review:ro`.
+- `/etc/nginx/review/active/server/*.conf` supplies the server-level directives.
+- `/etc/nginx/review/active/html/*.conf` supplies the frontend directives.
+- Review tooling owns versioned directories below that mounted parent and
+  switches a relative `active` symlink. Mounting the parent allows changes to
+  reach the running proxy without recreating its container.
+
+Installing these extension points on an older site requires a one-time proxy
+configuration and mount update. Subsequent Review toggles must use the command
+and reload contract below; the initial migration is not proof of that lifecycle.
+
 Review tooling supplies an idempotent site command with these operations:
 
 ```text
@@ -185,7 +199,7 @@ The operator workflow is deliberately split at the trust boundary:
 2. Register `instance=https://site.example.org` once in the central trusted
    backend allowlist and reload only the checklist service.
 3. Run `review-site enable --instance <instance> --review-origin
-   https://grist.openelis-global.org` on the OpenELIS host, or run the equivalent
+https://grist.openelis-global.org` on the OpenELIS host, or run the equivalent
    SSH orchestration from an authorized review-tooling checkout.
 4. Run `review-site verify`, perform one authenticated submission and confirm in
    Grist that source review, deployment host, application version and instruction
@@ -231,6 +245,37 @@ migration, frontend build or alternate checklist store is introduced.
 
 Human newcomer acceptance remains open.
 
+### Reopened acceptance gap: review entry
+
+The September 14 live audit found that the story chooser was still a disclosure
+above an automatically selected checklist. Its initial-open test checked that
+the disclosure appeared, not that the reviewer saw an overview before any
+checkpoint. Reset also reopened the same story. The opening-experience criterion
+is therefore **not accepted**, despite the chooser components being deployed.
+
+The current correction takes priority over the installation command:
+
+- Opening Review presents the overview with suggestions, Browse/search and
+  progress, including a prominent Continue action for saved unfinished work.
+- The overview occupies the guide pane; checkpoint instructions and submission
+  controls are shown only after the reviewer chooses or continues a review.
+- Returning to all reviews preserves answers and unfinished explanations.
+  Reset still requires confirmation, clears only the current story, then returns
+  to the overview. Returning to the overview never requires resetting answers.
+- Application navigation updates suggested reviews without replacing the chosen
+  story. Reload and popout/return preserve whether the reviewer was in the
+  overview or a checklist; another application tab keeps its own navigation.
+- Saved answers for a story not yet checked against its current instructions
+  must not be presented as fresh acceptance.
+
+Branch `codex/review-overview-entry` is a release candidate. The full widget suite
+passes 115 browser checks and the tooling suite passes 218 checks. Six focused
+workflows were also recorded, including first open without configured
+suggestions, draft/resume/reload, reset, application navigation, popout/return and
+all three docks with keyboard resizing. Screenshots of the docks and frames from
+the draft/resume recording have been inspected. CI retains the recorded evidence
+with the tested commit. Public rollout and newcomer acceptance remain open.
+
 ### Next implementation increments
 
 1. **Remaining Grist ownership cleanup**
@@ -244,6 +289,22 @@ Human newcomer acceptance remains open.
      to current development, production and installer proxy definitions.
    - Prove that disabled effective configuration and page bytes are unchanged.
    - Deliver this as a separate OpenELIS integration PR.
+   - Local candidate: branch `feat/479-review-proxy-hooks`, based on OpenELIS
+     `0dd6a53fd5ade9ee703c79709c1716f6902ec538`. All three isolated proxy tests
+     pass against the actual configuration files using `nginx:1.27-alpine`.
+     They compare page, asset, API and submission-path responses with a baseline
+     without the hooks; check repeated activation/deactivation and invalid
+     configuration rejection; and verify unchanged container identities and
+     start times. Effective Compose mounts pass for development, the certificate
+     override, production and a rendered installer, with default and custom host
+     paths. Production and installer proxy tests also pass against shipped image
+     digest `sha256:f838da5e60197b2f4ccaa602e4c80c0831fddb3c387ae9e75356cb6ae9746f0c`.
+     The affected deployment suite passes 27 tests and the publication suite
+     passes 9. The Maven build and scoped documentation formatter pass; the
+     frontend formatter could not run because this isolated checkout has no
+     frontend dependencies (no frontend files are changed). These are local
+     checks only. The operator command, public rollout and human acceptance
+     remain open. The candidate is not yet committed, published or deployed.
 
 3. **Review-site lifecycle**
    - Implement enable, disable, status and verify in review tooling.

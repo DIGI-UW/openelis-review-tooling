@@ -26,6 +26,13 @@ jobs:
         run: python3 tests/nginx-smoke.py
       - run: npx playwright install --with-deps chromium
       - run: npm run test:widget
+      - name: Retain widget workflow evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: review-widget-evidence-${{ github.sha }}
+          path: test-results/
+          if-no-files-found: ignore
       - name: Validate shell
         run: |
           sudo apt-get update
