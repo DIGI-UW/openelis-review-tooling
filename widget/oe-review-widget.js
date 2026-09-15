@@ -63,15 +63,14 @@
   var OPENER_URL = (self && self.getAttribute("data-opener-url")) || "";
   var POPOUT_NAME = "oe-review-popout-" + INSTANCE;
   var PARAM = "oe-review";
-  // Whoever is signed into the application under review is the reviewer, so the
-  // panel borrows that rather than asking. Configurable, and absent is fine: the
-  // widget is embeddable anywhere and runs standalone from a file, where there is
-  // no session to read and the reviewer types their name as they always did.
+  // Keep the existing attribute only to derive the cookie-scoped submission
+  // route. Do not probe /session: concurrent startup requests can generate two
+  // CSRF tokens and invalidate the token the application stores. The submission
+  // service verifies the account when feedback is sent.
   var IDENTITY_SRC =
     (self && self.getAttribute("data-identity-src")) ||
     "/api/OpenELIS-Global/session";
-  // null = not looked yet or no endpoint there; otherwise { signedIn, login, name }.
-  var identity = null;
+  var needsSignIn = false;
   // Where a finished review is handed in. Same origin is necessary but not
   // sufficient: a servlet container scopes its session cookie to its context
   // path, so a submission sent outside that path arrives with no cookie at all
@@ -644,10 +643,6 @@
       });
     }
 
-    // Not awaited: the checklist and the panel do not depend on it, and a slow or
-    // absent session endpoint must never hold up a reviewer who can already work.
-    readIdentity();
-
     var inline = inlineChecklist();
     if (inline) {
       inlineMode = true;
@@ -688,34 +683,6 @@
       },
       { once: true },
     );
-  }
-
-  // ---- who is reviewing ------------------------------------------------------
-  function readIdentity() {
-    if (!IDENTITY_SRC) return;
-    fetch(IDENTITY_SRC, { credentials: "include", cache: "no-store" })
-      .then(function (response) {
-        // Anything but a clean answer means there is no session endpoint here,
-        // which is not a problem — it is the standalone case.
-        if (!response.ok) return null;
-        return response.json();
-      })
-      .then(function (value) {
-        if (!value || typeof value !== "object") return;
-        var name = [value.firstName, value.lastName]
-          .filter(Boolean)
-          .join(" ")
-          .trim();
-        identity = {
-          signedIn: Boolean(value.authenticated),
-          login: String(value.loginName || "").trim(),
-          name: name || String(value.loginName || "").trim(),
-        };
-        render();
-      })
-      .catch(function () {
-        /* no session endpoint, or offline — the typed name still works */
-      });
   }
 
   // ---- the panel in a window of its own -------------------------------------
@@ -2017,7 +1984,6 @@
     // of the panel for the whole review.
     parts.intro = el("div", "intro");
 
-    parts.whoami = el("div", "whoami");
     parts.signin = el("div", "signin");
     panel.appendChild(parts.signin);
 
@@ -2106,7 +2072,6 @@
     parts.body.appendChild(who);
 
     var foot = el("div", "foot");
-    foot.appendChild(parts.whoami);
     var submit = el("button", "primary submit");
     submit.textContent = "Submit partial feedback";
     submit.onclick = submitReview;
@@ -2260,20 +2225,20 @@
           var answer = latest.steps[key] || {};
           return Boolean(
             answer.mark &&
-            !answer.stale &&
-            ((answer.mark !== "fail" && answer.mark !== "blocked") ||
-              String(answer.note || "").trim()),
+              !answer.stale &&
+              ((answer.mark !== "fail" && answer.mark !== "blocked") ||
+                String(answer.note || "").trim()),
           );
         }).length
       : 0;
     var hasWork = Boolean(
       latest &&
-      (latest.noteDraft ||
-        latest.overallNote ||
-        latest.notes.length ||
-        Object.keys(latest.steps).some(function (key) {
-          return latest.steps[key].mark || latest.steps[key].note;
-        })),
+        (latest.noteDraft ||
+          latest.overallNote ||
+          latest.notes.length ||
+          Object.keys(latest.steps).some(function (key) {
+            return latest.steps[key].mark || latest.steps[key].note;
+          })),
     );
     return {
       done: Math.min(done, total),
@@ -3052,18 +3017,11 @@
       ui.reviewer.value = state.reviewer || "";
     }
 
-    var signedIn = Boolean(identity && identity.signedIn);
-    if (signedIn) clearReviewerError();
-    ui.whoami.textContent = signedIn ? "Reviewing as " + identity.name : "";
-    ui.whoami.hidden = !signedIn;
-    // Said once the application has told us nobody is signed in — not while we
-    // are still asking, and never where there is no session endpoint to ask.
-    var anonymous = Boolean(identity && !identity.signedIn);
-    ui.signin.textContent = anonymous
+    ui.signin.textContent = needsSignIn
       ? "Sign in to submit this review. Your answers are saved here meanwhile."
       : "";
     ui.signin.hidden =
-      !anonymous || Boolean(ui.storyTrigger && storyNavigation.overviewOpen);
+      !needsSignIn || Boolean(ui.storyTrigger && storyNavigation.overviewOpen);
 
     ui.statusBox.innerHTML = "";
     if (ui.returnButton) ui.returnButton.disabled = returnPending;
@@ -3448,14 +3406,17 @@
           var who =
             (result.body.reviewer && result.body.reviewer.name) ||
             state.reviewer;
-          submitStatus = "Review submitted" + (who ? " as " + who : "") + ".";
+          var account = result.body.reviewer && result.body.reviewer.login;
+          needsSignIn = false;
+          submitStatus =
+            "Review submitted" +
+            (who ? " as " + who : "") +
+            (account ? " (account " + account + ")" : "") +
+            ".";
           return;
         }
         if (result.status === 401) {
-          // The local probe can be stale — a session that expired while the
-          // review was being worked. What the service says is what counts, so
-          // the sign-in prompt comes back.
-          identity = { signedIn: false, login: "", name: "" };
+          needsSignIn = true;
           submitStatus = "Sign in and submit again. Nothing has been lost.";
           return;
         }
@@ -3497,9 +3458,6 @@
     lines.push("");
     lines.push("- Instance: `" + INSTANCE + "` (" + location.origin + ")");
     lines.push("- Reviewer: " + (state.reviewer || "_unnamed_"));
-    if (identity && identity.signedIn && identity.login) {
-      lines.push("- Authenticated login: " + identity.login);
-    }
     lines.push("- Generated: " + generated);
     lines.push(
       "- Checklist revision: `" + (uat.checklistRevision || "unknown") + "`",
@@ -3621,9 +3579,9 @@
         label: LABEL,
         origin: location.origin,
         reviewer: state.reviewer,
-        // The account the application verified, where there was one. The name
-        // above can be typed; this cannot.
-        login: (identity && identity.signedIn && identity.login) || null,
+        // Downloads have not been authenticated. Grist submissions receive the
+        // verified login from the service, never from this client artifact.
+        login: null,
         generated: generated,
         checklistRevision: uat.checklistRevision || null,
         deploymentId: build && build.deploymentId ? build.deploymentId : null,
@@ -3775,7 +3733,7 @@
       ".dock-right .splitter:after,.dock-left .splitter:after{content:'';position:absolute;top:0;bottom:0;left:3px;width:1px;background:var(--border);}.dock-bottom .splitter:after{content:'';position:absolute;left:0;right:0;top:3px;height:1px;background:var(--border);}",
       // Only the checklist scrolls. Without this the fixed rows shrink to absorb
       // a long checklist and clip their own text.
-      ".head,.statusbox,.whoami,.signin,.stories,.who,.fb,.foot{flex:none;}",
+      ".head,.statusbox,.signin,.stories,.who,.fb,.foot{flex:none;}",
       ".stories{position:relative;display:block;padding:var(--sp3) var(--sp4);border-bottom:1px solid var(--border);background:#fff;}",
       ".storyscope{font-size:var(--label);font-weight:600;color:var(--text2);margin-bottom:var(--sp2);}",
       ".storytrigger{display:grid;grid-template-columns:minmax(0,1fr) auto 18px;align-items:center;gap:var(--sp3);width:100%;min-height:44px;border:1px solid var(--border-strong);border-radius:4px;padding:7px 10px;background:#fff;color:var(--text);font:inherit;text-align:left;cursor:pointer;}",
@@ -3806,8 +3764,7 @@
       ".sub{font-size:var(--label);opacity:.8;margin-top:2px;font-variant-numeric:tabular-nums;}.placement{width:auto;min-width:78px;height:30px;border:1px solid #6f6f6f;border-radius:3px;background:#262626;color:#fff;padding:0 6px;font:inherit;font-size:var(--label);}",
       ".icon{background:transparent;border:none;color:inherit;font-size:var(--body);line-height:1;cursor:pointer;min-width:24px;min-height:24px;border-radius:4px;}.icon:hover{background:rgba(255,255,255,.15);}.icon svg{display:block;}",
       ".statusbox:empty{display:none;}",
-      ".whoami{flex:1;min-width:0;font-size:var(--label);color:var(--text2);}",
-      ".whoami[hidden],.signin[hidden]{display:none;}",
+      ".signin[hidden]{display:none;}",
       ".signin{padding:var(--sp3) var(--sp4);font-size:var(--label);background:var(--blue-bg);color:var(--blue-dark);border-bottom:1px solid var(--blue-soft);}",
       ".status{padding:var(--sp3) var(--sp4);border-bottom:1px solid var(--border);color:var(--text2);}",
       ".status.error{background:#fff1f1;color:#a2191f;font-weight:600;}",
@@ -3894,7 +3851,7 @@
       // is narrow too but is not over anything, and this rule matches it selector
       // for selector, so without the exclusion source order rather than
       // specificity would decide which layout a 460px review window gets.
-      "@media (max-width:640px){.has-story-picker .titlebox{display:block;}.head{gap:4px;}.placement{min-width:70px;}.who label{font-size:13px;}.whoami{font-size:12px;}.expect{display:block;}.expectlabel{display:block;margin-bottom:4px;}.primary{padding:8px 12px;}}",
+      "@media (max-width:640px){.has-story-picker .titlebox{display:block;}.head{gap:4px;}.placement{min-width:70px;}.who label{font-size:13px;}.expect{display:block;}.expectlabel{display:block;margin-bottom:4px;}.primary{padding:8px 12px;}}",
       "@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important;}}",
     ].join("");
   }

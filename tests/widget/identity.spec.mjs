@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { expect, test } from "@playwright/test";
 
 const APP = "/tests/widget/fixture.html";
@@ -15,14 +16,11 @@ async function deployed(page) {
   );
 }
 
-// The application's own session endpoint supplies the authenticated account.
-// The reviewer still enters their name separately because demo accounts may be
-// shared.
-async function session(page, body, status = 200) {
-  await page.route("**/session", (route) =>
-    status === 200
-      ? route.fulfill({ json: body })
-      : route.fulfill({ status, body: "" }),
+// Authentication belongs to the submission service. Merely mounting Review must
+// not initialize an application session or race its CSRF token setup.
+async function rejectSubmission(page) {
+  await page.route("**/__review/uat-analyzers/submissions", (route) =>
+    route.fulfill({ status: 401, json: { needsLogin: true } }),
   );
 }
 
@@ -34,34 +32,75 @@ async function openPanel(page) {
   return widget;
 }
 
-test("shows the signed-in account beside a required reviewer name", async ({
+test("does not compete with application session initialization on load, reload or popout", async ({
   page,
 }) => {
-  await session(page, {
-    authenticated: true,
-    loginName: "mmwanza",
-    firstName: "Mercy",
-    lastName: "Mwanza",
+  const sessions = [];
+  page.context().on("request", (request) => {
+    if (new URL(request.url()).pathname.endsWith("/session"))
+      sessions.push(request.url());
   });
-  const widget = await openPanel(page);
-
-  await expect(widget.locator(".whoami")).toContainText("Mercy Mwanza");
-  const name = widget.getByLabel("Your name");
-  await expect(name).toBeVisible();
-  await expect(name).toHaveAttribute("required", "");
-  await expect(name).toHaveValue("");
+  await page.route("**/session", async (route) => {
+    await route.fulfill({
+      json: { authenticated: true, csrf: "fixture-token" },
+    });
+  });
+  // The app makes its own startup request. The widget must add none of its own.
+  const fixture = readFileSync(
+    new URL("./fixture.html", import.meta.url),
+    "utf8",
+  );
+  await page.route("**/tests/widget/fixture.html", (route) =>
+    route.fulfill({
+      contentType: "text/html",
+      body: fixture.replace(
+        "<script>",
+        '<script>fetch("/api/OpenELIS-Global/session", { credentials: "include" });',
+      ),
+    }),
+  );
+  let widget = await openPanel(page);
+  await expect(widget.locator(".step").first()).toBeVisible();
+  expect(sessions).toHaveLength(1);
+  await page.reload();
+  widget = widgetOf(page);
+  await expect(widget.locator(".step").first()).toBeVisible();
+  expect(sessions).toHaveLength(2);
+  // Release startup mocks before document.write opens a real popup document;
+  // the context request listener still observes both windows.
+  await page.unrouteAll({ behavior: "wait" });
+  const popupPromise = page.waitForEvent("popup");
+  await widget
+    .getByRole("button", { name: /Pop out into its own window/ })
+    .click();
+  const popup = await popupPromise;
+  await expect(widgetOf(popup).locator(".step").first()).toBeVisible();
+  expect(sessions).toHaveLength(2);
+  await popup.close();
 });
 
-test("asks an anonymous reviewer to sign in", async ({ page }) => {
-  await session(page, { authenticated: false });
+test("asks a reviewer to sign in when submission requires it, retaining their answer", async ({
+  page,
+}) => {
+  await rejectSubmission(page);
   const widget = await openPanel(page);
+  await widget.getByLabel("Your name").fill("Piotr Manko");
+  await widget
+    .locator(".step")
+    .first()
+    .getByText("Worked as expected", { exact: true })
+    .click();
+  await widget.locator("button.submit").click();
   await expect(widget.locator(".signin")).toContainText(/sign in/i);
+  await expect(widget.locator(".step").first()).toHaveAttribute(
+    "data-state",
+    "pass",
+  );
 });
 
 test("lets an anonymous reviewer work anyway", async ({ page }) => {
   // The prompt is about submitting, not about reviewing. Someone who opens the
   // panel before signing in has still done the work, and it has to count.
-  await session(page, { authenticated: false });
   const widget = await openPanel(page);
   await widget
     .locator(".step")
@@ -74,12 +113,14 @@ test("lets an anonymous reviewer work anyway", async ({ page }) => {
   );
 });
 
-test("keeps what was answered before signing in", async ({ page }) => {
+test("keeps what was answered before signing in", async ({
+  page,
+}, testInfo) => {
   // The specific mistake this guards: keying saved answers by the reviewer. Doing
   // that would orphan everything the moment a session appeared — losing exactly
   // the work the sign-in prompt told them they could carry on doing.
   await deployed(page);
-  await session(page, { authenticated: false });
+  await rejectSubmission(page);
   let widget = await openPanel(page);
   await widget.getByLabel("Your name").fill("Piotr Manko");
   await widget
@@ -93,19 +134,21 @@ test("keeps what was answered before signing in", async ({ page }) => {
     .locator(".stepnote")
     .fill("noticed before I signed in");
 
+  await widget.locator("button.submit").click();
+  await expect(widget.locator(".signin")).toContainText(/sign in/i);
+
   // They sign in, and the page reloads as OpenELIS does after login.
-  await session(page, {
-    authenticated: true,
-    loginName: "mmwanza",
-    firstName: "Mercy",
-    lastName: "Mwanza",
-  });
+  await page.route("**/__review/uat-analyzers/submissions", (route) =>
+    route.fulfill({
+      status: 201,
+      json: { id: 12, reviewer: { login: "mmwanza", name: "Piotr Manko" } },
+    }),
+  );
   await page.reload();
   widget = widgetOf(page);
   // The panel was open when they left, so it comes back open — no launcher to click.
   await expect(widget.locator(".panel")).toBeVisible();
 
-  await expect(widget.locator(".whoami")).toContainText("Mercy Mwanza");
   await expect(widget.getByLabel("Your name")).toHaveValue("Piotr Manko");
   await expect(widget.locator(".step").first()).toHaveAttribute(
     "data-state",
@@ -127,16 +170,18 @@ test("keeps what was answered before signing in", async ({ page }) => {
   expect(first.mark).toBe("fail");
   expect(first.note).toBe("noticed before I signed in");
   expect(json.reviewer).toBe("Piotr Manko");
-  expect(json.login).toBe("mmwanza");
+  expect(json.login).toBeNull();
+  await widget.locator("button.submit").click();
+  await expect(widget.locator(".statusbox")).toContainText("account mmwanza");
+  await expect(widget.locator(".signin")).toBeHidden();
+  await page.screenshot({ path: testInfo.outputPath("submitted-account.png") });
 });
 
 test("still works where there is no session endpoint at all", async ({
   page,
 }) => {
   // The widget is embeddable anywhere and runs standalone from a file with an
-  // inline checklist. Identity is something it can borrow, never something it
-  // requires — so a 404 leaves the typed name exactly as it was.
-  await session(page, null, 404);
+  // inline checklist. Entering a name and reviewing need no application endpoint.
   const widget = await openPanel(page);
   await expect(widget.getByLabel("Your name")).toBeVisible();
   await expect(widget.locator(".signin")).not.toBeVisible();
@@ -145,7 +190,6 @@ test("still works where there is no session endpoint at all", async ({
 test("requires a typed reviewer name before a report can be handed off", async ({
   page,
 }) => {
-  await session(page, null, 404);
   const widget = await openPanel(page);
   const name = widget.getByLabel(/Your name/);
   await expect(name).toHaveAttribute("required", "");
@@ -172,27 +216,16 @@ test("requires a typed reviewer name before a report can be handed off", async (
   await download;
 });
 
-test("carries the entered reviewer and authenticated login separately", async ({
+test("download identifies the entered reviewer without claiming an unverified account", async ({
   page,
 }) => {
-  await session(page, {
-    authenticated: true,
-    loginName: "mmwanza",
-    firstName: "Mercy",
-    lastName: "Mwanza",
-  });
   const widget = await openPanel(page);
   await widget.getByLabel("Your name").fill("Piotr Manko");
-  await widget
-    .locator(".step")
-    .first()
-    .getByText("Worked as expected", { exact: true })
-    .click();
   const report = await page.evaluate(() =>
     window.__OE_REVIEW_TEST__.buildReport(),
   );
   const json = JSON.parse(report.json);
   expect(json.reviewer).toBe("Piotr Manko");
-  // The authenticated account cannot be typed or changed by the reviewer.
-  expect(json.login).toBe("mmwanza");
+  expect(json.login).toBeNull();
+  expect(report.md).not.toContain("Authenticated login:");
 });
