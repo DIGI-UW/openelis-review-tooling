@@ -643,10 +643,14 @@ newcomer acceptance must be recorded separately; local checks are not acceptance
   enabled, password authentication disabled and keyboard-interactive
   authentication disabled. Private-key authentication was already configured;
   the separate source-IP firewall restriction caused the access mismatch.
-- The user requested access across changing remote networks using the private
-  key. Opening TCP 22 to all IPv4 addresses was rejected by automatic approval
-  review and awaits the explicit approval question presented to the user. No
-  public SSH rule was added. AWS management remains usable after login refresh.
+- The user explicitly approved TCP 22 access from all IPv4 addresses after the
+  automatic-review rejection and network exposure were explained. Rule
+  `sgr-065d7f8109b9013c5` in `sg-006f1521af7b63185` now permits that access.
+  A fresh SSH connection authenticated as `ubuntu` with the configured key;
+  disabling key authentication produced `Permission denied (publickey)`.
+  Password and keyboard-interactive authentication remain disabled. The temporary
+  `172.56.106.234/32` rule added during diagnosis was removed. Normal key-based
+  SSH no longer depends on the operator's source address or an AWS login.
 - The direct Grist client is implemented but its local credential is not yet
   provisioned. Provisioning that existing client would let routine authoring
   use HTTPS without SSH or AWS login; server operations remain separate.
