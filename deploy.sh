@@ -928,8 +928,9 @@ cmd_grist_set_presentation() {
   shift || true
   local instance="${1:-}" scope="" suggested="" suggested_set=false dry_run=""
   shift || true
-  [[ "$instance" =~ ^[a-z0-9_-]+$ ]] && [ "$instance" != index ] ||
+  if ! [[ "$instance" =~ ^[a-z0-9_-]+$ ]] || [ "$instance" = index ]; then
     die "set-presentation requires a valid instance"
+  fi
   while [ "$#" -gt 0 ]; do
     case "$1" in
       --scope)
