@@ -531,8 +531,13 @@ newcomer acceptance must be recorded separately; local checks are not acceptance
   `3de726b8d38ba102ac2fa564c95ac59a2a4e02b7`; its widget identity was updated
   separately under the Review deployment lock with an earlier-target backup.
 - The native Reporting owner has the exact public candidate for repeating the
-  ordinary-user login and report-generation workflow. That live regression is
-  pending. Candidate CI run `34928305358` is queued; the preceding reading-space
+  ordinary-user login and report-generation workflow. The unchanged public test
+  passed with two users: authentication and reporting, 2 passed in 51.1 seconds,
+  zero retries. Each user downloaded the expected two-row CSV; cross-owner
+  access returned 404 and shared-definition cleanup passed. This run retained
+  video and a report-ready screenshot, not a successful network trace; session
+  request counts are established by the dedicated widget regression above.
+  Candidate CI run `34928305358` is queued; the preceding reading-space
   runtime run `34926572593` has now passed. These are separate from newcomer
   acceptance and the still-open authenticated site feedback checks. Testing's
   deployment-hook PR remains deferred; no application or deployment PR merge
