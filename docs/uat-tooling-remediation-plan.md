@@ -399,6 +399,20 @@ newcomer acceptance must be recorded separately; local checks are not acceptance
      generated file. Its one-time hook migration must preserve normal
      infrastructure updates; the existing manual widget remains enabled until
      that integration is ready.
+   - Testing's owning deployment repository now has the three persistent hook
+     directives in [openelis-docker PR #59](https://github.com/DIGI-UW/openelis-docker/pull/59),
+     commit `bac87431213c55b3084e66622314ad77a75c57f5`. Default/custom Compose
+     mounts and the actual Nginx template pass the existing isolated proxy
+     behavior checks against both stock Nginx and Testing's exact shipped proxy
+     digest `f838da5e…`. It is mergeable; that repository has no PR check run
+     configured. The user has deferred the shared deployment change for team
+     review: do not merge or migrate Testing's installation pending that review.
+     This optional persistence improvement does not block widget improvements,
+     Grist authoring or UAT. Continue through Testing's existing shared-widget
+     injection, with no application image changes or second Compose stack.
+     Routine widget publication uses that existing integration. Testing's
+     lifecycle command remains unavailable until hooks are adopted; manual
+     directives still need preservation during infrastructure updates.
    - The shared AMR/Analyzers router candidate replaces both hardcoded Review
      blocks with independent mounted configuration directories. Its actual
      template passes the disposable shared-router fixture: enabling one host
@@ -437,11 +451,27 @@ newcomer acceptance must be recorded separately; local checks are not acceptance
      session and labels this as an automated transport check. This proves the
      feedback path and outcome/version attribution, not functional or human
      acceptance. Shared-router and Testing authenticated readback remain open.
-   - The native Reporting thread is preparing a separate Non-Conformance update.
-     It will retain the Review mounts and coordinate deployment locks. Its
-     authoring handoff must update `RPT-202` for the qualified four-row fixture
-     and correct `RPT-101`'s stale claim that Referrals is not connected. The
-     integration feedback above remains evidence about its original versions.
+   - The native Reporting thread deployed Non-Conformance application/frontend/
+     backend `3de726b8d38ba102ac2fa564c95ac59a2a4e02b7`, retaining the Review
+     mounts. Its [public recording and actual four-row CSV](https://reporting.catalyst.openelis-global.org/reporting-evidence/20260914-non-conformance-3de726/)
+     qualify the synthetic fixture. The subsequent Grist update is verified by
+     exact REST readback and public revision
+     `b5c5738b94937e62b8fd5d3401f977695032eb429c0271c1ebf16e931a6953ab`:
+     six stories and 25 checkpoints. Live keys corrected the earlier handoff:
+     availability wording was in `RPT-001` and `RPT-200`; `RPT-101` is the
+     shared-save workflow and is unchanged. Added `RPT-202` and
+     `RPT-202-PHONE`, corrected the S03 and deployment introductions, and kept
+     all existing keys, 21 other checkpoint objects and presentation settings.
+     Submission 34 / answer 119 were re-read unchanged with original versions.
+   - The updated live widget displays the seven-step Referral/Non-Conformance
+     story with labelled instruction lists. A fresh application tab opens the
+     overview with four suggestions, In progress and Browse all six reviews.
+     The separate in-app application walkthrough reached the nine NC fields
+     but stopped at native date entry; do not count it as a completed workflow.
+     The native thread's published CSV/recording remains the qualification
+     evidence. A screenshot also shows limited instruction space with a short
+     bottom pane; this usability finding remains open for review. None of these
+     checks establishes newcomer acceptance.
 
 ## Required validation
 
