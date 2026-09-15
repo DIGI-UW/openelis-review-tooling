@@ -1,0 +1,57 @@
+{
+  "instance": "reporting",
+  "expected_revision": "b5c5738b94937e62b8fd5d3401f977695032eb429c0271c1ebf16e931a6953ab",
+  "story": {
+    "story_key": "RPT-S01",
+    "title": "Routine exports in both layouts",
+    "story_order": 1,
+    "version": "1.1",
+    "jira": "OGC-479",
+    "pr": "https://github.com/DIGI-UW/OpenELIS-Global-2/pull/4292",
+    "mock": "https://github.com/DIGI-UW/openelis-work/blob/5b2df7e34ff5ad1f983f24c0e9e0ba4db5e8697f/designs/reports/custom-data-export.html",
+    "user_story": "As a report user, I can download sample and testing results in either layout without losing repeated results. Sign in as admin using the supplied demo login, open Reports in the side navigation, then Custom Data Export. These steps reuse the read-only synthetic specimen REPORTING-MVP-REPEAT, collected May 5, 2026; generating reports does not consume it. The builder, header preview and downloaded CSV are in scope.",
+    "hosts": "reporting.catalyst.openelis-global.org"
+  },
+  "steps": [
+    {
+      "step_key": "RPT-001",
+      "required": true,
+      "step_order": 0,
+      "do": "Open: In Reports, choose Custom Data Export.\nStart: Choose Start a new export.\nReport type: Choose Sample & Testing.",
+      "expect": "Overview: New-export and saved-report cards are available.\nSources: Sample & Testing, Referrals and Non-Conformance can all be selected.\nBuilder: Choose columns opens with Spreadsheet selected, collapsed field groups and no preselected fields.",
+      "route": "/reports/custom-data-export"
+    },
+    {
+      "step_key": "RPT-002",
+      "required": true,
+      "step_order": 1,
+      "do": "Find: Search for Accession Number.\nAdd: Choose Add, then Clear search.\nRepeat: Add Specimen ID and Viral Load the same way.\nOrder: In Your CSV columns, move Specimen ID above Accession Number using its up arrow or drag handle.\nDates: Choose Next: Set Filters and enter May 5, 2026 for both dates.\nReview: Choose Next: Review & Submit.",
+      "expect": "Order: The column preview and review show Specimen ID, Accession Number and Viral Load in that order.\nDates: Review shows May 5, 2026.\nControls: Field selection uses Add or Added controls.\nSearch: Clearing search restores collapsed groups.",
+      "route": "/reports/custom-data-export"
+    },
+    {
+      "step_key": "RPT-003",
+      "required": true,
+      "step_order": 2,
+      "do": "Generate: Choose Generate CSV.\nWait: Under Your current report, wait for Ready to download.\nDownload: Choose Download CSV.\nOpen: Open the file in a spreadsheet or text viewer.",
+      "expect": "Rows: The CSV contains two REPORTING-MVP-REPEAT data rows.\nResults: Each row has Viral Load 450.\nRepeated results: Both independent results are retained.",
+      "route": "/reports/custom-data-export"
+    },
+    {
+      "step_key": "RPT-004",
+      "required": true,
+      "step_order": 3,
+      "do": "Edit: In review, choose Edit report.\nLayout: Choose Detailed list — results in rows.\nAdd: Search for and add Accession Number, Result Value and Result ID, clearing search after each.\nDates: In Set Filters, enter May 5, 2026 for both dates.\nGenerate: Continue to Review & Submit, then Generate CSV.\nDownload: Choose the new Download CSV link under Your current report.",
+      "expect": "Rows: The two REPORTING-MVP-REPEAT readings each appear once.\nIDs: Their Result IDs are distinct.\nValues: Both Result Values are 450.\nLayout: The spreadsheet selections remain available when switching back.",
+      "route": "/reports/custom-data-export"
+    },
+    {
+      "step_key": "RPT-005",
+      "required": true,
+      "step_order": 4,
+      "do": "Edit: In Review & Submit, choose Edit report.\nResize: Narrow the browser to a phone-sized window.\nColumns: Switch between Available fields and Your columns.\nOrder: Reorder one selected column with its arrows.\nSearch: Search for a field or group, then Clear search.\nQueue: Open My Report Queue, then choose Continue current export.\nHistory: Use browser Back and Forward, then reload the page.\nCompare: Compare the builder with the linked mock.",
+      "expect": "Narrow layout: One column pane is shown at a time without losing selection or order.\nSearch: Clearing search restores collapsed groups.\nState: Navigation and reload retain the current report, dates and chosen columns.\nDesign: Record any report-layout or interaction differences from the linked mock.",
+      "route": "/reports/custom-data-export"
+    }
+  ]
+}
