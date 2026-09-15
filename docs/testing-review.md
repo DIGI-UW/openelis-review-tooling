@@ -28,6 +28,17 @@ neither a merge nor a code deployment is required to author the checklist.
 Read back both stories and their five stable steps. Verify the public checklist
 and catalog, dry-run the instructions, then publish the testing metadata row.
 
+Scope and suggestions are maintained in Grist. Testing currently uses `all`
+scope and suggests `TESTING-STARTUP` followed by `TESTING-REVIEW`. Change only
+those presentation cells with the existing command:
+
+```bash
+./deploy.sh grist set-presentation testing --scope all \
+  --suggested TESTING-STARTUP,TESTING-REVIEW --dry-run
+./deploy.sh grist set-presentation testing --scope all \
+  --suggested TESTING-STARTUP,TESTING-REVIEW
+```
+
 On testing, generate the layer from:
 
 ```json
@@ -36,7 +47,6 @@ On testing, generate the layer from:
   "label": "OpenELIS Testing",
   "review_origin": "https://grist.openelis-global.org",
   "session_path": "/api/OpenELIS-Global/session",
-  "story_scope": "all",
   "build_path": null
 }
 ```
@@ -45,6 +55,14 @@ Install the generated HTML directives and submission route into testing's
 existing persistent Nginx template, validate, and reload only Nginx. Preserve
 these directives on normal application updates. No alternative Compose stack
 or infrastructure-repository PR is required.
+
+The optional enable/disable command requires the proxy hooks documented in the
+installation guide. Testing still uses its earlier manual injection as of
+2026-09-15. Its current `openelis-docker` Compose file has no Review directory
+mount, and automated application deployment regenerates its image override.
+Install the persistent hooks before using the lifecycle command; putting the
+mount into that generated image override would lose it on the next deployment.
+The current widget remains usable during this migration work.
 
 `build_path: null` disables the optional metadata request because this site's
 proxy does not serve the deployment metadata file. It must not request an SPA
