@@ -433,6 +433,39 @@ test("apply-story creates and then reconciles one stable story without touching 
   assert.equal(doc.tables.UAT_Stories.records.length, siblingCount + 1);
 });
 
+test("apply-story refuses a sibling's story order before writing", async () => {
+  const doc = legacyDoc();
+  await apply(doc);
+  const before = structuredClone(doc.tables);
+  const payload = {
+    instance: "amr",
+    story: {
+      story_key: "AMR-S34",
+      title: "Conflicting review position",
+      story_order: 0,
+      version: "1.0",
+    },
+    steps: [
+      {
+        step_key: "AMR-111",
+        required: true,
+        step_order: 0,
+        do: "Open the reviewed worklist.",
+      },
+    ],
+  };
+
+  await assert.rejects(
+    applyStory(doc, payload),
+    /story_order 0 is already used by AMR-S01/,
+  );
+  assert.deepEqual(
+    doc.tables,
+    before,
+    "the conflict must not write a partial story",
+  );
+});
+
 test("apply is idempotent — a second run changes nothing", async () => {
   const doc = legacyDoc();
   await apply(doc);
