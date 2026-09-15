@@ -399,6 +399,13 @@ newcomer acceptance must be recorded separately; local checks are not acceptance
      generated file. Its one-time hook migration must preserve normal
      infrastructure updates; the existing manual widget remains enabled until
      that integration is ready.
+   - The shared AMR/Analyzers router candidate replaces both hardcoded Review
+     blocks with independent mounted configuration directories. Its actual
+     template passes the disposable shared-router fixture: enabling one host
+     leaves the other's HTML unchanged, disabling restores the original HTML,
+     central TLS submissions retain their site marker, and neither container
+     restarts. Thirty repository/router checks pass. Public migration remains
+     separate from those local results.
 
 ## Required validation
 

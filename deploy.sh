@@ -830,7 +830,7 @@ cmd_review_reload_router() {
     esac
   done
   [[ "$instance" =~ ^[a-z0-9_-]+$ ]] || die "invalid review instance"
-  local probe_path="/__review/uat-$instance/submissions"
+  local probe_path="/api/OpenELIS-Global/__review/uat-$instance/submissions"
   if [ "$external" = true ]; then
     domain="${domain:-$GRIST_DOMAIN}"
     probe_path="/uat/$instance/submissions"

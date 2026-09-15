@@ -200,18 +200,7 @@ http {
         }
 
 
-        # Handing a review in. Under the application's context path on purpose:
-        # the servlet container scopes JSESSIONID to /api/OpenELIS-Global, so a
-        # submission sent outside it arrives with no cookie at all and the service
-        # can only refuse it. The bare prefix is still matched so a widget already
-        # loaded in somebody's tab is answered rather than 404'd. Never cached.
-        location ~ ^(?:/api/OpenELIS-Global)?/__review/uat-(?<uat_submit_instance>[a-z0-9_-]+)/submissions$ {
-            set $uat_up "uat-read";
-            proxy_pass http://$uat_up:8585/uat/$uat_submit_instance/submissions;
-            proxy_set_header Host $host;
-            proxy_set_header X-Review-Proxy local;
-            add_header Cache-Control "no-store" always;
-        }
+        include /etc/nginx/review-sites/amr/active/server/*.conf;
 
         # Published atomically only after application health verification.
         location = /__review/target.json {
@@ -229,16 +218,13 @@ http {
         # Frontend. Host is rewritten to "localhost" so a Vite dev server (if the
         # stack runs one) accepts the forwarded request (Vite 5 allowedHosts is
         # strict); harmless for the static-nginx runtime build, which ignores Host.
-        # sub_filter injects the reviewer overlay before </head>; Accept-Encoding
-        # is cleared so nginx sees uncompressed HTML to substitute into.
+        # Review is optional and owned by the separately mounted configuration.
         location / {
             set $amr_frontend "amr-frontend";
             proxy_pass http://$amr_frontend;
             proxy_redirect off;
             proxy_set_header Host localhost;
-            proxy_set_header Accept-Encoding "";
-            sub_filter_once on;
-            sub_filter '</head>' '<script src="/__review/oe-review-widget.js" data-instance="amr" data-label="Microbiology MVP (OGC-782)"></script></head>';
+            include /etc/nginx/review-sites/amr/active/html/*.conf;
         }
         location /api/ {
             set $amr_oe "amr-oe";
@@ -301,16 +287,7 @@ http {
         }
 
 
-        # Handing a review in. Same-origin on purpose: the reviewer's session
-        # cookie belongs to this host, so a submission from anywhere else would
-        # arrive without the one credential the service checks. Never cached.
-        location ~ ^(?:/api/OpenELIS-Global)?/__review/uat-(?<uat_submit_instance>[a-z0-9_-]+)/submissions$ {
-            set $uat_up "uat-read";
-            proxy_pass http://$uat_up:8585/uat/$uat_submit_instance/submissions;
-            proxy_set_header Host $host;
-            proxy_set_header X-Review-Proxy local;
-            add_header Cache-Control "no-store" always;
-        }
+        include /etc/nginx/review-sites/analyzers/active/server/*.conf;
 
         location = /__review/target.json {
             alias /etc/nginx/runtime/target-analyzers.json;
@@ -328,9 +305,7 @@ http {
             proxy_pass http://$an_frontend;
             proxy_redirect off;
             proxy_set_header Host localhost;
-            proxy_set_header Accept-Encoding "";
-            sub_filter_once on;
-            sub_filter '</head>' '<script src="/__review/oe-review-widget.js" data-instance="analyzers" data-label="Analyzer Types &amp; Mapping (OGC-1054)"></script></head>';
+            include /etc/nginx/review-sites/analyzers/active/html/*.conf;
         }
         location /api/ {
             set $an_oe "analyzers-oe";

@@ -40,6 +40,16 @@ For a proxy shared by several sites, mount a separate persistent directory for
 each site, use that directory in its two includes, and pass its container path
 with `--mount-path /etc/nginx/review-sites/lab-one`.
 
+The bundled AMR/Analyzers router uses separate persistent directories at
+`runtime/review-sites/amr` and `runtime/review-sites/analyzers`, mounted at
+`/etc/nginx/review-sites/<instance>`. Its template has the same optional hooks.
+Use `--container oe-edge-router --mount-path /etc/nginx/review-sites/amr` (or
+`analyzers`) with the command. Neither site has hardcoded injection or an
+always-on submission route. Empty configuration disables Review on that site.
+When upgrading an existing shared router, stage each site's enabled configuration
+before the one-time proxy recreation so its existing Review availability is
+preserved. Keep its widget asset mounts for already-open review windows.
+
 Use `--build-path none` if the site does not serve deployment identity JSON.
 Use `--session-path` for a nonstandard OpenELIS context path. Scope, suggested
 reviews and instructions come from Grist and are not copied into these files.

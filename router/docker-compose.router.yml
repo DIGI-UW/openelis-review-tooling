@@ -31,6 +31,9 @@ services:
       # by the router at /__review/ and injected via sub_filter.
       - ../widget:/etc/nginx/review:ro
       - ../runtime:/etc/nginx/runtime:ro
+      # Separate optional Review configuration for each application host.
+      - ../runtime/review-sites/amr:/etc/nginx/review-sites/amr:ro
+      - ../runtime/review-sites/analyzers:/etc/nginx/review-sites/analyzers:ro
       # Project docs, served publicly at /docs/ on the grist vhost.
       - ../docs:/etc/nginx/docs:ro
       # Shared with the cert scripts — LE lineages live here, one dir per domain.
