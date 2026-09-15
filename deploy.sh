@@ -42,6 +42,7 @@
 #   ./deploy.sh data seed analyzers --fixture analyzer-mvp
 #   ./deploy.sh grist up           # reconcile the Grist runtime from this checkout
 #   ./deploy.sh grist apply-story --file <story.json>
+#   ./deploy.sh grist set-presentation <instance> --scope site|all --suggested <ids> [--dry-run]
 #   ./deploy.sh grist check-access # prove the server-side REST author can write UAT
 #   ./deploy.sh up-to-certs --yes   # configure -> deploy -> certs -> seed
 set -euo pipefail
@@ -923,14 +924,52 @@ cd \"\$edge_dir\"
 sudo -u '$OS_USER' bash grist/bootstrap.sh check-access"
 }
 
+cmd_grist_set_presentation() {
+  shift || true
+  local instance="${1:-}" scope="" suggested="" suggested_set=false dry_run=""
+  shift || true
+  [[ "$instance" =~ ^[a-z0-9_-]+$ ]] && [ "$instance" != index ] ||
+    die "set-presentation requires a valid instance"
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --scope)
+        [ "$#" -ge 2 ] || die "--scope requires site or all"
+        scope="$2"
+        shift 2
+        ;;
+      --suggested)
+        [ "$#" -ge 2 ] || die "--suggested requires a comma-separated list or an explicit empty value"
+        suggested="$2"
+        suggested_set=true
+        shift 2
+        ;;
+      --dry-run) dry_run="--dry-run"; shift ;;
+      *) die "unknown set-presentation argument '$1'" ;;
+    esac
+  done
+  case "$scope" in site | all) ;; *) die "--scope must be site or all" ;; esac
+  [ "$suggested_set" = true ] ||
+    die "--suggested is required; pass an explicit empty value to clear it"
+  [[ "$suggested" =~ ^[A-Za-z0-9_,-]*$ ]] ||
+    die "--suggested must be a comma-separated list of stable story ids"
+  require_remote
+  log "setting Grist presentation for $instance${dry_run:+ (dry run)}"
+  remote_run "set -euo pipefail
+router_workdir=\$(docker inspect -f '{{index .Config.Labels \"com.docker.compose.project.working_dir\"}}' oe-edge-router)
+edge_dir=\${router_workdir%/router}
+cd \"\$edge_dir\"
+sudo -u '$OS_USER' bash grist/bootstrap.sh set-presentation '$instance' --scope '$scope' --suggested '$suggested' $dry_run"
+}
+
 cmd_grist() {
   local action="${1:-}"
   case "$action" in
     up) cmd_grist_up "$@" ;;
     apply) cmd_grist_apply "$@" ;;
     apply-story) cmd_grist_apply_story "$@" ;;
+    set-presentation) cmd_grist_set_presentation "$@" ;;
     check-access) cmd_grist_check_access "$@" ;;
-    *) die "unknown grist action '$action' (up|apply|apply-story|check-access)" ;;
+    *) die "unknown grist action '$action' (up|apply|apply-story|set-presentation|check-access)" ;;
   esac
 }
 
@@ -1105,7 +1144,7 @@ main() {
     data) cmd_data "$@" ;;
     grist) cmd_grist "$@" ;;
     up-to-certs) cmd_up_to_certs "$@" ;;
-    help|-h|--help) sed -n '2,44p' "$0" | sed 's/^# \{0,1\}//' ;;
+    help|-h|--help) sed -n '2,47p' "$0" | sed 's/^# \{0,1\}//' ;;
     *) die "unknown subcommand '$sub' (status|connect|configure|deploy|certs|seed|app|analyzer-runtime|review|data|grist|up-to-certs|help)" ;;
   esac
 }

@@ -79,10 +79,23 @@ validation described in [the authoring contract](../docs/AGENTS.md) still apply.
 
 ## Host lifecycle remains available
 
-`./deploy.sh grist apply-story --file story.json` remains the AWS-managed host
-path, and `grist/bootstrap.sh` owns container lifecycle and schema initialization.
+`./deploy.sh grist apply-story --file story.json` remains the managed host path,
+and `grist/bootstrap.sh` owns container lifecycle and schema initialization.
 Use those for host operations. The direct client above is the normal workflow
 for checklist authoring from a configured agent/operator machine.
+
+Deployment presentation is a separate, narrow host operation. It keeps Grist as
+the editable source of truth and does not revise checklist evidence:
+
+```bash
+./deploy.sh grist set-presentation reporting \
+  --scope site --suggested RPT-S01,RPT-S03,RPT-S04,RPT-S06 --dry-run
+./deploy.sh grist set-presentation reporting \
+  --scope site --suggested RPT-S01,RPT-S03,RPT-S04,RPT-S06
+```
+
+The non-dry run updates only `UAT_Meta.story_scope` and
+`UAT_Meta.suggested_stories`, then verifies their exact stored values.
 
 Validation uses the local fake Grist HTTP server. The tests never contact the
 public authoring service or mutate its checklists:

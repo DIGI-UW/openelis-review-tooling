@@ -178,6 +178,7 @@ OpenELIS stacks, router, Grist, databases, and FHIR services untouched:
 ./deploy.sh review reload-router [--instance amr] [--domain <host>]
 ./deploy.sh grist up
 ./deploy.sh grist apply-story --file <story.json>
+./deploy.sh grist set-presentation <instance> --scope site|all --suggested <ids> [--dry-run]
 ./deploy.sh data seed <instance> --fixture <name>
 ```
 
@@ -199,6 +200,12 @@ until the container is recreated the old routes keep serving.
 come after `review deploy` has moved that checkout. Run it first against a box
 still on the old commit and it reconciles the document to the old schema — which
 reports "nothing to do" and looks like the change was already applied.
+
+`grist set-presentation` is the repeatable path for chooser scope and ordered
+suggestions. Run it with `--dry-run` first. The write changes only those two
+cells on the instance's `UAT_Meta` row and succeeds only after exact readback.
+It does not alter story or step content, checklist revisions, submissions or
+reviewer answers.
 
 `review reload-router` is that recreate, and only that one — `--no-deps` keeps
 it off both application stacks, so nobody mid-review is interrupted. It forces
