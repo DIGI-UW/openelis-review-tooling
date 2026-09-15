@@ -1,0 +1,49 @@
+{
+  "instance": "reporting",
+  "expected_revision": "86954b4c40f147487bd35e5663aa8d88983c98e584de0f10cc642f95febf12b2",
+  "story": {
+    "story_key": "RPT-S04",
+    "title": "Return to reports and recover queued, failed or expired exports",
+    "story_order": 3,
+    "version": "1.2",
+    "jira": "OGC-479",
+    "pr": "https://github.com/DIGI-UW/OpenELIS-Global-2/pull/4309",
+    "mock": "https://github.com/DIGI-UW/openelis-work/blob/5b2df7e34ff5ad1f983f24c0e9e0ba4db5e8697f/designs/reports/custom-data-export.html",
+    "user_story": "As a report user, I can return to downloads, cancel queued work after confirmation, retry failed exports and rerun expired reports. Sign in as admin using the supplied demo login. Steps 301, 302 and 304 use the two May 5 REPORTING-MVP-REPEAT readings. Step 303 uses the persistent May 7 synthetic workload to create ordinary queued work; each attempt creates new jobs and retains its history. The failed and expired examples remain reusable.",
+    "hosts": "reporting.catalyst.openelis-global.org"
+  },
+  "steps": [
+    {
+      "step_key": "RPT-301",
+      "required": true,
+      "step_order": 0,
+      "do": "Start: From the overview, start a new Sample & Testing spreadsheet.\nAdd: Search for and add Accession Number, Specimen ID and Viral Load.\nDates: Set both dates to May 5, 2026.\nGenerate: Continue to review, generate and download the CSV under Your current report.\nQueue: Open My Report Queue.\nFind: Locate your newest May 5 Sample & Testing report by Submitted At time.\nDetails: Open Details and download it again.",
+      "expect": "Queue: The completed report shows 2 rows.\nDetails: The selected columns and period remain visible.\nDownloads: Both files have the same headers and two Viral Load readings of 450.\nDraft: Continue current export returns to the draft.",
+      "route": "/reports/custom-data-export"
+    },
+    {
+      "step_key": "RPT-302",
+      "required": true,
+      "step_order": 1,
+      "do": "Open: While signed in as admin, open My Report Queue.\nAddress: In the browser address bar, open /reports/custom-data-export?view=queue&job=00b7277c-1092-41cd-88aa-62c020c5b8b9.\nRetry: Choose Retry on the Failed card.\nWait: Wait for the new queue row to show Ready to download.\nReload: Reload the page.\nDownload: Download the new row's CSV.\nNavigate: Use browser Back to return to the failed example, then Forward to return to the new report.",
+      "expect": "Original: The supplied example remains Failed.\nRecovery: The new report remains reachable after reload and browser navigation.\nColumns: Its CSV has Accession Number and Viral Load in that order.\nResults: It contains two REPORTING-MVP-REPEAT rows, each with Viral Load 450.\nFixture: Retrying is repeatable and does not consume the original example.",
+      "route": "/reports/custom-data-export?view=queue&job=00b7277c-1092-41cd-88aa-62c020c5b8b9"
+    },
+    {
+      "step_key": "RPT-304",
+      "required": true,
+      "step_order": 2,
+      "do": "Open: Open My Report Queue.\nAddress: In the browser address bar, open /reports/custom-data-export?view=queue&job=47900000-0000-4000-8000-000000000102.\nRe-run: Choose Re-run.\nDates: Confirm the dates are empty, then set both to May 5, 2026.\nReview: Continue to Review & Submit.\nReload: Reload the page.\nGenerate: Generate and download the CSV under Your current report.\nResize: Repeat the queue and re-run checks at phone-sized width.",
+      "expect": "Expired: The expired file has no Download CSV action.\nSettings: Re-run retains Accession Number and Viral Load, the Viral Load test filter and Spreadsheet layout.\nDates: Fresh dates are required.\nResults: The new CSV has both independent REPORTING-MVP-REPEAT Viral Load 450 results.\nUsability: Navigation, controls and spacing remain usable at phone width; compare with the linked mock.\nFixture: The expired example remains reusable.",
+      "route": "/reports/custom-data-export?view=queue&job=47900000-0000-4000-8000-000000000102"
+    },
+    {
+      "step_key": "RPT-303",
+      "required": true,
+      "step_order": 3,
+      "do": "Start: Create a new Sample & Testing spreadsheet.\nFields: Add Accession Number and Viral Load.\nDates: Set both dates to May 7, 2026.\nGenerate: Generate the report and observe Generating.\nSecond report: Return to the overview and start the same columns for May 5.\nQueue: Open My Report Queue.\nCancel: On the newest May 5 job, choose Cancel, then Keep queued.\nReload: Reload and verify it is still Queued.\nConfirm: Choose Cancel again and confirm Cancel export.\nReload: Reload once more.\nDownload: Let the May 7 report finish and download it.\nResize: Repeat at phone width.\nSetup: If needed, prepare the reports in separate tabs before generating the large one.",
+      "expect": "Dismissed: The May 5 job stays Queued when confirmation is dismissed.\nCancelled: It becomes Cancelled after confirmation and remains Cancelled after reload and after the first report finishes.\nDownload: The cancelled job has no Download CSV action.\nLarge file: The May 7 CSV contains 50,000 rows across RPT50K-V1-00001 through RPT50K-V1-05001, preserving equal repeated readings.\nUsability: The dialog and queue remain usable on a phone.\nTiming: If the queued job has already started, cancellation is refused clearly; do not record a successful cancellation for that attempt.",
+      "route": "/reports/custom-data-export"
+    }
+  ]
+}

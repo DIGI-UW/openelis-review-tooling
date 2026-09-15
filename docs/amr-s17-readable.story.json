@@ -1,0 +1,41 @@
+{
+  "instance": "amr",
+  "expected_revision": "5ededce25ddfd81b7c56cd4d364789ee6fbd4205afa29e2b005b7e63c20f56b2",
+  "story": {
+    "story_key": "AMR-S17",
+    "title": "R1 - M-07 - Work the Culture queue",
+    "story_order": 1,
+    "version": "1.1",
+    "jira": "OGC-782",
+    "pr": "https://github.com/DIGI-UW/OpenELIS-Global-2/pull/4004",
+    "mock": "https://github.com/DIGI-UW/openelis-work/blob/a1f720d7b3b01db63387361495f4aa6589105003/designs/microbiology/m-07-worklists.md",
+    "user_story": "As a bench user, I can find culture work that needs attention and reopen the exact case without losing my queue state.\n\nScope: Review the queue's stage, due action, patient and specimen context, critical state, and recent activity. Do not change clinical data.",
+    "hosts": "amr.openelis-global.org"
+  },
+  "steps": [
+    {
+      "step_key": "AMR-1",
+      "required": true,
+      "step_order": 0,
+      "do": "Open: In the configured navigation, choose Microbiology, then Culture queue.\nFilter: Set Workflow to Bacteriology.\nSort: Set Sort to Newest.\nCheck: Copy the URL and open it again.",
+      "expect": "Queue: The Culture queue opens.\nFilters: Bacteriology and Newest are retained.\nState: The paging and visible rows match the copied URL.",
+      "route": "/Dashboard"
+    },
+    {
+      "step_key": "AMR-3",
+      "required": true,
+      "step_order": 1,
+      "do": "Open: In the Culture queue, open the deployment-scoped Bacteriology case.\nReturn: Use the Worklist breadcrumb.",
+      "expect": "Case: The selected case shows its current stage and next action.\nQueue: The breadcrumb returns to the same Culture queue URL state.",
+      "route": "/Microbiology/worklist?grain=cultures&workflow=BACTERIOLOGY&sort=newest&page=1&pageSize=20"
+    },
+    {
+      "step_key": "AMR-75",
+      "required": true,
+      "step_order": 2,
+      "do": "Inspect: Read the accession, patient, specimen, workflow, stage, due action, last activity, and critical context for one Culture row.\nOpen: Use one row action.",
+      "expect": "Context: The shared Carbon table shows the listed fields clearly.\nAction: The action opens the corresponding case action without changing clinical state in the queue.",
+      "route": "/Microbiology/worklist?grain=cultures&workflow=BACTERIOLOGY&sort=priority&page=1&pageSize=20"
+    }
+  ]
+}

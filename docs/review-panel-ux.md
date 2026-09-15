@@ -1,5 +1,10 @@
 # Review panel UX investigation
 
+> Historical September 11 investigation. Its floating/expanded-panel design has
+> been superseded by the accepted [UAT tooling remediation plan](uat-tooling-remediation-plan.md)
+> and the current [widget experience](../widget/README.md#what-the-reviewer-gets).
+> The measurements and test counts below describe that earlier candidate only.
+
 Screenshot review on testing.openelis-global.org, 11 September 2026. This is a
 heuristic assessment and browser walkthrough, not a user study. The before
 captures use the deployed widget. The after captures use the candidate widget

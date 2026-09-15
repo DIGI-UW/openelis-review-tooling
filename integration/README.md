@@ -3,8 +3,104 @@
 The accepted target lifecycle and its enable/disable requirements are recorded
 in the [UAT tooling remediation and OpenELIS integration
 contract](../docs/uat-tooling-remediation-plan.md). This page describes the
-currently deployed manual integration until that lifecycle is implemented and
-verified.
+operator command and the one-time manual migration for older deployments.
+
+## Enable or disable on a prepared OpenELIS proxy
+
+Install the optional OpenELIS hooks from
+[OpenELIS PR #4317](https://github.com/DIGI-UW/OpenELIS-Global-2/pull/4317)
+through the site's normal proxy configuration update. The standard proxy mounts
+a persistent `REVIEW_CONFIG_DIR` at `/etc/nginx/review:ro`, with these includes:
+
+```nginx
+# Inside the OpenELIS HTTPS server:
+include /etc/nginx/review/active/server/*.conf;
+# Inside its frontend location:
+include /etc/nginx/review/active/html/*.conf;
+```
+
+Register the instance and publish its Grist checklist using section 1 below.
+Then, from a checkout of Review tooling on the application host:
+
+```sh
+sudo python3 integration/review-site.py enable \
+  --instance lab-one \
+  --review-origin https://grist.openelis-global.org \
+  --site-origin https://lab-one.example.org
+sudo python3 integration/review-site.py status
+sudo python3 integration/review-site.py disable
+sudo python3 integration/review-site.py enable
+sudo python3 integration/review-site.py verify
+```
+
+The first enable records the connection settings. Later enable/disable commands
+reuse them. The site origin is used for public verification. The default
+container is `openelisglobal-proxy`; use `--container` for a custom deployment.
+For a proxy shared by several sites, mount a separate persistent directory for
+each site, use that directory in its two includes, and pass its container path
+with `--mount-path /etc/nginx/review-sites/lab-one`.
+
+The bundled AMR/Analyzers router uses separate persistent directories at
+`runtime/review-sites/amr` and `runtime/review-sites/analyzers`, mounted at
+`/etc/nginx/review-sites/<instance>`. Its template has the same optional hooks.
+Use `--container oe-edge-router --mount-path /etc/nginx/review-sites/amr` (or
+`analyzers`) with the command. Neither site has hardcoded injection or an
+always-on submission route. Empty configuration disables Review on that site.
+When upgrading an existing shared router, stage each site's enabled configuration
+before the one-time proxy recreation so its existing Review availability is
+preserved. Keep its widget asset mounts for already-open review windows.
+The shared-router migration must carry forward its running `AMR_DOMAIN`,
+`ANALYZERS_DOMAIN`, `PHRASES_DOMAIN` and `GRIST_DOMAIN` values explicitly; its
+Grist runtime environment file alone does not supply all of them. Check the
+effective Compose environment before recreation and during rollback.
+For centralized submission routing, register the public application origins in
+the operator-owned backend map, so stored feedback names the public site.
+
+Use `--build-path none` if the site does not serve deployment identity JSON.
+Use `--session-path` for a nonstandard OpenELIS context path. Scope, suggested
+reviews and instructions come from Grist and are not copied into these files.
+
+The same command can run over an existing SSH connection without installing a
+checkout or authoring credentials on the application host:
+
+```sh
+python3 integration/review-site.py enable --ssh lab-host --sudo \
+  --instance lab-one \
+  --review-origin https://grist.openelis-global.org \
+  --site-origin https://lab-one.example.org
+```
+
+SSH carries the same two Python files used locally. `--sudo` uses the host's
+existing passwordless sudo configuration; it does not prompt for credentials.
+Omit it when the SSH account already owns the mounted directory and can use
+Docker. No Grist key travels with the bundle.
+
+The command discovers the persistent host directory from the running proxy's
+read-only mount. It writes versioned Review files there and switches an `active`
+symlink, checks `nginx -t`, and reloads Nginx. It does not change the main Nginx
+configuration, recreate containers, or restart OpenELIS services. Invalid
+configuration or failed public verification restores the previous files and
+reloads the previous valid configuration. Existing releases are retained.
+
+Verification checks the live page for exactly one configured script, the central
+widget checksum and instruction revision, and the same-origin submission proxy.
+An empty submission with no credentials must receive the service's expected
+validation error; it creates no feedback. Disabled verification checks that the
+script and submission route are absent. A successful authenticated submission
+and Grist readback remain a separate UAT check.
+
+Older manual installations must first remove their old injection and submission
+directives when installing the hooks; otherwise enable refuses a duplicate
+script. This one-time proxy mount/configuration migration is distinct from the
+subsequent reload-only toggle. Public sites already serving the widget are not
+automatically migrated by publishing this command.
+
+Local validation uses disposable fixtures, never a live deployment:
+
+```sh
+python3 -m unittest discover -s tests -p '*_test.py' -v
+python3 tests/review-site-smoke.py
+```
 
 The widget runs on an existing site. It needs no OpenELIS rebuild, replacement
 Compose stack, or dependency on an infrastructure repository.

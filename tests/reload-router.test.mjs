@@ -141,6 +141,10 @@ test("recreates only the router, in the project the running container reports", 
   assert.match(invocation, /\brouter\b\s*$/m);
   assert.match(rig.sudoLog(), /user=ubuntu/);
   assert.match(output, /router reloaded/);
+  assert.match(
+    rig.curlLog(),
+    /\/api\/OpenELIS-Global\/__review\/uat-amr\/submissions/,
+  );
 });
 
 test("forces the recreate, because only a mounted file changed", () => {
@@ -177,7 +181,7 @@ test("probes the submissions route on the domain it was given", () => {
   });
   assert.match(
     rig.curlLog(),
-    /https:\/\/analyzers\.example\.org\/__review\/uat-analyzers\/submissions/,
+    /https:\/\/analyzers\.example\.org\/api\/OpenELIS-Global\/__review\/uat-analyzers\/submissions/,
   );
 });
 

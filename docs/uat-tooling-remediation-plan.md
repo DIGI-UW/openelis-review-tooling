@@ -1,7 +1,7 @@
 # UAT tooling remediation and OpenELIS integration contract
 
 **Status:** Accepted direction, implementation in progress
-**Updated:** 2026-09-14
+**Updated:** 2026-09-15
 **Owners:** OpenELIS review tooling for the widget, Grist adapter and integration
 bundle; OpenELIS Global 2 for inert proxy extension points only
 
@@ -20,6 +20,13 @@ problem, resume later and submit feedback without developer coaching.
 An operator can attach or remove the guide from an existing OpenELIS development
 or production site quickly. Enabling or disabling Review must not rebuild,
 replace or restart the OpenELIS application, frontend, database or FHIR services.
+
+**Current acceptance decision (September 15):** The user will assess usability
+through actual use and iterate on the findings. Recruiting a separate newcomer
+or completing a coached handoff is not a release prerequisite. Earlier entries
+below that describe a mandatory newcomer session are historical. Deployment and
+automated validation still require evidence; neither establishes human usability
+acceptance. Preserve the agreed functional and reviewer-work protections.
 
 ## Accepted decisions
 
@@ -286,15 +293,40 @@ regression uses ordinary clicks on a bottom-page action at narrow and desktop
 widths. CI retains evidence with its tested commit. Replacement rollout, CI and
 newcomer acceptance must be recorded separately; local checks are not acceptance.
 
+### Verified public checkpoint — September 14
+
+- Widget `2048bc3cfd038e42d0fcb92412d4ce5c79fbc090` is deployed on Reporting,
+  AMR and Analyzers and served by the central script used by Testing. Public
+  SHA256: `69e9eb0de3e3cd691ca154a6fa1feb434036c836af1c0511bff09ec22b8fdc14`.
+  Review-tooling CI run `34918052381` passed. Testing's live overview was inspected.
+- The Reporting implementation thread verified four public checks using ordinary
+  clicks, including both CSV layouts at 390px and saved-report rerun at desktop
+  width. [Published recordings and CSV evidence](https://reporting.catalyst.openelis-global.org/reporting-evidence/20260914-uat-checkpoint-2048/)
+  support a manual-UAT checkpoint, not newcomer acceptance or full MVP acceptance.
+- Testing now stores `story_scope=all` and suggested stories `TESTING-STARTUP`,
+  `TESTING-REVIEW` in Grist. Its overview shows those two suggestions and Browse
+  for all 43 published stories. Its old injected scope fallback still awaits
+  removal during the installation migration.
+- Reporting checklist publication is verified at revision
+  `8b87c62931a32705395fc8be2d5c5aef7195eeb0d6b64a615390cb0a2bda0bd4`:
+  six stories, 23 checkpoints. Added only `RPT-303` and `RPT-504`; all 21 existing
+  checkpoint objects remain unchanged. The readable Referrals checkpoints were
+  already published and were preserved. Story PR links now point to 4310, 4309
+  and 4315; the mock pin remains `5b2df7e`. Existing authoring revision guards and
+  stable row-ID readback were used. No reviewer-result writes were requested.
+  These are published instructions, not human-passed tests.
+
 ### Next implementation increments
 
 1. **Remaining Grist ownership cleanup**
+
    - Move Phrases stories to their correct review instance and remove normal
      dependence on hostname targeting.
    - Remove injected presentation fallbacks after remaining deployments have
      migrated to Grist-owned settings.
 
 2. **Inert OpenELIS extension points**
+
    - Add empty review includes and a persistent read-only review directory mount
      to current development, production and installer proxy definitions.
    - Prove that disabled effective configuration and page bytes are unchanged.
@@ -310,18 +342,40 @@ newcomer acceptance must be recorded separately; local checks are not acceptance
      paths. Production and installer proxy tests also pass against shipped image
      digest `sha256:f838da5e60197b2f4ccaa602e4c80c0831fddb3c387ae9e75356cb6ae9746f0c`.
      The affected deployment suite passes 27 tests and the publication suite
-     passes 9. The Maven build and scoped documentation formatter pass; the
+     passes 9. The Maven build passes; the
      frontend formatter could not run because this isolated checkout has no
      frontend dependencies (no frontend files are changed). These are local
      checks only. The operator command, public rollout and human acceptance
-     remain open. The candidate is not yet committed, published or deployed.
+     remain open. The candidate is committed as
+     `43336e730038e82b6f5c6583cc148d50371cf4df` in separate
+     [OpenELIS PR #4317](https://github.com/DIGI-UW/OpenELIS-Global-2/pull/4317).
+     Its deployment-contract CI passes. The initial backend check failed on
+     Markdown formatting in the new guide; the standard `mvn spotless:apply`
+     correction passes `mvn spotless:check` and is pushed for fresh CI. The
+     earlier scoped formatter invocation matched no file and did not prove
+     compliance. These hooks have not been migrated onto public applications.
 
 3. **Review-site lifecycle**
+
    - Implement enable, disable, status and verify in review tooling.
    - Support local execution and authorized SSH orchestration with the same
      generated artifact.
    - Preserve previous review files and roll back on invalid configuration or a
      failed reload.
+   - Implementation started on `codex/review-site-lifecycle` in
+     `integration/review-site.py`, reusing `configure.py`. Thirteen renderer and
+     transaction checks pass. The actual Nginx/application fixture verifies
+     repeated enable/disable and re-enable, live TLS submission proxy probes,
+     invalid-configuration and failed-verification rollback, unchanged app/proxy
+     container identities, and unchanged application/API/asset responses when
+     disabled. The command waits for the old Nginx workers to stop accepting
+     connections before claiming the reloaded configuration is ready; this
+     corrects an intermittent race found by the fixture. The SSH bundle is
+     checked locally. Published commit
+     `03a6ba9a5bd3d8c1ca87a748cb420c309c2772a6` is in
+     [review-tooling PR #30](https://github.com/DIGI-UW/openelis-review-tooling/pull/30),
+     stacked on the overview PR. CI run `34921233028` passes, including the
+     lifecycle fixture.
 
 4. **Migration and integrated validation**
    - Migrate Reporting, AMR, Analyzers and Testing without changing their
@@ -329,6 +383,277 @@ newcomer acceptance must be recorded separately; local checks are not acceptance
    - Toggle each site off and on, proving the disabled and enabled contracts.
    - Verify a version-pinned submission and Grist readback on each supported
      deployment type.
+   - Reporting's one-time hook migration and SSH disable/enable/verify passed
+     on 2026-09-15 at 02:28–02:30 UTC. Application and database container IDs
+     and start times were retained, and the application identity file was
+     unchanged. The live overview was inspected after reload: four suggestions,
+     six available reviews and independent application/review panes. No reviewer
+     answers were submitted by these operational checks. Authenticated feedback
+     readback and newcomer acceptance remain separate requirements.
+   - Reporting's web mounts now use
+     `/home/ubuntu/reporting-uat/releases/review-integration-03a6ba9/nginx.conf`
+     and its adjacent `review/` directory, plus
+     `/home/ubuntu/reporting-uat/runtime/review-integration:/etc/nginx/review:ro`.
+     Subsequent application deployments must preserve these mounts. One-time
+     web migrations use the existing `runtime/review-deploy.lock`; the lifecycle
+     command locks `runtime/review-integration/.review-site.lock`. The Reporting
+     implementation thread received these paths and the preservation contract.
+   - The public [Reporting integration receipt](https://reporting.catalyst.openelis-global.org/__review/integration.json)
+     preserves the original hook-installation evidence: widget `2048bc3`,
+     frontend `7cca586`, backend `8005e4c`, checklist `8b87c629…`, and the
+     Nginx/Compose hashes. It is deliberately historical. The current ready
+     application and widget identity is the separately published
+     [`target.json`](https://reporting.catalyst.openelis-global.org/__review/target.json),
+     which is the provenance recorded with new feedback. AMR, Analyzers and
+     Testing already serve the updated widget; their optional lifecycle
+     migrations were still open at that Reporting checkpoint.
+   - Testing's current deployment owns its proxy through `openelis-docker`.
+     Its image override is regenerated by `deploy-published-testing.py` on each
+     application update. Do not put the persistent Review mount into that
+     generated file. Its one-time hook migration must preserve normal
+     infrastructure updates; the existing manual widget remains enabled until
+     that integration is ready.
+   - Testing's owning deployment repository now has the three persistent hook
+     directives in [openelis-docker PR #59](https://github.com/DIGI-UW/openelis-docker/pull/59),
+     commit `bac87431213c55b3084e66622314ad77a75c57f5`. Default/custom Compose
+     mounts and the actual Nginx template pass the existing isolated proxy
+     behavior checks against both stock Nginx and Testing's exact shipped proxy
+     digest `f838da5e…`. It is mergeable; that repository has no PR check run
+     configured. The user has deferred the shared deployment change for team
+     review: do not merge or migrate Testing's installation pending that review.
+     This optional persistence improvement does not block widget improvements,
+     Grist authoring or UAT. Continue through Testing's existing shared-widget
+     injection, with no application image changes or second Compose stack.
+     Routine widget publication uses that existing integration. Testing's
+     lifecycle command remains unavailable until hooks are adopted; manual
+     directives still need preservation during infrastructure updates.
+   - The shared AMR/Analyzers router candidate replaces both hardcoded Review
+     blocks with independent mounted configuration directories. Its actual
+     template passes the disposable shared-router fixture: enabling one host
+     leaves the other's HTML unchanged, disabling restores the original HTML,
+     central TLS submissions retain their site marker, and neither container
+     restarts. Thirty repository/router checks pass. Commit
+     `65ee5e2f5a477321fdf417b033dcab92d789cac6` passes CI `34922225626`.
+   - AMR and Analyzers migrated successfully at 2026-09-15 02:51 UTC, followed by
+     live SSH disable/enable/verify for each host while verifying the other stayed
+     enabled. Both remain enabled. Widget bytes remain `69e9eb0d…` (source
+     `2048bc3`), application target files are unchanged, and application, Grist
+     and Dex containers were retained. The shared router source is `65ee5e2`;
+     its receipt is retained under
+     `/opt/oe-review-tooling/runtime/review-migration-65ee5e2-retry/receipt.json`.
+     The operator-owned backend mappings now use the verified public AMR and
+     Analyzers origins so centralized submissions identify the public site.
+   - **Migration incident:** the first shared-router attempt omitted the existing
+     domain environment variables during recreation; its rollback repeated the
+     omission. This temporarily stopped the shared public router. Restoring the
+     prior source with the original domain values recovered AMR, Analyzers and
+     the Grist catalog, verified with HTTP 200 and the expected widget checksum.
+     The corrected wrapper validates the effective Compose domain values before
+     both deployment and rollback and verifies public recovery. Its subsequent
+     migration and independent toggles passed. This was an operator-wrapper
+     failure, not a passing deployment; Reporting was unaffected. Initial and
+     retry records are retained separately under `runtime/review-migration-*`.
+   - Reporting authenticated feedback is verified through the real widget and
+     direct Grist readback: submission `34`, answer `119`, demo login `admin`,
+     reviewer `Codex integration verification`, host
+     `reporting.catalyst.openelis-global.org`, application `7cca586`, checklist
+     `8b87c629…`, story `RPT-S06` / revision `ddf821d1447a`, step `RPT-501`.
+     The explanation and reviewer name survived reload before submission, and
+     the browser displayed its success message. The stored outcome is `blocked`;
+     Grist's tally shows `0 pass · 0 fail · 1 couldn't try · 0 n/a`. The note
+     explicitly says desktop navigation was not assessed in that narrow browser
+     session and labels this as an automated transport check. This proves the
+     feedback path and outcome/version attribution, not functional or human
+     acceptance. Shared-router and Testing authenticated readback remain open.
+   - The native Reporting thread deployed Non-Conformance application/frontend/
+     backend `3de726b8d38ba102ac2fa564c95ac59a2a4e02b7`, retaining the Review
+     mounts. Its [public recording and actual four-row CSV](https://reporting.catalyst.openelis-global.org/reporting-evidence/20260914-non-conformance-3de726/)
+     qualify the synthetic fixture. The subsequent Grist update is verified by
+     exact REST readback and public revision
+     `b5c5738b94937e62b8fd5d3401f977695032eb429c0271c1ebf16e931a6953ab`:
+     six stories and 25 checkpoints. Live keys corrected the earlier handoff:
+     availability wording was in `RPT-001` and `RPT-200`; `RPT-101` is the
+     shared-save workflow and is unchanged. Added `RPT-202` and
+     `RPT-202-PHONE`, corrected the S03 and deployment introductions, and kept
+     all existing keys, 21 other checkpoint objects and presentation settings.
+     Submission 34 / answer 119 were re-read unchanged with original versions.
+   - The updated live widget displays the seven-step Referral/Non-Conformance
+     story with labelled instruction lists. A fresh application tab opens the
+     overview with four suggestions, In progress and Browse all six reviews.
+     The separate in-app application walkthrough reached the nine NC fields
+     but stopped at native date entry; do not count it as a completed workflow.
+     The native thread's published CSV/recording remains the qualification
+     evidence. A screenshot also exposed limited instruction space with a short
+     bottom pane; the correction and its evidence are recorded below. None of
+     these checks establishes newcomer acceptance.
+
+### Published reading-space correction — September 15 UTC
+
+- Widget source `bbc3d4783bb1d2e5488c2105c61a6cbfeb573946`, included in runtime
+  candidate `d0cfd4202a8351dbdda500db35101a628ad24270`, is published. Its SHA256 is
+  `6f208c113fee8f22120fbf2bee0d976a8d089903a681d779d08e625ea070989b`.
+  Public bytes match on the shared host, AMR and Analyzers. Reporting and Testing
+  each inject that shared script exactly once; their installations needed no
+  change. The previous router configuration is retained in the runtime candidate.
+- Long checkpoints focus their instruction without scrolling past it to an
+  answer button. Reviewer name and page-note controls scroll with the checklist;
+  Submit remains fixed. The 340px fixture pane previously left 62px for reading;
+  the regression now requires at least 140px and passes. At Reporting's saved
+  440px panel size, live inspection found 257px of reading space with the first
+  instruction visible and focused.
+- Eighteen affected browser checks passed in two focused runs, with recorded
+  evidence and inspected screenshots. They cover long-step selection/advance,
+  short-step focus, instruction lists, reviewer-name validation, draft reload,
+  failed-submit recovery, versioned answers, overview/reset, popout and docking.
+  JavaScript syntax and whitespace checks passed. CI run `34926572593` is queued
+  as of this publication; it is not recorded as passing.
+- The router, Grist, Dex and checklist service retained their container IDs and
+  start times. Reporting still runs application `3de726b8d38ba102ac2fa564c95ac59a2a4e02b7`;
+  its public target now identifies the new widget/runtime and hash. No shared
+  deployment PR was merged. Testing's persistent-hook migration remains deferred
+  for team review. Newcomer acceptance and remaining authenticated site checks
+  are still open.
+
+### Published session-initialization correction — September 15 UTC
+
+- The native Reporting workflow exposed simultaneous application and widget
+  `/session` requests after login. The widget request was only a display probe;
+  the resulting CSRF initialization race could invalidate the token held by
+  OpenELIS and cause the next report-generation request to fail.
+- Widget `814d8341a3714759d9b88bf42ac52a246c106fd6`, integrated into runtime
+  `57fbe3e3d8baed918dd7685adcf97d674fb30d2e`, removes that probe. Existing embed
+  attributes retain the cookie-scoped submission path. Authentication stays in
+  the submission service; successful feedback identifies the verified account.
+  Downloads identify the entered name with `login: null`, without claiming
+  verified account attribution. Reviewer drafts and historical Grist rows are
+  unaffected.
+- Seven identity checks and nine submission checks passed. A regression first
+  observed two startup requests, then verified one application request per load
+  and reload and none added by popout. Tests also cover rejected submission,
+  retry, draft/name preservation, account confirmation and cookie path. The
+  confirmation screenshot was reviewed and videos retained. An initial popout
+  test failed with startup mocks still installed; releasing those completed
+  mocks before opening the real popup resolved it, with passive request
+  observation retained. Syntax and whitespace checks passed.
+- Public SHA256 `727abba5442cd33a98710ce27e1cc0dd7d81f49c2e6f9022c33daa4cb677adac`
+  matches the shared host and AMR/Analyzers scripts. Reporting and Testing each
+  inject that shared script exactly once. Existing router, Grist, Dex and reader
+  container IDs and start times are unchanged. Reporting application remains
+  `3de726b8d38ba102ac2fa564c95ac59a2a4e02b7`; its widget identity was updated
+  separately under the Review deployment lock with an earlier-target backup.
+- The native Reporting owner has the exact public candidate for repeating the
+  ordinary-user login and report-generation workflow. The unchanged public test
+  passed with two users: authentication and reporting, 2 passed in 51.1 seconds,
+  zero retries. Each user downloaded the expected two-row CSV; cross-owner
+  access returned 404 and shared-definition cleanup passed. This run retained
+  video and a report-ready screenshot, not a successful network trace; session
+  request counts are established by the dedicated widget regression above.
+  Candidate CI run `34928305358` is queued; the preceding reading-space
+  runtime run `34926572593` has now passed. These are separate from newcomer
+  acceptance and the still-open authenticated site feedback checks. Testing's
+  deployment-hook PR remains deferred; no application or deployment PR merge
+  was required for this correction.
+
+### Published content and stale-evidence correction — September 15 UTC
+
+- The shared widget source `f1dc136`, integrated as
+  `18b0435c1d8a31854dfdc5a1e28a577283a1590c`, is published with SHA256
+  `903f8af2c53099bd52981f6feaf1c2254f221442182ba762015477577b3944f2`.
+  Public bytes match the central host, AMR and Analyzers; Testing loads that
+  central script through its existing injection. Reporting's ready-target
+  identity records this exact widget revision.
+- AMR story `AMR-S17` was the first content migration. Its three original stable
+  keys and routes remain unchanged; version `1.1` and public checklist revision
+  `8aa0d71d5efdd4ddb188b835f6d11688ced642abd4878aff62c04d3e13f7c7c8`
+  replace multi-action prose with labelled, newline-separated actions and
+  observable outcomes. The managed authoring dry run reported three updates and
+  no additions or removals; live Grist and the public adapter then matched.
+- Prior evidence remains pinned. Existing AMR submission 35 / `AMR-1` remains
+  associated with its earlier application, story and checklist revisions. The
+  current panel counts it as `0 of 3` and presents an amber “Previous answer”
+  notice with unpressed response controls. Selecting the same result once
+  confirms it against the current instruction; it does not silently reuse the
+  earlier answer.
+- Future content migration is incremental and story-scoped. Before each rewrite,
+  preserve the current checklist content, retain stable keys, dry-run the exact
+  payload, verify Grist and the public adapter, and inspect the live widget.
+  Newlines and short labels are the plain-text authoring format; Grist does not
+  gain a rich-text model.
+
+### Selective content and public workflow checkpoint — September 15
+
+- `RPT-S01` and `RPT-S04` now use labelled, newline-separated actions and
+  expectations, at story version 1.1. All nine original checkpoint keys are
+  retained; no checkpoints were added or removed. Reporting's public revision
+  is `c1bfb0df7436521a7b00b30f09a5bfcfc5ca70de1ca350871b956dbb8909ddca`,
+  with six stories and 25 checkpoints. Grist/public equality and rendered
+  instruction lists were verified. Content backups precede these edits.
+- The first RPT-S01 write incorrectly assigned a sibling's story position.
+  Its original position was restored. The authoring client now rejects a
+  duplicate sibling position before writing; 20 focused authoring tests and
+  219 tooling tests passed. Read the existing story to preserve its stored order.
+- Three individual Reporting workflows were selected, not the full suite.
+  Routine spreadsheet export preserving identical repeated readings passed;
+  expired-report recovery with fresh dates passed. These are application checks,
+  not reviewer feedback submissions. The earlier run timed out during login
+  before any application workflow ran; the subsequent selected runs authenticated.
+- Failed-report retry returned `409` with `reporting.definition.changed`.
+  The captured initial job remained FAILED with a frozen version-3 definition.
+  The earlier attribution to an already-consumed fixture was incorrect. The
+  Reporting implementation task confirmed the correct narrow maintenance path:
+  add a fresh failed synthetic job with the current definition, preserve the old
+  job, parameterize the fixture/test identity, then rerun only failed retry.
+  Reporting commit `a344a1747dd30858681b501580ea4f5b5eac5241` implements
+  that maintenance. The new failed parent is
+  `00b7277c-1092-41cd-88aa-62c020c5b8b9`; the focused public authentication
+  and retry run passed in 29 seconds, producing ready child
+  `27bd6ce7-2c1a-4e3c-bcb9-3937b86cfd21`. The receipt records a database
+  backup, current version-4 definition and unchanged old fixture. The test log
+  and ready screenshot were inspected; exact repeated-value CSV, frozen request,
+  lineage and browser-navigation assertions passed. This supersedes the failed
+  fixture preflight, without erasing that failure.
+  `docs/reporting-rpt-s04-readable.story.json` records published version 1.2 with
+  only RPT-302's action link and route changed to the new parent. Managed authoring
+  used the refreshed AWS management session after SSH access failed. The backup
+  is `/home/ubuntu/oe-grist/rpt302-link.2ODI7P/before.json`; dry run identified
+  only RPT-302 for update, with no additions or removals. The write verified Grist
+  REST revision `86954b4c40f147487bd35e5663aa8d88983c98e584de0f10cc642f95febf12b2`,
+  and independent public readback matched it and the new route. The internal
+  Grist URL does not serve `/uat/reporting.json`: an initial combined command's
+  public verification returned 404 after its successful write. The public-host
+  readback resolved this without replaying the write. No new reviewer response
+  was submitted.
+- Public checks reconfirmed widget SHA256 `903f8af2c53099bd52981f6feaf1c2254f221442182ba762015477577b3944f2`
+  on the central host, AMR and Analyzers. Testing injects that central script.
+  Reporting's target identifies widget `f1dc136` and application
+  `3de726b8d38ba102ac2fa564c95ac59a2a4e02b7`. The target's earlier checklist
+  verification is historical; the current content revision is recorded above.
+- Remaining operational evidence: authenticated feedback readback for Testing
+  and confirmation of the shared-router site coverage. Usability findings will
+  come from actual use, per the user's current acceptance decision. Testing's
+  optional shared deployment-hook change remains deferred for team review.
+
+### Operator connection finding — September 15
+
+- The instance is running at its configured address, `35.85.196.163`. Its SSH
+  firewall allowed older operator addresses, while the current mobile network
+  changed from `172.56.106.234` to `172.56.106.229` during diagnosis. Adding the
+  first address as a single-host rule did not restore the next connection.
+- Server inspection through AWS management confirms public-key authentication
+  enabled, password authentication disabled and keyboard-interactive
+  authentication disabled. Private-key authentication was already configured;
+  the separate source-IP firewall restriction caused the access mismatch.
+- The user explicitly approved TCP 22 access from all IPv4 addresses after the
+  automatic-review rejection and network exposure were explained. Rule
+  `sgr-065d7f8109b9013c5` in `sg-006f1521af7b63185` now permits that access.
+  A fresh SSH connection authenticated as `ubuntu` with the configured key;
+  disabling key authentication produced `Permission denied (publickey)`.
+  Password and keyboard-interactive authentication remain disabled. The temporary
+  `172.56.106.234/32` rule added during diagnosis was removed. Normal key-based
+  SSH no longer depends on the operator's source address or an AWS login.
+- The direct Grist client is implemented but its local credential is not yet
+  provisioned. Provisioning that existing client would let routine authoring
+  use HTTPS without SSH or AWS login; server operations remain separate.
 
 ## Required validation
 
@@ -343,9 +668,10 @@ newcomer acceptance must be recorded separately; local checks are not acceptance
 - State checks across reload and placement changes, including unfinished problem
   notes and a simulated failed submission.
 - Public checksum and identity checks for every deployed widget candidate.
-- One newcomer cognitive walkthrough: choose, perform, explain, resume and
-  submit without developer coaching. Record confusion and fixes separately from
-  automated evidence.
+- During actual use, observe whether reviewers can choose, perform, explain,
+  resume and submit. Record confusion and fixes separately from automated
+  evidence and iterate. A separately recruited newcomer session is not required
+  before use or deployment (September 15 user decision).
 
 Stop the affected path immediately for lost reviewer work, misleading submission
 status, an invalid proxy reload, an authentication backend selected by caller

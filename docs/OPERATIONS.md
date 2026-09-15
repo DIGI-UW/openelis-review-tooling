@@ -19,6 +19,22 @@ Grist is the checklist source of truth. The read adapter reshapes rows into
 `/uat/<instance>.json`; router caches are limited to about 30 seconds. There is
 no publish step and no generated checklist file in the live path.
 
+## Remote operator access
+
+The shared AMR/Analyzers/Grist host uses the existing `amr` SSH profile and
+private key. The user approved TCP port 22 access from any IPv4 address on
+September 15, 2026 because remote/mobile network addresses change frequently.
+Password and keyboard-interactive SSH login are disabled. A connection with
+the configured key succeeds; a connection with public-key authentication
+disabled is rejected.
+
+Use the default SSH transport (`./deploy.sh connect <command>`) for routine
+server work. It does not require AWS login or a source-IP firewall update.
+AWS management is a recovery channel and is needed for firewall administration.
+Do not reintroduce current-IP-only access as a routine deployment prerequisite.
+The direct Grist HTTPS client remains the normal authoring interface once its
+local credential profile is provisioned; see [client setup](../grist/CLIENT.md).
+
 ## Configuration Inventory
 
 The operator has two untracked environment files:

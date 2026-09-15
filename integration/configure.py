@@ -51,8 +51,11 @@ def render(config):
         "data-identity-src": session,
         "data-submit-src": submit,
         "data-build-src": build if build is not None else "none",
-        "data-story-scope": story_scope,
     }
+    # Only older, explicitly configured installations carry this fallback.
+    # New installations read scope and suggestions from Grist's catalog.
+    if "story_scope" in config:
+        attrs["data-story-scope"] = story_scope
     if suggested:
         attrs["data-suggested-stories"] = ",".join(suggested)
     def attribute(value):
@@ -80,6 +83,7 @@ def render(config):
             "    proxy_ssl_verify_depth 3;\n"
             f"    proxy_ssl_trusted_certificate {ca};\n"
             '    add_header Cache-Control "no-store" always;\n'
+            f'    add_header X-OpenELIS-Review "{instance}" always;\n'
             "}\n"
         ),
     }

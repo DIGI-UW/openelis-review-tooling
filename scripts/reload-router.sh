@@ -25,7 +25,7 @@ CONTAINER="${CONTAINER:-oe-edge-router}"
 SERVICE="${SERVICE:-router}"
 PROBE_ATTEMPTS="${PROBE_ATTEMPTS:-30}"
 PROBE_DELAY="${PROBE_DELAY:-2}"
-PROBE_PATH="${PROBE_PATH:-/__review/uat-$PROBE_INSTANCE/submissions}"
+PROBE_PATH="${PROBE_PATH:-/api/OpenELIS-Global/__review/uat-$PROBE_INSTANCE/submissions}"
 case "$PROBE_PATH" in
   /*) ;;
   *) echo "PROBE_PATH must be an absolute same-host path" >&2; exit 2 ;;

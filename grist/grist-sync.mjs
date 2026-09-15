@@ -800,6 +800,14 @@ async function applyStory(path, { dryRun = false } = {}) {
     hosts: String(payload.story.hosts || ""),
   };
   let storyId = existingStory?.id ?? -1;
+  const orderConflict = state.stories.find(
+    (row) =>
+      row.id !== storyId && row.fields.story_order === storyFields.story_order,
+  );
+  if (orderConflict)
+    throw new Error(
+      `story_order ${storyFields.story_order} is already used by ${orderConflict.fields.story_key}; read the existing story before retrying`,
+    );
   const existingSteps = state.steps.filter(
     (row) => row.fields.story === storyId,
   );
