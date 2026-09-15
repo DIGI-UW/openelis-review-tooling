@@ -35,12 +35,20 @@ test("keeps story sources in the secondary action menu", async ({ page }) => {
   }
 });
 
-test("formats the user story as a prominent readable description", async ({
+test("keeps story context available without crowding the first checkpoint", async ({
   page,
 }) => {
   const widget = await openPanel(page);
   const description = widget.locator(".storydescription").first();
-  await expect(description.getByText("Story", { exact: true })).toBeVisible();
+  await expect(
+    description.getByText("About this review", { exact: true }),
+  ).toBeVisible();
+  await expect(description).not.toHaveAttribute("open", "");
+  await expect(description.locator(".userstory")).toBeHidden();
+  await expect(widget.locator(".step.current")).toBeInViewport();
+  await description.getByText("About this review", { exact: true }).click();
+  await expect(description).toHaveAttribute("open", "");
+  await expect(description.locator(".userstory")).toBeVisible();
   await expect(description.locator(".userstory")).toContainText(
     "As a lab tech I want shipped profiles visible",
   );
@@ -71,7 +79,9 @@ test("hides empty secondary story context", async ({ page }) => {
         sections: [
           {
             title: "A source-free story",
-            steps: [{ key: "AN-QC-777", required: true, do: "Inspect the page" }],
+            steps: [
+              { key: "AN-QC-777", required: true, do: "Inspect the page" },
+            ],
           },
         ],
       },
