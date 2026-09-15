@@ -286,6 +286,29 @@ regression uses ordinary clicks on a bottom-page action at narrow and desktop
 widths. CI retains evidence with its tested commit. Replacement rollout, CI and
 newcomer acceptance must be recorded separately; local checks are not acceptance.
 
+### Verified public checkpoint — September 14
+
+- Widget `2048bc3cfd038e42d0fcb92412d4ce5c79fbc090` is deployed on Reporting,
+  AMR and Analyzers and served by the central script used by Testing. Public
+  SHA256: `69e9eb0de3e3cd691ca154a6fa1feb434036c836af1c0511bff09ec22b8fdc14`.
+  Review-tooling CI run `34918052381` passed. Testing's live overview was inspected.
+- The Reporting implementation thread verified four public checks using ordinary
+  clicks, including both CSV layouts at 390px and saved-report rerun at desktop
+  width. [Published recordings and CSV evidence](https://reporting.catalyst.openelis-global.org/reporting-evidence/20260914-uat-checkpoint-2048/)
+  support a manual-UAT checkpoint, not newcomer acceptance or full MVP acceptance.
+- Testing now stores `story_scope=all` and suggested stories `TESTING-STARTUP`,
+  `TESTING-REVIEW` in Grist. Its overview shows those two suggestions and Browse
+  for all 43 published stories. Its old injected scope fallback still awaits
+  removal during the installation migration.
+- Reporting checklist publication is verified at revision
+  `8b87c62931a32705395fc8be2d5c5aef7195eeb0d6b64a615390cb0a2bda0bd4`:
+  six stories, 23 checkpoints. Added only `RPT-303` and `RPT-504`; all 21 existing
+  checkpoint objects remain unchanged. The readable Referrals checkpoints were
+  already published and were preserved. Story PR links now point to 4310, 4309
+  and 4315; the mock pin remains `5b2df7e`. Existing authoring revision guards and
+  stable row-ID readback were used. No reviewer-result writes were requested.
+  These are published instructions, not human-passed tests.
+
 ### Next implementation increments
 
 1. **Remaining Grist ownership cleanup**
@@ -310,11 +333,18 @@ newcomer acceptance must be recorded separately; local checks are not acceptance
      paths. Production and installer proxy tests also pass against shipped image
      digest `sha256:f838da5e60197b2f4ccaa602e4c80c0831fddb3c387ae9e75356cb6ae9746f0c`.
      The affected deployment suite passes 27 tests and the publication suite
-     passes 9. The Maven build and scoped documentation formatter pass; the
+     passes 9. The Maven build passes; the
      frontend formatter could not run because this isolated checkout has no
      frontend dependencies (no frontend files are changed). These are local
      checks only. The operator command, public rollout and human acceptance
-     remain open. The candidate is not yet committed, published or deployed.
+     remain open. The candidate is committed as
+     `43336e730038e82b6f5c6583cc148d50371cf4df` in separate
+     [OpenELIS PR #4317](https://github.com/DIGI-UW/OpenELIS-Global-2/pull/4317).
+     Its deployment-contract CI passes. The initial backend check failed on
+     Markdown formatting in the new guide; the standard `mvn spotless:apply`
+     correction passes `mvn spotless:check` and is pushed for fresh CI. The
+     earlier scoped formatter invocation matched no file and did not prove
+     compliance. These hooks have not been migrated onto public applications.
 
 3. **Review-site lifecycle**
    - Implement enable, disable, status and verify in review tooling.
@@ -322,6 +352,18 @@ newcomer acceptance must be recorded separately; local checks are not acceptance
      generated artifact.
    - Preserve previous review files and roll back on invalid configuration or a
      failed reload.
+   - Implementation started on `codex/review-site-lifecycle` in
+     `integration/review-site.py`, reusing `configure.py`. Thirteen renderer and
+     transaction checks pass. The actual Nginx/application fixture verifies
+     repeated enable/disable and re-enable, live TLS submission proxy probes,
+     invalid-configuration and failed-verification rollback, unchanged app/proxy
+     container identities, and unchanged application/API/asset responses when
+     disabled. The command waits for the old Nginx workers to stop accepting
+     connections before claiming the reloaded configuration is ready; this
+     corrects an intermittent race found by the fixture. The SSH bundle is
+     checked locally; a successful live SSH toggle
+     and public migration remain open. This candidate has not replaced the
+     public installations yet.
 
 4. **Migration and integrated validation**
    - Migrate Reporting, AMR, Analyzers and Testing without changing their

@@ -47,7 +47,7 @@ own application session-verification backend and review identity.
 - Document **"UAT Checklists"**, id `hvZ4rzsyGJuqggkZBko8gc`.
 - Table **`UAT_Meta`** — one row per review: `instance, title, intro, jira,
 published, story_scope, suggested_stories`. The last two control that
-deployment's chooser and are ordinary manually editable Grist cells.
+  deployment's chooser and are ordinary manually editable Grist cells.
 - Table **`UAT_Stories`** — one row per story: `instance` (ref → `UAT_Meta`),
   `story_key, title, story_order`, plus where it came from — `jira, pr, mock`
   (one link each), `user_story` (prose) and `hosts` (deployments it applies to,
@@ -69,13 +69,15 @@ do, expect, route`.
   fallback only while both Grist fields are blank.
 - Change these deployment presentation fields through Grist's UI or the narrow
   `./deploy.sh grist set-presentation <instance> --scope site|all --suggested
-  <ids> [--dry-run]` command. The command edits only those two cells and verifies
+<ids> [--dry-run]` command. The command edits only those two cells and verifies
   exact readback; it must not be used to rewrite checklist content or evidence.
-- With `site` scope, the chooser starts with configured suggestions or stories
-  matching the current URL. If no story matches the URL, it explicitly falls
-  back to all stories owned by that review. Reviewers can browse all applicable
-  stories; an explicit choice survives refresh, while real navigation resets the
-  route-relevant default.
+- A fresh Review opening presents the overview before a checkpoint. With `site`
+  scope, it offers configured suggestions or stories matching the current URL.
+  If no story matches, it offers stories owned by that review. Reviewers can
+  browse all applicable stories and resume saved work. Selection and the current
+  view survive reload in the same tab; application navigation does not switch
+  an explicitly selected story. Back to all reviews preserves answers. Confirmed
+  Reset review clears only that story's answers and returns to the overview.
 - A general test server uses `story_scope=all` in its Grist row. It can suggest
   stories from any published review and lists the complete published catalog
   without review, host, or page filtering. Feedback authenticates against the

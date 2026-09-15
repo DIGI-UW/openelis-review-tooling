@@ -24,6 +24,8 @@ jobs:
         run: python3 -m unittest discover -s tests -p '*_test.py' -v
       - name: Exercise external sites through Nginx
         run: python3 tests/nginx-smoke.py
+      - name: Exercise optional Review lifecycle
+        run: python3 tests/review-site-smoke.py
       - run: npx playwright install --with-deps chromium
       - run: npm run test:widget
       - name: Retain widget workflow evidence
