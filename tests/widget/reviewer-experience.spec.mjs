@@ -50,6 +50,9 @@ test("shows one step at a time instead of a keyhole onto all of them", async ({
   page,
 }) => {
   const widget = await openPanel(page);
+  // Choosing a story first shows its purpose. Selecting its checkpoint brings
+  // the action and response controls into view, even on a compact panel.
+  await widget.locator(".step.current .steptop").click();
   const steps = widget.locator(".step");
   await expect(steps).toHaveCount(3);
 

@@ -192,6 +192,33 @@ test("raises the minimized launcher above a Carbon-style action row", async ({
     .toBe(false);
 });
 
+for (const width of [390, 1440]) {
+  test(`keeps an offscreen application action clickable after scrolling at ${width}px`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width, height: 844 });
+    await page.goto("/tests/widget/app-fixture.html");
+    await page.evaluate(() => {
+      const save = document.getElementById("page-save");
+      // A normal-flow action at the bottom of a long application form, matching
+      // Reporting's Next button. The page does not mutate when it scrolls.
+      save.style.cssText =
+        "position:static;display:block;width:100%;height:48px";
+      save.onclick = () => {
+        save.textContent = "Saved";
+      };
+      window.scrollTo(0, 0);
+    });
+    const widget = page.locator("#oe-review-host");
+    await expect(widget.locator(".tab")).toBeVisible();
+    await page.getByRole("button", { name: "Save", exact: true }).click();
+    await expect(
+      page.getByRole("button", { name: "Saved", exact: true }),
+    ).toBeVisible();
+    await expect(widget.locator(".tab")).toBeVisible();
+  });
+}
+
 test("keys answers by stable step key and includes provenance in reports", async ({
   page,
 }) => {

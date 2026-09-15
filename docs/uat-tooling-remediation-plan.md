@@ -268,13 +268,23 @@ The current correction takes priority over the installation command:
 - Saved answers for a story not yet checked against its current instructions
   must not be presented as fresh acceptance.
 
-Branch `codex/review-overview-entry` is a release candidate. The full widget suite
-passes 115 browser checks and the tooling suite passes 218 checks. Six focused
-workflows were also recorded, including first open without configured
-suggestions, draft/resume/reload, reset, application navigation, popout/return and
-all three docks with keyboard resizing. Screenshots of the docks and frames from
-the draft/resume recording have been inspected. CI retains the recorded evidence
-with the tested commit. Public rollout and newcomer acceptance remain open.
+Branch `codex/review-overview-entry` / review tooling PR #29 is a release
+candidate. The initial overview (`e357b06`) was published on Reporting and the
+central widget host. Its CI exposed a popout-return race and a compact-panel
+test that conflated seeing a story's purpose with focusing its checkpoint.
+The follow-up waits for the opener to confirm the selected view before closing,
+keeps work available when return fails, and tests checkpoint focus explicitly
+without reducing the visibility assertion. A reported application-action
+obstruction also adds scroll handling to the existing launcher placement logic.
+
+The follow-up passes 119 browser checks and 218 tooling checks locally; the
+previously intermittent return workflow also passes 20 repetitions. Focused
+workflow recordings cover first open, draft/resume/reload, reset, navigation,
+popout/return (including delayed and unavailable openers), and all three docks.
+Screenshots and return-recording frames have been inspected. The launcher
+regression uses ordinary clicks on a bottom-page action at narrow and desktop
+widths. CI retains evidence with its tested commit. Replacement rollout, CI and
+newcomer acceptance must be recorded separately; local checks are not acceptance.
 
 ### Next implementation increments
 

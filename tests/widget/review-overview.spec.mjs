@@ -118,6 +118,88 @@ test("a popped-out overview returns without opening an unchosen checklist", asyn
   await expect(widget.locator(".step").first()).toBeHidden();
 });
 
+test("return waits for the opener to load the chosen story", async ({
+  page,
+}) => {
+  const widget = await open(page);
+  const opened = page.waitForEvent("popup");
+  await widget.getByRole("button", { name: /Pop out/ }).click();
+  const popup = await opened;
+  const review = popup.locator("#oe-review-host");
+  await expect(review.locator(".storymenu")).toBeVisible();
+  await page.evaluate(() => {
+    const originalFetch = window.fetch.bind(window);
+    const held = new Promise((resolve) => {
+      window.releaseReviewFetch = resolve;
+    });
+    window.reviewFetchWaiting = false;
+    // Gate this window's fetch rather than shared network interception, which
+    // can stall the popup's identical request through the browser cache lock.
+    window.fetch = async (url, options) => {
+      if (String(url).includes("uat-amr.json")) {
+        window.reviewFetchWaiting = true;
+        await held;
+      }
+      return originalFetch(url, options);
+    };
+  });
+  await review.getByRole("button", { name: /Browse all/ }).click();
+  await review.getByRole("option", { name: /AST, critical/ }).click();
+  await expect(review.locator(".storytriggertitle")).toContainText(
+    "AST, critical",
+  );
+  await expect
+    .poll(() => page.evaluate(() => window.reviewFetchWaiting))
+    .toBe(true);
+  await review
+    .getByRole("button", { name: "Return the checklist to the page" })
+    .click();
+  await expect(
+    review.getByRole("button", { name: "Return the checklist to the page" }),
+  ).toBeDisabled();
+  expect(popup.isClosed()).toBe(false);
+  await page.evaluate(() => window.releaseReviewFetch());
+  await expect.poll(() => popup.isClosed()).toBe(true);
+  await expect(widget.locator(".panel")).toBeVisible();
+  await expect(widget.locator(".storytriggertitle")).toContainText(
+    "AST, critical",
+  );
+});
+
+test("return keeps the review open when the application page is unavailable", async ({
+  page,
+}) => {
+  const widget = await open(page);
+  const opened = page.waitForEvent("popup");
+  await widget.getByRole("button", { name: /Pop out/ }).click();
+  const popup = await opened;
+  const review = popup.locator("#oe-review-host");
+  await expect(review.locator(".storymenu")).toBeVisible();
+  await review.getByRole("option", { name: /Find and route/ }).click();
+  await review
+    .locator(".step.current")
+    .getByRole("button", { name: "There was a problem" })
+    .click();
+  await review
+    .getByRole("textbox", { name: "Explain this answer" })
+    .fill("Keep this unfinished explanation.");
+  await page.close();
+  await review
+    .getByRole("button", { name: "Return the checklist to the page" })
+    .click();
+  await expect(review.getByRole("alert")).toContainText(
+    "Your work is still here",
+    { timeout: 10000 },
+  );
+  expect(popup.isClosed()).toBe(false);
+  await expect(
+    review.getByRole("textbox", { name: "Explain this answer" }),
+  ).toHaveValue("Keep this unfinished explanation.");
+  await expect(
+    review.getByRole("button", { name: "Return the checklist to the page" }),
+  ).toBeEnabled();
+});
+
 test("the overview remains usable in either side dock and the bottom split", async ({
   page,
 }, testInfo) => {

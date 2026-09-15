@@ -613,6 +613,7 @@
     root.appendChild(wrap);
 
     document.addEventListener("click", scheduleReposition, true);
+    document.addEventListener("scroll", scheduleReposition, true);
     window.addEventListener("resize", scheduleReposition);
     window.addEventListener("popstate", scheduleReposition);
     window.addEventListener("storage", adoptOtherWindow);
@@ -724,9 +725,13 @@
   // nothing the application paints can reach it.
   //
   // The two windows are the same origin, so they are already sharing one store:
-  // each save is a storage event in the other, which is enough for both to stay on
-  // the same review without a message protocol between them.
+  // each save is a storage event in the other. Selection is exchanged only with
+  // the linked window, and returning waits for the opener to confirm that view.
   var popoutBlocked = false;
+  var returnPending = false;
+  var returnTimer = null;
+  var returnError = "";
+  var incomingReturn = null;
 
   function openerWindow() {
     try {
@@ -745,7 +750,7 @@
     }
   }
 
-  function notifyLinkedStory(request) {
+  function notifyLinkedStory(returning) {
     var peer = STANDALONE ? openerWindow() : linkedReviewWindow;
     if (!peer || peer.closed) return;
     try {
@@ -753,7 +758,7 @@
         {
           type: "oe-review-navigation",
           instance: INSTANCE,
-          request: Boolean(request),
+          returning: Boolean(returning),
           story: storyNavigation.committedId,
           path: storyNavigation.committedPath,
           overview: storyNavigation.overviewOpen,
@@ -786,24 +791,58 @@
       return;
     }
     if (!STANDALONE) linkedReviewWindow = event.source;
-    if (message.request) {
-      notifyLinkedStory();
+    if (message.returned && STANDALONE && returnPending) {
+      if (
+        message.story !== storyNavigation.committedId ||
+        message.path !== storyNavigation.committedPath ||
+        message.overview !== storyNavigation.overviewOpen
+      )
+        return;
+      clearTimeout(returnTimer);
+      returnPending = false;
+      markPoppedOut(false);
+      event.source.focus();
+      window.close();
       return;
     }
+    if (STANDALONE && returnPending) return;
     if (!knownStory(message.story)) return;
     if (
       message.path !== null &&
       (typeof message.path !== "string" || !message.path.startsWith("/"))
     )
       return;
+    if (message.returning && !STANDALONE) {
+      incomingReturn = { source: event.source, message: message };
+      state.minimized = false;
+      panelToggled = true;
+    }
     if (
       message.story === storyNavigation.committedId &&
       message.path === storyNavigation.committedPath &&
       message.overview === storyNavigation.overviewOpen
-    )
+    ) {
+      if (incomingReturn) render();
       return;
+    }
     setReviewOverviewOpen(message.overview !== false, false);
     activateStory(message.story, { path: message.path, refresh: true });
+  }
+
+  function confirmReturn() {
+    if (!incomingReturn || loading) return;
+    var message = incomingReturn.message;
+    if (
+      message.story !== storyNavigation.committedId ||
+      message.path !== storyNavigation.committedPath ||
+      message.overview !== storyNavigation.overviewOpen
+    )
+      return;
+    incomingReturn.source.postMessage(
+      Object.assign({}, message, { returning: false, returned: true }),
+      navigationOrigin(),
+    );
+    incomingReturn = null;
   }
 
   // The page under review is in the opener, so that is what a mark is evidence
@@ -958,14 +997,21 @@
   }
 
   function returnToPage() {
+    if (returnPending) return;
     state.minimized = false;
-    // The opener adopts this on the storage event, so the panel is already open in
-    // the page by the time this window is gone.
     save();
-    markPoppedOut(false);
-    var live = openerWindow();
-    if (live) live.focus();
-    window.close();
+    returnError = "";
+    returnPending = true;
+    // Keep this window and its work until the opener has loaded this exact view.
+    // A closed/unreachable opener is a retryable failure, not a successful return.
+    returnTimer = setTimeout(function () {
+      returnPending = false;
+      returnError =
+        "Could not return to the page. Your work is still here. Reopen the application page and try again.";
+      syncPanel();
+    }, 5000);
+    notifyLinkedStory(true);
+    syncPanel();
   }
 
   // Answers and panel preferences are shared. Route and story selection belong
@@ -1005,11 +1051,6 @@
           : storyNavigation.committedId;
       incomingPrefs.storyPath = storyNavigation.committedPath;
       prefs = incomingPrefs;
-      if (
-        STANDALONE &&
-        storyNavigation.selectedId === storyNavigation.committedId
-      )
-        notifyLinkedStory(true);
       if (ui) syncPanel();
       applyDock();
       return;
@@ -1454,7 +1495,7 @@
     var needsLoad = story !== storyNavigation.committedId;
     var cancelsPending =
       !needsLoad && storyNavigation.selectedId !== storyNavigation.committedId;
-    if (options.start) setReviewOverviewOpen(false);
+    if (options.start) setReviewOverviewOpen(false, false);
     // Keep the committed checklist context until the requested story validates.
     if ((needsLoad || cancelsPending) && ui) syncStories();
     if (options.focus) storyNavigation.focusTrigger = true;
@@ -1770,6 +1811,7 @@
       selectionCommitted && storyNavigation.focusTrigger && ui.storyTrigger;
     if (selectionCommitted) storyNavigation.focusTrigger = false;
     applyDock();
+    confirmReturn();
     // Only on a fresh panel: a background refresh must not yank the checklist away
     // from wherever the reviewer has scrolled it.
     if (built) {
@@ -1921,6 +1963,7 @@
     head.appendChild(titleBox);
     if (STANDALONE) {
       var back = iconBtn("↩", "Return the checklist to the page");
+      parts.returnButton = back;
       back.onclick = returnToPage;
       head.appendChild(back);
     } else {
@@ -3016,6 +3059,9 @@
       !anonymous || Boolean(ui.storyTrigger && storyNavigation.overviewOpen);
 
     ui.statusBox.innerHTML = "";
+    if (ui.returnButton) ui.returnButton.disabled = returnPending;
+    if (returnError)
+      ui.statusBox.appendChild(status(returnError, "status error", "alert"));
     if (loading)
       ui.statusBox.appendChild(status("Refreshing checklist…", "status"));
     if (loadError)
