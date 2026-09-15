@@ -156,6 +156,12 @@ The story requires `story_key`, `title`, and `story_order`; every step requires
 `step_key`, `required`, `step_order`, and `do`. Include `expect` and `route` when
 the reviewer needs them.
 
+For an existing story, begin with `read-story` and retain its exact
+`story_order`. The public list's first visible item does not establish its stored
+numeric order. A one-story update cannot safely reorder its siblings; write a
+separate, reviewed reordering plan when that is actually needed. The authoring
+command rejects a duplicate position before it writes anything.
+
 Write UAT steps as **verifiable checks** — a `do` a reviewer performs and an
 `expect` they judge against. A missing feature is a legitimate step: the reviewer
 marks it Fail, which is useful signal.
