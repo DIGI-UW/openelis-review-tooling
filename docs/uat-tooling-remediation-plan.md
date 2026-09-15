@@ -612,12 +612,17 @@ newcomer acceptance must be recorded separately; local checks are not acceptance
   and ready screenshot were inspected; exact repeated-value CSV, frozen request,
   lineage and browser-navigation assertions passed. This supersedes the failed
   fixture preflight, without erasing that failure.
-  `docs/reporting-rpt-s04-readable.story.json` prepares version 1.2 with only
-  RPT-302's action link and route changed to the new parent. Its revision
-  precondition remains the live `c1bfb0df…` revision above. Publication is pending:
-  the configured Grist operator SSH host timed out, and no local direct-client
-  credential is provisioned. The live guide still points to the old fixture;
-  do not claim that checkpoint is ready until managed apply and public readback.
+  `docs/reporting-rpt-s04-readable.story.json` records published version 1.2 with
+  only RPT-302's action link and route changed to the new parent. Managed authoring
+  used the refreshed AWS management session after SSH access failed. The backup
+  is `/home/ubuntu/oe-grist/rpt302-link.2ODI7P/before.json`; dry run identified
+  only RPT-302 for update, with no additions or removals. The write verified Grist
+  REST revision `86954b4c40f147487bd35e5663aa8d88983c98e584de0f10cc642f95febf12b2`,
+  and independent public readback matched it and the new route. The internal
+  Grist URL does not serve `/uat/reporting.json`: an initial combined command's
+  public verification returned 404 after its successful write. The public-host
+  readback resolved this without replaying the write. No new reviewer response
+  was submitted.
 - Public checks reconfirmed widget SHA256 `903f8af2c53099bd52981f6feaf1c2254f221442182ba762015477577b3944f2`
   on the central host, AMR and Analyzers. Testing injects that central script.
   Reporting's target identifies widget `f1dc136` and application
@@ -627,6 +632,24 @@ newcomer acceptance must be recorded separately; local checks are not acceptance
   and confirmation of the shared-router site coverage. Usability findings will
   come from actual use, per the user's current acceptance decision. Testing's
   optional shared deployment-hook change remains deferred for team review.
+
+### Operator connection finding — September 15
+
+- The instance is running at its configured address, `35.85.196.163`. Its SSH
+  firewall allowed older operator addresses, while the current mobile network
+  changed from `172.56.106.234` to `172.56.106.229` during diagnosis. Adding the
+  first address as a single-host rule did not restore the next connection.
+- Server inspection through AWS management confirms public-key authentication
+  enabled, password authentication disabled and keyboard-interactive
+  authentication disabled. Private-key authentication was already configured;
+  the separate source-IP firewall restriction caused the access mismatch.
+- The user requested access across changing remote networks using the private
+  key. Opening TCP 22 to all IPv4 addresses was rejected by automatic approval
+  review and awaits the explicit approval question presented to the user. No
+  public SSH rule was added. AWS management remains usable after login refresh.
+- The direct Grist client is implemented but its local credential is not yet
+  provisioned. Provisioning that existing client would let routine authoring
+  use HTTPS without SSH or AWS login; server operations remain separate.
 
 ## Required validation
 

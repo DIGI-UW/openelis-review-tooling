@@ -1,6 +1,6 @@
 {
   "instance": "reporting",
-  "expected_revision": "c1bfb0df7436521a7b00b30f09a5bfcfc5ca70de1ca350871b956dbb8909ddca",
+  "expected_revision": "86954b4c40f147487bd35e5663aa8d88983c98e584de0f10cc642f95febf12b2",
   "story": {
     "story_key": "RPT-S04",
     "title": "Return to reports and recover queued, failed or expired exports",
