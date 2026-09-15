@@ -3008,7 +3008,12 @@
       focusWasInside === undefined
         ? ui.panel.contains(root.activeElement)
         : focusWasInside;
-    if (first && inside) first.focus();
+    // A long checkpoint's answers can be below the visible pane. Focus its
+    // instruction instead, keeping the reading position and keyboard focus
+    // together rather than scrolling past the action to an answer button.
+    var target =
+      bottom - top > body.clientHeight - reserve ? row.summary : first;
+    if (target && inside) target.focus({ preventScroll: true });
   }
 
   // ---- keeping the built panel in step with state ---------------------------
