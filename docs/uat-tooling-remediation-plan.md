@@ -1,7 +1,7 @@
 # UAT tooling remediation and OpenELIS integration contract
 
 **Status:** Accepted direction, implementation in progress
-**Updated:** 2026-09-14
+**Updated:** 2026-09-15
 **Owners:** OpenELIS review tooling for the widget, Grist adapter and integration
 bundle; OpenELIS Global 2 for inert proxy extension points only
 
@@ -20,6 +20,13 @@ problem, resume later and submit feedback without developer coaching.
 An operator can attach or remove the guide from an existing OpenELIS development
 or production site quickly. Enabling or disabling Review must not rebuild,
 replace or restart the OpenELIS application, frontend, database or FHIR services.
+
+**Current acceptance decision (September 15):** The user will assess usability
+through actual use and iterate on the findings. Recruiting a separate newcomer
+or completing a coached handoff is not a release prerequisite. Earlier entries
+below that describe a mandatory newcomer session are historical. Deployment and
+automated validation still require evidence; neither establishes human usability
+acceptance. Preserve the agreed functional and reviewer-work protections.
 
 ## Accepted decisions
 
@@ -573,6 +580,40 @@ newcomer acceptance must be recorded separately; local checks are not acceptance
   Newlines and short labels are the plain-text authoring format; Grist does not
   gain a rich-text model.
 
+### Selective content and public workflow checkpoint — September 15
+
+- `RPT-S01` and `RPT-S04` now use labelled, newline-separated actions and
+  expectations, at story version 1.1. All nine original checkpoint keys are
+  retained; no checkpoints were added or removed. Reporting's public revision
+  is `c1bfb0df7436521a7b00b30f09a5bfcfc5ca70de1ca350871b956dbb8909ddca`,
+  with six stories and 25 checkpoints. Grist/public equality and rendered
+  instruction lists were verified. Content backups precede these edits.
+- The first RPT-S01 write incorrectly assigned a sibling's story position.
+  Its original position was restored. The authoring client now rejects a
+  duplicate sibling position before writing; 20 focused authoring tests and
+  219 tooling tests passed. Read the existing story to preserve its stored order.
+- Three individual Reporting workflows were selected, not the full suite.
+  Routine spreadsheet export preserving identical repeated readings passed;
+  expired-report recovery with fresh dates passed. These are application checks,
+  not reviewer feedback submissions. The earlier run timed out during login
+  before any application workflow ran; the subsequent selected runs authenticated.
+- Failed-report retry returned `409` with `reporting.definition.changed`.
+  The captured initial job remained FAILED with a frozen version-3 definition.
+  The earlier attribution to an already-consumed fixture was incorrect. The
+  Reporting implementation task confirmed the correct narrow maintenance path:
+  add a fresh failed synthetic job with the current definition, preserve the old
+  job, parameterize the fixture/test identity, then rerun only failed retry.
+  No passing retry result is claimed yet. The implementation task owns that work.
+- Public checks reconfirmed widget SHA256 `903f8af2c53099bd52981f6feaf1c2254f221442182ba762015477577b3944f2`
+  on the central host, AMR and Analyzers. Testing injects that central script.
+  Reporting's target identifies widget `f1dc136` and application
+  `3de726b8d38ba102ac2fa564c95ac59a2a4e02b7`. The target's earlier checklist
+  verification is historical; the current content revision is recorded above.
+- Remaining operational evidence: authenticated feedback readback for Testing
+  and confirmation of the shared-router site coverage. Usability findings will
+  come from actual use, per the user's current acceptance decision. Testing's
+  optional shared deployment-hook change remains deferred for team review.
+
 ## Required validation
 
 - Unit tests for Grist configuration parsing, invalid story references and
@@ -586,9 +627,10 @@ newcomer acceptance must be recorded separately; local checks are not acceptance
 - State checks across reload and placement changes, including unfinished problem
   notes and a simulated failed submission.
 - Public checksum and identity checks for every deployed widget candidate.
-- One newcomer cognitive walkthrough: choose, perform, explain, resume and
-  submit without developer coaching. Record confusion and fixes separately from
-  automated evidence.
+- During actual use, observe whether reviewers can choose, perform, explain,
+  resume and submit. Record confusion and fixes separately from automated
+  evidence and iterate. A separately recruited newcomer session is not required
+  before use or deployment (September 15 user decision).
 
 Stop the affected path immediately for lost reviewer work, misleading submission
 status, an invalid proxy reload, an authentication backend selected by caller
