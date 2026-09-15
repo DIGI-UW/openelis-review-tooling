@@ -51,6 +51,11 @@ route without probing that URL or requiring an application change.
 
 ## Handing a review in
 
+After the first answered checkpoint, **Feedback summary** shows answered and
+unanswered counts and an optional overall note for partial or full feedback.
+It scrolls with the checklist so finished reviews retain room to revisit answers.
+The fixed submit button identifies partial feedback until all checkpoints are answered.
+
 **Submit review** posts what was answered to `data-submit-src`. The service
 verifies the reviewer's session itself and records the identity it gets back,
 ignoring anything the submission claims about its author; the timestamp is the
