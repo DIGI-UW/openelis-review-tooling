@@ -425,6 +425,23 @@ newcomer acceptance must be recorded separately; local checks are not acceptance
      migration and independent toggles passed. This was an operator-wrapper
      failure, not a passing deployment; Reporting was unaffected. Initial and
      retry records are retained separately under `runtime/review-migration-*`.
+   - Reporting authenticated feedback is verified through the real widget and
+     direct Grist readback: submission `34`, answer `119`, demo login `admin`,
+     reviewer `Codex integration verification`, host
+     `reporting.catalyst.openelis-global.org`, application `7cca586`, checklist
+     `8b87c629…`, story `RPT-S06` / revision `ddf821d1447a`, step `RPT-501`.
+     The explanation and reviewer name survived reload before submission, and
+     the browser displayed its success message. The stored outcome is `blocked`;
+     Grist's tally shows `0 pass · 0 fail · 1 couldn't try · 0 n/a`. The note
+     explicitly says desktop navigation was not assessed in that narrow browser
+     session and labels this as an automated transport check. This proves the
+     feedback path and outcome/version attribution, not functional or human
+     acceptance. Shared-router and Testing authenticated readback remain open.
+   - The native Reporting thread is preparing a separate Non-Conformance update.
+     It will retain the Review mounts and coordinate deployment locks. Its
+     authoring handoff must update `RPT-202` for the qualified four-row fixture
+     and correct `RPT-101`'s stale claim that Referrals is not connected. The
+     integration feedback above remains evidence about its original versions.
 
 ## Required validation
 
