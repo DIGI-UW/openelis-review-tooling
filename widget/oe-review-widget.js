@@ -2051,7 +2051,7 @@
 
     parts.completion = el("div", "completion");
     var completionTitle = el("strong", "completiontitle");
-    completionTitle.textContent = "Review complete";
+    completionTitle.textContent = "Feedback summary";
     parts.completion.appendChild(completionTitle);
     parts.completionSummary = el("span", "completionsummary");
     parts.completion.appendChild(parts.completionSummary);
@@ -2064,7 +2064,7 @@
       save();
     };
     parts.completion.appendChild(parts.completionNote);
-    panel.appendChild(parts.completion);
+    parts.body.appendChild(parts.completion);
 
     // These fields remain available when sharing feedback, but scroll away
     // while a reviewer reads a checkpoint. Only submission stays pinned.
@@ -3065,10 +3065,14 @@
         : "Answer a step first";
     }
     if (ui.completion) {
-      ui.completion.hidden = counts.total === 0 || counts.done !== counts.total;
+      ui.completion.hidden = !counts.done && !state.overallNote;
       ui.completionSummary.textContent =
         counts.done +
-        " checkpoints answered. Add an optional note, then submit.";
+        " of " +
+        counts.total +
+        " checkpoints answered · " +
+        (counts.total - counts.done) +
+        " unanswered.";
       if (ui.completionNote.value !== (state.overallNote || "")) {
         ui.completionNote.value = state.overallNote || "";
       }
@@ -3822,7 +3826,7 @@
       ".mark.fail.on{background:#fff1f1;border-color:#da1e28;color:#a2191f;}",
       ".mark.blocked.on{background:#fcf4d6;border-color:#f1c21b;color:#684e00;}",
       ".mark.na.on{background:var(--layer);border-color:var(--border-strong);color:var(--text2);}",
-      ".stepnote{margin-top:var(--sp3);}.continue{display:block;margin-top:var(--sp3);margin-left:auto;}.legacyanswer{margin-top:var(--sp2);font-size:var(--label);color:var(--text2);}",
+      ".stepnote{margin-top:var(--sp3);}.continue{display:block;margin-top:var(--sp3);margin-left:auto;}.continue[hidden]{display:none;}.legacyanswer{margin-top:var(--sp2);font-size:var(--label);color:var(--text2);}",
       ".completion{padding:var(--sp3) var(--sp4);border-top:1px solid var(--border);background:var(--blue-bg);}.completion[hidden]{display:none;}.completiontitle{display:block;}.completionsummary{display:block;margin:2px 0 6px;color:var(--text2);font-size:var(--label);}.completion textarea{min-height:54px;resize:vertical;}",
       ".fb{padding:6px var(--sp4) var(--sp3);border-top:1px solid var(--border);}",
       ".notetoggle{background:none;border:none;color:var(--blue-dark);font:inherit;font-weight:600;cursor:pointer;padding:var(--sp2) 0;min-height:24px;}",
