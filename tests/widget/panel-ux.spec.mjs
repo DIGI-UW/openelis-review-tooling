@@ -1,4 +1,65 @@
 import { expect, test } from "@playwright/test";
+import { readFileSync } from "node:fs";
+
+const longReportingStep = JSON.parse(
+  readFileSync(new URL("./long-reporting-step.json", import.meta.url), "utf8"),
+);
+
+for (const entry of ["select", "advance"]) {
+  test(`keeps a long checkpoint's beginning visible on ${entry}`, async ({
+    page,
+  }, testInfo) => {
+    const errors = [];
+    page.on("pageerror", (error) => errors.push(error.message));
+    await page.route("**/tests/widget/uat-amr.json", async (route) => {
+      const response = await route.fetch();
+      const checklist = await response.json();
+      Object.assign(checklist.sections[0].steps[1], longReportingStep);
+      await route.fulfill({ response, json: checklist });
+    });
+    const widget = await open(page, 1280, 720);
+    await widget.getByLabel("Review placement").selectOption("bottom");
+    const appScroll = await page.evaluate(() => window.scrollY);
+    if (entry === "select") {
+      await widget.locator(".step").nth(1).locator(".steptop").click();
+    } else {
+      await widget.locator(".step.current .steptop").click();
+      await widget
+        .locator(".step.current")
+        .getByRole("button", {
+          name: "Worked as expected",
+          exact: true,
+        })
+        .click();
+    }
+    const current = widget.locator(".step.current");
+    await expect(current).toContainText("Non-Conformance");
+    const [view, start, step] = await Promise.all([
+      widget.locator(".body").boundingBox(),
+      current
+        .locator(".steplabel .instructionlist")
+        .getByRole("listitem")
+        .first()
+        .boundingBox(),
+      current.boundingBox(),
+    ]);
+    expect(step.height).toBeGreaterThan(view.height);
+    // A 340px bottom pane must leave room for several instruction lines;
+    // collecting a name and optional notes must not pin them over the task.
+    expect(view.height).toBeGreaterThanOrEqual(140);
+    expect(start.y).toBeGreaterThanOrEqual(view.y);
+    expect(start.y + start.height).toBeLessThanOrEqual(view.y + view.height);
+    await expect(current.locator(".steptop")).toBeFocused();
+    expect(await page.evaluate(() => window.scrollY)).toBe(appScroll);
+    await expect(
+      current.locator(".expecttext .instructionlist").getByRole("listitem"),
+    ).toHaveCount(6);
+    expect(errors).toEqual([]);
+    await page.screenshot({
+      path: testInfo.outputPath("checkpoint-visible.png"),
+    });
+  });
+}
 
 async function open(page, width = 1440, height = 900) {
   await page.setViewportSize({ width, height });
@@ -6,6 +67,9 @@ async function open(page, width = 1440, height = 900) {
   const widget = page.locator("#oe-review-host");
   await widget.getByRole("button", { name: "Review", exact: false }).click();
   await expect(widget.locator(".panel")).toBeVisible();
+  await widget
+    .getByRole("option", { name: /Find and route microbiology/ })
+    .click();
   return widget;
 }
 
@@ -58,9 +122,9 @@ test("keeps placement compact and secondary actions in one menu", async ({
   await expect(
     widget.getByRole("button", { name: "Refresh checklist" }),
   ).toBeVisible();
-  await expect(
-    widget.getByRole("button", { name: "Move panel" }),
-  ).toHaveCount(0);
+  await expect(widget.getByRole("button", { name: "Move panel" })).toHaveCount(
+    0,
+  );
 });
 
 test("moves between every dock and remembers the choice", async ({ page }) => {
@@ -82,7 +146,9 @@ test("resizes a bottom split with the keyboard and remembers it", async ({
   const widget = await open(page);
   await widget.getByLabel("Review placement").selectOption("bottom");
   const before = await widget.locator(".panel").boundingBox();
-  const splitter = widget.getByRole("separator", { name: "Resize review panel" });
+  const splitter = widget.getByRole("separator", {
+    name: "Resize review panel",
+  });
   await splitter.focus();
   await splitter.press("ArrowUp");
   const after = await widget.locator(".panel").boundingBox();
@@ -99,13 +165,13 @@ test("requires an explanation for problems and preserves unfinished drafts", asy
 }) => {
   const widget = await open(page);
   const current = widget.locator(".step.current");
-  await current
-    .getByRole("button", { name: "There was a problem" })
-    .click();
+  await current.getByRole("button", { name: "There was a problem" }).click();
   await expect(current).toHaveClass(/current/);
   const explanation = current.getByLabel("Explain this answer");
   await expect(explanation).toBeFocused();
-  await expect(current.getByRole("button", { name: "Continue" })).toBeDisabled();
+  await expect(
+    current.getByRole("button", { name: "Continue" }),
+  ).toBeDisabled();
   await explanation.fill("The expected result did not appear");
   await expect(current.getByRole("button", { name: "Continue" })).toBeEnabled();
 
@@ -188,10 +254,12 @@ test("opens on deployment suggestions and keeps browsing secondary", async ({
   const widget = page.locator("#oe-review-host");
   await widget.getByRole("button", { name: /review/i }).click();
   await expect(widget.locator(".storymenu")).toBeVisible();
-  await expect(widget.locator(".storyscope")).toHaveText(
+  await expect(widget.locator(".storymenutitle")).toHaveText(
     "Suggested reviews for this deployment",
   );
   await expect(widget.locator(".storylist").getByRole("option")).toHaveCount(2);
   await expect(widget.locator(".storynotice")).toBeHidden();
-  await expect(widget.getByRole("button", { name: "Browse all 4 reviews" })).toBeVisible();
+  await expect(
+    widget.getByRole("button", { name: "Browse all 4 reviews" }),
+  ).toBeVisible();
 });

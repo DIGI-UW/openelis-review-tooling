@@ -25,29 +25,36 @@ Open `index.html` for a live, backend-free demo.
   `/__review/target.json`. Deployments that predate the target contract are still
   served at `/__review/build.json`, which the router keeps as an alias for the
   same document — point this attribute there if you need that URL.
-- `data-identity-src` — URL of the application's session endpoint. Defaults to
-  `/api/OpenELIS-Global/session`. Absent is fine: the reviewer types their name
-  as they always did.
-- `data-submit-src` — where a finished review is handed in. Defaults to
-  `/__review/uat-<instance>/submissions`.
+- `data-identity-src` — legacy session URL used only to derive the submission
+  path. Defaults to `/api/OpenELIS-Global/session`; the widget does **not** request
+  this endpoint. Prefer configuring `data-submit-src` directly.
+- `data-submit-src` — where feedback is submitted. Defaults to
+  `/api/OpenELIS-Global/__review/uat-<instance>/submissions`, under the application
+  session cookie path.
 
 ## Who the reviewer is
 
-If the application has a session endpoint, whoever is signed in there is the
-reviewer: the panel says "Reviewing as …" and the "Your name" box goes away,
-because a name nobody typed is the only kind worth attributing a review to.
+**Your name** is required before copying, downloading or submitting feedback.
+Demo accounts may be shared, so the person's name and application account remain
+separate. Reviewing and saving drafts work without signing in.
 
-Somebody who is not signed in is asked to, and otherwise left alone — the prompt
-is about submitting, not about reviewing, and their answers count either way.
-Answers are keyed by the build under review, never by who is signed in, so
-signing in half way through never orphans the work done before it.
+On submission, the service verifies the application session and records the
+account alongside the entered name. Its response confirms which account was used
+or asks the reviewer to sign in and try again, preserving every answer.
+Downloads contain the entered name and `login: null`; they do not claim verified
+account attribution.
 
-Where the application cannot supply a signed-in identity, **Your name** is
-required before the reviewer can copy, download, or submit the report. Steps can
-still be worked first; the widget focuses the missing field and keeps every answer
-in place when the reviewer tries to hand off an unnamed report.
+The widget makes no startup session request. OpenELIS owns session initialization;
+a second request can race its CSRF token setup. This also applies to restored and
+popped-out panels. Existing `data-identity-src` embeds keep their derived submission
+route without probing that URL or requiring an application change.
 
 ## Handing a review in
+
+After the first answered checkpoint, **Feedback summary** shows answered and
+unanswered counts and an optional overall note for partial or full feedback.
+It scrolls with the checklist so finished reviews retain room to revisit answers.
+The fixed submit button identifies partial feedback until all checkpoints are answered.
 
 **Submit review** posts what was answered to `data-submit-src`. The service
 verifies the reviewer's session itself and records the identity it gets back,

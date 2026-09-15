@@ -192,6 +192,33 @@ test("raises the minimized launcher above a Carbon-style action row", async ({
     .toBe(false);
 });
 
+for (const width of [390, 1440]) {
+  test(`keeps an offscreen application action clickable after scrolling at ${width}px`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width, height: 844 });
+    await page.goto("/tests/widget/app-fixture.html");
+    await page.evaluate(() => {
+      const save = document.getElementById("page-save");
+      // A normal-flow action at the bottom of a long application form, matching
+      // Reporting's Next button. The page does not mutate when it scrolls.
+      save.style.cssText =
+        "position:static;display:block;width:100%;height:48px";
+      save.onclick = () => {
+        save.textContent = "Saved";
+      };
+      window.scrollTo(0, 0);
+    });
+    const widget = page.locator("#oe-review-host");
+    await expect(widget.locator(".tab")).toBeVisible();
+    await page.getByRole("button", { name: "Save", exact: true }).click();
+    await expect(
+      page.getByRole("button", { name: "Saved", exact: true }),
+    ).toBeVisible();
+    await expect(widget.locator(".tab")).toBeVisible();
+  });
+}
+
 test("keys answers by stable step key and includes provenance in reports", async ({
   page,
 }) => {
@@ -283,9 +310,24 @@ test("refresh preserves reordered answers and marks changed instructions stale",
       .filter({ hasText: "Find and inspect a shipped profile" })
       .locator(".steptop"),
   ).toHaveAttribute("aria-label", /^Step 2, needs another look:/);
+  const staleStep = widget
+    .locator(".step")
+    .filter({ hasText: "Find and inspect a shipped profile" });
+  await staleStep.locator(".steptop").click();
+  await expect(staleStep.locator(".staleanswer")).toContainText(
+    "Previous answer: Worked as expected. Confirm an answer for these updated instructions.",
+  );
+  await expect(
+    staleStep.getByRole("button", { name: "Worked as expected" }),
+  ).toHaveAttribute("aria-pressed", "false");
+  await staleStep.getByRole("button", { name: "Worked as expected" }).click();
+  await expect(staleStep.locator(".staleanswer")).toHaveCount(0);
+  await expect(
+    staleStep.getByRole("button", { name: "Worked as expected" }),
+  ).toHaveAttribute("aria-pressed", "true");
   const stored = await savedState(page);
   expect(stored.value.steps["AN-QC-001"].mark).toBe("pass");
-  expect(stored.value.steps["AN-QC-001"].stale).toBe(true);
+  expect(stored.value.steps["AN-QC-001"].stale).toBe(false);
 });
 
 test("shows checklist load failures instead of an empty checklist", async ({

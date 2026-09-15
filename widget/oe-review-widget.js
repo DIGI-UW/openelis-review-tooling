@@ -19,7 +19,8 @@
     committedPath: null,
     requestVersion: 0,
     showAll: false,
-    menuOpen: false,
+    inProgress: false,
+    overviewOpen: true,
     focusTrigger: false,
     revealOverview: false,
     search: "",
@@ -62,15 +63,14 @@
   var OPENER_URL = (self && self.getAttribute("data-opener-url")) || "";
   var POPOUT_NAME = "oe-review-popout-" + INSTANCE;
   var PARAM = "oe-review";
-  // Whoever is signed into the application under review is the reviewer, so the
-  // panel borrows that rather than asking. Configurable, and absent is fine: the
-  // widget is embeddable anywhere and runs standalone from a file, where there is
-  // no session to read and the reviewer types their name as they always did.
+  // Keep the existing attribute only to derive the cookie-scoped submission
+  // route. Do not probe /session: concurrent startup requests can generate two
+  // CSRF tokens and invalidate the token the application stores. The submission
+  // service verifies the account when feedback is sent.
   var IDENTITY_SRC =
     (self && self.getAttribute("data-identity-src")) ||
     "/api/OpenELIS-Global/session";
-  // null = not looked yet or no endpoint there; otherwise { signedIn, login, name }.
-  var identity = null;
+  var needsSignIn = false;
   // Where a finished review is handed in. Same origin is necessary but not
   // sufficient: a servlet container scopes its session cookie to its context
   // path, so a submission sent outside that path arrives with no cookie at all
@@ -220,6 +220,7 @@
   // know whether its launcher opens a panel or raises a window that already exists.
   var POPOUT_KEY = "oe-review:v2:" + INSTANCE + ":popped-out";
   var prefs = loadPrefs();
+  storyNavigation.overviewOpen = prefs.overview;
   function isStoryId(value) {
     return (
       typeof value === "string" &&
@@ -235,6 +236,7 @@
     }
     stored = stored && typeof stored === "object" ? stored : {};
     if (!sharedStory) {
+      stored.overview = true;
       try {
         var navigation = JSON.parse(
           sessionStorage.getItem(STORY_PREFS_KEY) || "null",
@@ -242,6 +244,7 @@
         if (navigation) {
           stored.story = navigation.story;
           stored.storyPath = navigation.storyPath;
+          stored.overview = navigation.overview;
         }
       } catch (e) {
         /* In-memory navigation still works when session storage is unavailable. */
@@ -271,6 +274,7 @@
           ? stored.storyPath
           : null,
       hidden: Boolean(stored.hidden),
+      overview: stored.overview !== false,
     };
   }
   function savePrefs() {
@@ -280,6 +284,7 @@
         JSON.stringify({
           story: prefs.story,
           storyPath: prefs.storyPath,
+          overview: storyNavigation.overviewOpen,
         }),
       );
     } catch (e) {
@@ -329,8 +334,11 @@
     setStorySelection(INSTANCE, null);
     commitStorySelection();
   }
-  function setStoryMenuOpen(open) {
-    storyNavigation.menuOpen = Boolean(open);
+  function setReviewOverviewOpen(open, broadcast) {
+    storyNavigation.overviewOpen = Boolean(open);
+    prefs.overview = storyNavigation.overviewOpen;
+    savePrefs();
+    if (broadcast !== false) notifyLinkedStory();
   }
   function resetStoryNavigationForRoute() {
     if (storyNavigation.selectedId !== storyNavigation.committedId) {
@@ -589,7 +597,7 @@
         'html[data-oe-review-dock="right"] body{margin-right:var(--oe-review-dock-size)!important;width:auto!important;}' +
         'html[data-oe-review-dock="left"] body{margin-left:var(--oe-review-dock-size)!important;width:auto!important;}' +
         'html[data-oe-review-dock="bottom"] body{height:calc(100dvh - var(--oe-review-dock-size))!important;max-height:calc(100dvh - var(--oe-review-dock-size))!important;overflow:auto!important;}' +
-        'html[data-oe-review-dock] body>#root{max-width:100%!important;min-height:100%!important;}';
+        "html[data-oe-review-dock] body>#root{max-width:100%!important;min-height:100%!important;}";
       document.head.appendChild(layoutStyle);
     }
     // Keep styles isolated while exposing the review surface to accessibility
@@ -604,6 +612,7 @@
     root.appendChild(wrap);
 
     document.addEventListener("click", scheduleReposition, true);
+    document.addEventListener("scroll", scheduleReposition, true);
     window.addEventListener("resize", scheduleReposition);
     window.addEventListener("popstate", scheduleReposition);
     window.addEventListener("storage", adoptOtherWindow);
@@ -633,10 +642,6 @@
         markPoppedOut(true);
       });
     }
-
-    // Not awaited: the checklist and the panel do not depend on it, and a slow or
-    // absent session endpoint must never hold up a reviewer who can already work.
-    readIdentity();
 
     var inline = inlineChecklist();
     if (inline) {
@@ -680,34 +685,6 @@
     );
   }
 
-  // ---- who is reviewing ------------------------------------------------------
-  function readIdentity() {
-    if (!IDENTITY_SRC) return;
-    fetch(IDENTITY_SRC, { credentials: "include", cache: "no-store" })
-      .then(function (response) {
-        // Anything but a clean answer means there is no session endpoint here,
-        // which is not a problem — it is the standalone case.
-        if (!response.ok) return null;
-        return response.json();
-      })
-      .then(function (value) {
-        if (!value || typeof value !== "object") return;
-        var name = [value.firstName, value.lastName]
-          .filter(Boolean)
-          .join(" ")
-          .trim();
-        identity = {
-          signedIn: Boolean(value.authenticated),
-          login: String(value.loginName || "").trim(),
-          name: name || String(value.loginName || "").trim(),
-        };
-        render();
-      })
-      .catch(function () {
-        /* no session endpoint, or offline — the typed name still works */
-      });
-  }
-
   // ---- the panel in a window of its own -------------------------------------
   // The checklist covers a whole workflow, and an overlay that floats over the
   // application always covers some of it. Popped out, the review sits beside the
@@ -715,9 +692,13 @@
   // nothing the application paints can reach it.
   //
   // The two windows are the same origin, so they are already sharing one store:
-  // each save is a storage event in the other, which is enough for both to stay on
-  // the same review without a message protocol between them.
+  // each save is a storage event in the other. Selection is exchanged only with
+  // the linked window, and returning waits for the opener to confirm that view.
   var popoutBlocked = false;
+  var returnPending = false;
+  var returnTimer = null;
+  var returnError = "";
+  var incomingReturn = null;
 
   function openerWindow() {
     try {
@@ -736,7 +717,7 @@
     }
   }
 
-  function notifyLinkedStory(request) {
+  function notifyLinkedStory(returning) {
     var peer = STANDALONE ? openerWindow() : linkedReviewWindow;
     if (!peer || peer.closed) return;
     try {
@@ -744,9 +725,10 @@
         {
           type: "oe-review-navigation",
           instance: INSTANCE,
-          request: Boolean(request),
+          returning: Boolean(returning),
           story: storyNavigation.committedId,
           path: storyNavigation.committedPath,
+          overview: storyNavigation.overviewOpen,
         },
         navigationOrigin(),
       );
@@ -776,22 +758,58 @@
       return;
     }
     if (!STANDALONE) linkedReviewWindow = event.source;
-    if (message.request) {
-      notifyLinkedStory();
+    if (message.returned && STANDALONE && returnPending) {
+      if (
+        message.story !== storyNavigation.committedId ||
+        message.path !== storyNavigation.committedPath ||
+        message.overview !== storyNavigation.overviewOpen
+      )
+        return;
+      clearTimeout(returnTimer);
+      returnPending = false;
+      markPoppedOut(false);
+      event.source.focus();
+      window.close();
       return;
     }
+    if (STANDALONE && returnPending) return;
     if (!knownStory(message.story)) return;
     if (
       message.path !== null &&
       (typeof message.path !== "string" || !message.path.startsWith("/"))
     )
       return;
+    if (message.returning && !STANDALONE) {
+      incomingReturn = { source: event.source, message: message };
+      state.minimized = false;
+      panelToggled = true;
+    }
     if (
       message.story === storyNavigation.committedId &&
-      message.path === storyNavigation.committedPath
+      message.path === storyNavigation.committedPath &&
+      message.overview === storyNavigation.overviewOpen
+    ) {
+      if (incomingReturn) render();
+      return;
+    }
+    setReviewOverviewOpen(message.overview !== false, false);
+    activateStory(message.story, { path: message.path, refresh: true });
+  }
+
+  function confirmReturn() {
+    if (!incomingReturn || loading) return;
+    var message = incomingReturn.message;
+    if (
+      message.story !== storyNavigation.committedId ||
+      message.path !== storyNavigation.committedPath ||
+      message.overview !== storyNavigation.overviewOpen
     )
       return;
-    activateStory(message.story, { path: message.path, refresh: true });
+    incomingReturn.source.postMessage(
+      Object.assign({}, message, { returning: false, returned: true }),
+      navigationOrigin(),
+    );
+    incomingReturn = null;
   }
 
   // The page under review is in the opener, so that is what a mark is evidence
@@ -946,14 +964,21 @@
   }
 
   function returnToPage() {
+    if (returnPending) return;
     state.minimized = false;
-    // The opener adopts this on the storage event, so the panel is already open in
-    // the page by the time this window is gone.
     save();
-    markPoppedOut(false);
-    var live = openerWindow();
-    if (live) live.focus();
-    window.close();
+    returnError = "";
+    returnPending = true;
+    // Keep this window and its work until the opener has loaded this exact view.
+    // A closed/unreachable opener is a retryable failure, not a successful return.
+    returnTimer = setTimeout(function () {
+      returnPending = false;
+      returnError =
+        "Could not return to the page. Your work is still here. Reopen the application page and try again.";
+      syncPanel();
+    }, 5000);
+    notifyLinkedStory(true);
+    syncPanel();
   }
 
   // Answers and panel preferences are shared. Route and story selection belong
@@ -971,6 +996,7 @@
       // Hiding is this window's own answer to its own query string; adopting it
       // from the other one would make a popped-out panel able to unmount the page.
       incomingPrefs.hidden = hidden;
+      incomingPrefs.overview = storyNavigation.overviewOpen;
       var story = incomingPrefs.story || INSTANCE;
       // A stale tab can still be running an older widget. Never let an unknown
       // value from it replace a catalog-backed selection or start a request loop.
@@ -992,11 +1018,6 @@
           : storyNavigation.committedId;
       incomingPrefs.storyPath = storyNavigation.committedPath;
       prefs = incomingPrefs;
-      if (
-        STANDALONE &&
-        storyNavigation.selectedId === storyNavigation.committedId
-      )
-        notifyLinkedStory(true);
       if (ui) syncPanel();
       applyDock();
       return;
@@ -1361,8 +1382,7 @@
         !deployment ||
         typeof deployment.instance !== "string" ||
         !/^[a-z0-9_-]+$/.test(deployment.instance) ||
-        (deployment.storyScope !== "site" &&
-          deployment.storyScope !== "all") ||
+        (deployment.storyScope !== "site" && deployment.storyScope !== "all") ||
         !Array.isArray(deployment.suggestedStories) ||
         deployment.suggestedStories.some(function (id) {
           return !ids[id];
@@ -1442,10 +1462,8 @@
     var needsLoad = story !== storyNavigation.committedId;
     var cancelsPending =
       !needsLoad && storyNavigation.selectedId !== storyNavigation.committedId;
-    setStoryMenuOpen(false);
-    // Close the disclosure while it still describes the committed story. The
-    // requested story does not become visible state until its checklist passes
-    // validation below.
+    if (options.start) setReviewOverviewOpen(false, false);
+    // Keep the committed checklist context until the requested story validates.
     if ((needsLoad || cancelsPending) && ui) syncStories();
     if (options.focus) storyNavigation.focusTrigger = true;
     if (options.reveal) storyNavigation.revealOverview = true;
@@ -1475,16 +1493,9 @@
     if (!available.length) return;
     var here = available.filter(coversHere);
     var selected = selectedStory();
-    // A remembered choice remains useful when it still belongs to this page, or
-    // when this page has no authored story routes. Otherwise route context is the
-    // better default than stale preference state from somewhere else in the app.
-    if (
-      selected &&
-      (storyNavigation.selectedPath === reviewedPath() ||
-        !here.length ||
-        coversHere(selected))
-    )
-      return;
+    // Preload a checklist for its progress, but only an explicit choice opens it.
+    // Moving through the application must not replace the review being followed.
+    if (selected) return;
     activateStory(storyId(here[0] || available[0]), {
       path: null,
       refresh: false,
@@ -1504,6 +1515,7 @@
       refresh: true,
       focus: true,
       reveal: true,
+      start: true,
     });
   }
 
@@ -1529,14 +1541,8 @@
       if (ui && location.pathname !== lastPath) {
         lastPath = location.pathname;
         resetStoryNavigationForRoute();
-        var here = stories().filter(coversHere);
-        var selected = committedStory();
-        if (catalog && here.length && (!selected || !coversHere(selected))) {
-          activateStory(storyId(here[0]), { path: null, refresh: true });
-        } else {
-          commitStorySelection();
-          syncPanel();
-        }
+        commitStorySelection();
+        syncPanel();
       }
       applyDock();
     });
@@ -1557,7 +1563,11 @@
     var walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
     while (walker.nextNode()) {
       var parent = walker.currentNode.parentElement;
-      if (!walker.currentNode.nodeValue.trim() || !parent || host.contains(parent))
+      if (
+        !walker.currentNode.nodeValue.trim() ||
+        !parent ||
+        host.contains(parent)
+      )
         continue;
       if (/^(SCRIPT|STYLE|NOSCRIPT)$/.test(parent.tagName)) continue;
       var range = document.createRange();
@@ -1587,7 +1597,11 @@
       { left: (window.innerWidth - width) / 2, name: "center" },
     ];
     var best = null;
-    for (var bottom = 16; bottom + height < window.innerHeight; bottom += height + 12) {
+    for (
+      var bottom = 16;
+      bottom + height < window.innerHeight;
+      bottom += height + 12
+    ) {
       for (var i = 0; i < horizontal.length; i++) {
         var candidate = {
           left: horizontal[i].left,
@@ -1652,8 +1666,7 @@
         bottom: node.style.bottom,
       });
       var current = parseFloat(style[edge]);
-      node.style[edge] =
-        size + (Number.isFinite(current) ? current : 0) + "px";
+      node.style[edge] = size + (Number.isFinite(current) ? current : 0) + "px";
     }
   }
   function clearApplicationDock() {
@@ -1765,6 +1778,7 @@
       selectionCommitted && storyNavigation.focusTrigger && ui.storyTrigger;
     if (selectionCommitted) storyNavigation.focusTrigger = false;
     applyDock();
+    confirmReturn();
     // Only on a fresh panel: a background refresh must not yank the checklist away
     // from wherever the reviewer has scrolled it.
     if (built) {
@@ -1842,14 +1856,7 @@
     button.title = "Open the " + LABEL + " review checklist";
     button.onclick = function () {
       state.minimized = false;
-      if (
-        catalog &&
-        SUGGESTED_STORIES.length &&
-        stories().length > 1 &&
-        progress().done === 0
-      ) {
-        storyNavigation.menuOpen = true;
-      }
+      setReviewOverviewOpen(true);
       panelToggled = true;
       save();
       // An inline checklist has no URL to re-read; refreshing would fetch the
@@ -1879,13 +1886,6 @@
       // own dialogs, and a document-level handler here would close them.
       if (event.key === "Escape") {
         event.stopPropagation();
-        if (storyNavigation.menuOpen && parts.storyTrigger) {
-          event.preventDefault();
-          setStoryMenuOpen(false);
-          syncStories();
-          parts.storyTrigger.focus();
-          return;
-        }
         minimize();
       }
     });
@@ -1906,8 +1906,10 @@
             Math.min(window.innerHeight - 180, prefs.bottomSize + delta),
           );
       } else {
-        if (event.key === "ArrowLeft") delta = prefs.dock === "right" ? 10 : -10;
-        if (event.key === "ArrowRight") delta = prefs.dock === "left" ? 10 : -10;
+        if (event.key === "ArrowLeft")
+          delta = prefs.dock === "right" ? 10 : -10;
+        if (event.key === "ArrowRight")
+          delta = prefs.dock === "left" ? 10 : -10;
         if (delta)
           prefs.sideSize = Math.max(340, Math.min(560, prefs.sideSize + delta));
       }
@@ -1928,6 +1930,7 @@
     head.appendChild(titleBox);
     if (STANDALONE) {
       var back = iconBtn("↩", "Return the checklist to the page");
+      parts.returnButton = back;
       back.onclick = returnToPage;
       head.appendChild(back);
     } else {
@@ -1968,7 +1971,7 @@
     parts.statusBox = el("div", "statusbox");
     panel.appendChild(parts.statusBox);
 
-    if (stories().length > 1) {
+    if (stories().length > 0) {
       panel.classList.add("has-story-picker");
       panel.appendChild(buildStories(parts));
     }
@@ -1981,7 +1984,6 @@
     // of the panel for the whole review.
     parts.intro = el("div", "intro");
 
-    parts.whoami = el("div", "whoami");
     parts.signin = el("div", "signin");
     panel.appendChild(parts.signin);
 
@@ -2015,6 +2017,7 @@
     parts.who = who;
 
     parts.body = el("div", "body");
+    parts.checklistPane = el("div", "checklistpane");
     parts.body.appendChild(parts.intro);
     parts.sections = [];
     var position = 0;
@@ -2044,11 +2047,11 @@
       parts.body.appendChild(block);
       parts.sections.push({ row: row, block: block, count: count, keys: keys });
     });
-    panel.appendChild(parts.body);
+    parts.checklistPane.appendChild(parts.body);
 
     parts.completion = el("div", "completion");
     var completionTitle = el("strong", "completiontitle");
-    completionTitle.textContent = "Review complete";
+    completionTitle.textContent = "Feedback summary";
     parts.completion.appendChild(completionTitle);
     parts.completionSummary = el("span", "completionsummary");
     parts.completion.appendChild(parts.completionSummary);
@@ -2061,20 +2064,22 @@
       save();
     };
     parts.completion.appendChild(parts.completionNote);
-    panel.appendChild(parts.completion);
+    parts.body.appendChild(parts.completion);
 
-    panel.appendChild(buildNotes(parts));
-    panel.appendChild(who);
+    // These fields remain available when sharing feedback, but scroll away
+    // while a reviewer reads a checkpoint. Only submission stays pinned.
+    parts.body.appendChild(buildNotes(parts));
+    parts.body.appendChild(who);
 
     var foot = el("div", "foot");
-    foot.appendChild(parts.whoami);
     var submit = el("button", "primary submit");
     submit.textContent = "Submit partial feedback";
     submit.onclick = submitReview;
     foot.appendChild(submit);
     foot.appendChild(buildMoreActions(parts));
     parts.submit = submit;
-    panel.appendChild(foot);
+    parts.checklistPane.appendChild(foot);
+    panel.appendChild(parts.checklistPane);
 
     parts.panel = panel;
     return parts;
@@ -2087,19 +2092,16 @@
     render();
   }
 
-  // A persistent disclosure rather than a native select. Native menus are clipped
-  // inconsistently inside an injected overlay, hide progress, and hand Escape to
-  // the panel (which minimizes it). This stays in the panel's layout and presents
-  // the relevant stories as the checklist they actually are.
+  // The overview and the current checklist share the pane, never cover each other.
   function buildStories(parts) {
     var box = el("div", "stories");
+    parts.stories = box;
     parts.storyScope = el("div", "storyscope");
     box.appendChild(parts.storyScope);
 
     parts.storyTrigger = el("button", "storytrigger");
     parts.storyTrigger.type = "button";
     parts.storyTrigger.setAttribute("aria-label", "Choose story");
-    parts.storyTrigger.setAttribute("aria-haspopup", "listbox");
     parts.storyTrigger.setAttribute("aria-controls", "oe-review-story-list");
     parts.storyTriggerTitle = el("span", "storytriggertitle");
     parts.storyTriggerTitle.id = "oe-review-current-story";
@@ -2109,28 +2111,20 @@
     );
     parts.storyTriggerProgress = el("span", "storytriggerprogress");
     var chevron = el("span", "storychevron");
-    chevron.textContent = "⌄";
+    chevron.textContent = "←";
     chevron.setAttribute("aria-hidden", "true");
     parts.storyTrigger.appendChild(parts.storyTriggerTitle);
     parts.storyTrigger.appendChild(parts.storyTriggerProgress);
     parts.storyTrigger.appendChild(chevron);
     parts.storyTrigger.onclick = function () {
-      setStoryMenuOpen(!storyNavigation.menuOpen);
-      if (storyNavigation.menuOpen) closeMoreActions(parts);
-      syncStories();
-      if (storyNavigation.menuOpen) parts.storySearch.focus();
+      setReviewOverviewOpen(true);
+      closeMoreActions(parts);
+      syncPanel();
+      parts.storySearch.focus();
     };
     box.appendChild(parts.storyTrigger);
 
     parts.storyMenu = el("div", "storymenu");
-    parts.storyMenu.onkeydown = function (event) {
-      if (event.key !== "Escape") return;
-      event.preventDefault();
-      event.stopPropagation();
-      setStoryMenuOpen(false);
-      syncStories();
-      parts.storyTrigger.focus();
-    };
     var menuHead = el("div", "storymenuhead");
     parts.storyMenuTitle = el("strong", "storymenutitle");
     parts.storyMenuCount = el("span", "storymenucount");
@@ -2139,10 +2133,13 @@
     parts.storyMenu.appendChild(menuHead);
     parts.storyContinue = el("button", "storycontinue primary");
     parts.storyContinue.type = "button";
-    parts.storyContinue.textContent = "Continue current review";
     parts.storyContinue.onclick = function () {
-      setStoryMenuOpen(false);
-      syncStories();
+      if (!parts.resumeStory) return;
+      activateStory(parts.resumeStory, {
+        path: reviewedPath(),
+        refresh: true,
+        start: true,
+      });
       scrollCurrentIntoView(true, true);
     };
     parts.storyMenu.appendChild(parts.storyContinue);
@@ -2164,6 +2161,13 @@
       }
     };
     parts.storyMenu.appendChild(parts.storySearch);
+    parts.storyProgressFilter = el("button", "storyscopetoggle");
+    parts.storyProgressFilter.textContent = "In progress";
+    parts.storyProgressFilter.onclick = function () {
+      storyNavigation.inProgress = !storyNavigation.inProgress;
+      syncStories();
+    };
+    parts.storyMenu.appendChild(parts.storyProgressFilter);
     parts.storyNotice = el("div", "storynotice");
     parts.storyMenu.appendChild(parts.storyNotice);
     parts.storyList = el("div", "storylist");
@@ -2177,6 +2181,7 @@
     parts.storyScopeToggle = el("button", "storyscopetoggle");
     parts.storyScopeToggle.type = "button";
     parts.storyScopeToggle.onclick = function () {
+      storyNavigation.inProgress = false;
       storyNavigation.showAll = !storyNavigation.showAll;
       syncStories();
       var first = parts.storyList.querySelector('[role="option"]');
@@ -2195,7 +2200,6 @@
 
   function storedStoryProgress(story) {
     var id = storyId(story);
-    if (id === storyNavigation.committedId) return progress();
     var identityKey = encodeURIComponent(deploymentIdentity(build));
     var prefix = storePrefixFor(id) + identityKey + ":";
     var latest = null;
@@ -2214,6 +2218,7 @@
     } catch (e) {
       latest = null;
     }
+    if (id === storyNavigation.committedId) latest = state;
     var total = Number(story.steps) || 0;
     var done = latest
       ? Object.keys(latest.steps || {}).filter(function (key) {
@@ -2226,7 +2231,22 @@
           );
         }).length
       : 0;
-    return { done: Math.min(done, total), total: total };
+    var hasWork = Boolean(
+      latest &&
+        (latest.noteDraft ||
+          latest.overallNote ||
+          latest.notes.length ||
+          Object.keys(latest.steps).some(function (key) {
+            return latest.steps[key].mark || latest.steps[key].note;
+          })),
+    );
+    return {
+      done: Math.min(done, total),
+      total: total,
+      hasWork: hasWork,
+      verified: id === storyNavigation.committedId,
+      updatedAt: (latest && latest.updatedAt) || "",
+    };
   }
 
   function focusAdjacentStory(option, direction) {
@@ -2246,23 +2266,30 @@
     option.setAttribute("data-story-id", storyId(story));
     option.setAttribute(
       "aria-selected",
-      String(storyId(story) === storyNavigation.committedId),
+      String(counts.hasWork && storyId(story) === storyNavigation.committedId),
     );
     option.setAttribute(
       "aria-label",
-      story.title + ", " + counts.done + " of " + counts.total + " complete",
+      story.title +
+        ", " +
+        counts.done +
+        " of " +
+        counts.total +
+        " saved answers",
     );
     option.classList.toggle(
       "selected",
-      storyId(story) === storyNavigation.committedId,
+      counts.hasWork && storyId(story) === storyNavigation.committedId,
     );
     option.classList.toggle(
       "complete",
-      counts.total > 0 && counts.done === counts.total,
+      counts.verified && counts.total > 0 && counts.done === counts.total,
     );
     var status = el("span", "storycheck");
     status.textContent =
-      counts.total > 0 && counts.done === counts.total ? "✓" : "";
+      counts.verified && counts.total > 0 && counts.done === counts.total
+        ? "✓"
+        : "";
     status.setAttribute("aria-hidden", "true");
     var content = el("span", "storyoptioncontent");
     var title = el("span", "storyoptiontitle");
@@ -2275,7 +2302,13 @@
     if (purpose.textContent) content.appendChild(purpose);
     if (ticket.textContent) content.appendChild(ticket);
     var count = el("span", "storyoptionprogress");
-    count.textContent = counts.done + " of " + counts.total + " complete";
+    count.textContent =
+      counts.verified || !counts.hasWork
+        ? counts.done + " of " + counts.total + " answered"
+        : counts.done + " saved answers";
+    if (!counts.verified && counts.hasWork)
+      count.title =
+        "Open this review to check saved answers against its current instructions.";
     option.appendChild(status);
     option.appendChild(content);
     option.appendChild(count);
@@ -2309,6 +2342,10 @@
   function syncStories() {
     if (!ui || !ui.storyTrigger) return;
     var available = stories();
+    ui.panel.classList.toggle("review-overview", storyNavigation.overviewOpen);
+    ui.checklistPane.hidden = storyNavigation.overviewOpen;
+    ui.storyTrigger.hidden = storyNavigation.overviewOpen;
+    ui.storyScope.hidden = storyNavigation.overviewOpen;
     var here = storiesForPage();
     var suggested = [];
     SUGGESTED_STORIES.forEach(function (id) {
@@ -2327,6 +2364,19 @@
         : pageScoped
           ? here
           : available;
+    var unfinished = available
+      .filter(function (story) {
+        var counts = storedStoryProgress(story);
+        return (
+          counts.hasWork && (!counts.verified || counts.done < counts.total)
+        );
+      })
+      .sort(function (a, b) {
+        return storedStoryProgress(b).updatedAt.localeCompare(
+          storedStoryProgress(a).updatedAt,
+        );
+      });
+    if (storyNavigation.inProgress) visible = unfinished;
     var query = storyNavigation.search.trim().toLowerCase();
     var unfilteredCount = visible.length;
     if (query)
@@ -2338,13 +2388,15 @@
             .indexOf(query) !== -1
         );
       });
-    var scopeLabel = storyNavigation.showAll
-      ? "Browse all reviews"
-      : suggested.length
-        ? "Suggested reviews for this deployment"
-        : pageScoped
-          ? "Suggested reviews for this page"
-          : "Available reviews";
+    var scopeLabel = storyNavigation.inProgress
+      ? "In-progress reviews"
+      : storyNavigation.showAll
+        ? "Browse all reviews"
+        : suggested.length
+          ? "Suggested reviews for this deployment"
+          : pageScoped
+            ? "Suggested reviews for this page"
+            : "Available reviews";
     var grouping = visible
       .map(function (story) {
         var counts = storedStoryProgress(story);
@@ -2355,7 +2407,9 @@
     var selectedCounts = selected
       ? storedStoryProgress(selected)
       : { done: 0, total: 0 };
-    ui.storyScope.textContent = scopeLabel;
+    ui.storyScope.textContent = storyNavigation.overviewOpen
+      ? scopeLabel
+      : "Back to all reviews";
     ui.storyTriggerTitle.textContent = selected
       ? selected.title
       : "Choose a story";
@@ -2364,11 +2418,20 @@
       selectedCounts.done + "/" + selectedCounts.total;
     ui.storyTrigger.setAttribute(
       "aria-expanded",
-      String(storyNavigation.menuOpen),
+      String(storyNavigation.overviewOpen),
     );
-    ui.storyMenu.hidden = !storyNavigation.menuOpen;
-    ui.storyContinue.hidden = !(
-      selectedCounts.done > 0 && selectedCounts.done < selectedCounts.total
+    ui.storyMenu.hidden = !storyNavigation.overviewOpen;
+    var resume = unfinished[0];
+    ui.resumeStory = resume ? storyId(resume) : null;
+    ui.storyContinue.hidden = !resume;
+    ui.storyContinue.textContent = resume
+      ? "Continue: " + resume.title
+      : "Continue";
+    ui.storyProgressFilter.textContent =
+      "In progress (" + unfinished.length + ")";
+    ui.storyProgressFilter.setAttribute(
+      "aria-pressed",
+      String(Boolean(storyNavigation.inProgress)),
     );
     ui.storyMenuTitle.textContent = scopeLabel;
     ui.storyMenuCount.textContent =
@@ -2383,7 +2446,10 @@
       : "No stories target this page. Showing all server stories.";
     ui.storyNotice.hidden =
       ALL_STORIES || Boolean(here.length) || Boolean(suggested.length);
-    var canChangeScope = visible.length < available.length || storyNavigation.showAll;
+    var canChangeScope =
+      visible.length < available.length ||
+      storyNavigation.showAll ||
+      storyNavigation.inProgress;
     ui.storyScopeToggle.hidden = !canChangeScope;
     ui.storyScopeToggle.textContent = storyNavigation.showAll
       ? "Back to suggested reviews"
@@ -2426,8 +2492,8 @@
     }
     toggle.onclick = function () {
       var open = menu.hidden;
-      if (open && storyNavigation.menuOpen) {
-        setStoryMenuOpen(false);
+      if (open && storyNavigation.overviewOpen) {
+        setReviewOverviewOpen(false);
         syncStories();
       }
       setOpen(open);
@@ -2499,6 +2565,7 @@
         clearStoryState();
         state = fresh();
         state.minimized = false;
+        setReviewOverviewOpen(true);
         save();
         ui = null;
         render();
@@ -2644,9 +2711,12 @@
   function storyDescription(section) {
     var story = String((section.links && section.links.userStory) || "").trim();
     if (!story) return null;
-    var box = el("div", "storydescription");
-    var label = el("div", "storydescriptionlabel");
-    label.textContent = "Story";
+    // The story explains why a review exists, but the immediate task should win
+    // the first screen. Native details preserves that context without asking a
+    // reviewer to read a paragraph before they can start the checkpoint.
+    var box = el("details", "storydescription");
+    var label = el("summary", "storydescriptionlabel");
+    label.textContent = "About this review";
     var text = el("p", "userstory");
     text.textContent = story;
     box.appendChild(label);
@@ -2749,6 +2819,9 @@
       detail.appendChild(optional);
     }
     var saved = state.steps[step.key] || {};
+    if (saved.stale && saved.mark) {
+      detail.appendChild(staleAnswer(saved));
+    }
     var marks = el("div", "marks");
     [
       ["pass", "Worked as expected"],
@@ -2757,11 +2830,16 @@
     ].forEach(function (option) {
       var button = el(
         "button",
-        "mark " + option[0] + (saved.mark === option[0] ? " on" : ""),
+        "mark " +
+          option[0] +
+          (saved.mark === option[0] && !saved.stale ? " on" : ""),
       );
       button.textContent = option[1];
       button.setAttribute("data-mark", option[0]);
-      button.setAttribute("aria-pressed", String(saved.mark === option[0]));
+      button.setAttribute(
+        "aria-pressed",
+        String(saved.mark === option[0] && !saved.stale),
+      );
       button.onclick = function () {
         mark(step, option[0]);
       };
@@ -2773,11 +2851,10 @@
     note.className = "stepnote";
     note.setAttribute("aria-label", "Explain this answer");
     note.placeholder =
-      saved.mark === "blocked"
-        ? "What stopped you?"
-        : "What happened?";
+      saved.mark === "blocked" ? "What stopped you?" : "What happened?";
     note.value = saved.note || "";
-    note.hidden = saved.mark !== "fail" && saved.mark !== "blocked";
+    note.hidden =
+      saved.stale || (saved.mark !== "fail" && saved.mark !== "blocked");
     note.required = !note.hidden;
     note.oninput = function () {
       var entry = state.steps[step.key] || {};
@@ -2813,7 +2890,10 @@
 
   function mark(step, value) {
     var saved = state.steps[step.key] || {};
-    saved.mark = saved.mark === value ? null : value;
+    // A stale mark is historical evidence, not the active answer. Choosing the
+    // same result again confirms it against the current instructions; only an
+    // already-current choice toggles off.
+    saved.mark = saved.mark === value && !saved.stale ? null : value;
     saved.markedAt = saved.mark ? nowISO() : null;
     saved.actualUrl = saved.mark ? reviewedUrl() : null;
     saved.signature = stepSignature(step);
@@ -2910,7 +2990,12 @@
       focusWasInside === undefined
         ? ui.panel.contains(root.activeElement)
         : focusWasInside;
-    if (first && inside) first.focus();
+    // A long checkpoint's answers can be below the visible pane. Focus its
+    // instruction instead, keeping the reading position and keyboard focus
+    // together rather than scrolling past the action to an answer button.
+    var target =
+      bottom - top > body.clientHeight - reserve ? row.summary : first;
+    if (target && inside) target.focus({ preventScroll: true });
   }
 
   // ---- keeping the built panel in step with state ---------------------------
@@ -2922,6 +3007,10 @@
       : uat.title || LABEL + " review";
     // Keep provenance in the tooltip/report; the working header is for progress.
     ui.progress.textContent = counts.done + " of " + counts.total + " answered";
+    if (ui.storyTrigger && storyNavigation.overviewOpen) {
+      ui.title.textContent = "Reviews";
+      ui.progress.textContent = stories().length + " available";
+    }
     ui.progress.title = provenanceText();
     syncStories();
     if (ui.placement && ui.placement.value !== prefs.dock) {
@@ -2943,19 +3032,16 @@
       ui.reviewer.value = state.reviewer || "";
     }
 
-    var signedIn = Boolean(identity && identity.signedIn);
-    if (signedIn) clearReviewerError();
-    ui.whoami.textContent = signedIn ? "Reviewing as " + identity.name : "";
-    ui.whoami.hidden = !signedIn;
-    // Said once the application has told us nobody is signed in — not while we
-    // are still asking, and never where there is no session endpoint to ask.
-    var anonymous = Boolean(identity && !identity.signedIn);
-    ui.signin.textContent = anonymous
+    ui.signin.textContent = needsSignIn
       ? "Sign in to submit this review. Your answers are saved here meanwhile."
       : "";
-    ui.signin.hidden = !anonymous;
+    ui.signin.hidden =
+      !needsSignIn || Boolean(ui.storyTrigger && storyNavigation.overviewOpen);
 
     ui.statusBox.innerHTML = "";
+    if (ui.returnButton) ui.returnButton.disabled = returnPending;
+    if (returnError)
+      ui.statusBox.appendChild(status(returnError, "status error", "alert"));
     if (loading)
       ui.statusBox.appendChild(status("Refreshing checklist…", "status"));
     if (loadError)
@@ -2994,9 +3080,14 @@
         : "Answer a step first";
     }
     if (ui.completion) {
-      ui.completion.hidden = counts.total === 0 || counts.done !== counts.total;
+      ui.completion.hidden = !counts.done && !state.overallNote;
       ui.completionSummary.textContent =
-        counts.done + " checkpoints answered. Add an optional note, then submit.";
+        counts.done +
+        " of " +
+        counts.total +
+        " checkpoints answered · " +
+        (counts.total - counts.done) +
+        " unanswered.";
       if (ui.completionNote.value !== (state.overallNote || "")) {
         ui.completionNote.value = state.overallNote || "";
       }
@@ -3105,14 +3196,24 @@
   }
 
   function syncMarks(row, saved) {
+    var previous = row.detail.querySelector(".staleanswer");
+    if (saved.stale && saved.mark) {
+      if (previous) previous.textContent = staleAnswerText(saved);
+      else {
+        var marks = row.detail.querySelector(".marks");
+        row.detail.insertBefore(staleAnswer(saved), marks);
+      }
+    } else if (previous) {
+      previous.remove();
+    }
     row.detail.querySelectorAll(".mark").forEach(function (button) {
       var value = button.getAttribute("data-mark");
-      var on = saved.mark === value;
+      var on = saved.mark === value && !saved.stale;
       button.classList.toggle("on", on);
       button.setAttribute("aria-pressed", String(on));
     });
     var needsExplanation =
-      saved.mark === "fail" || saved.mark === "blocked";
+      !saved.stale && (saved.mark === "fail" || saved.mark === "blocked");
     var note = row.detail.querySelector(".stepnote");
     var continuation = row.detail.querySelector(".continue");
     if (note) {
@@ -3145,6 +3246,26 @@
       return saved.mark;
     }
     return "todo";
+  }
+
+  function markLabel(mark) {
+    if (mark === "pass") return "Worked as expected";
+    if (mark === "fail") return "There was a problem";
+    if (mark === "blocked") return "I couldn't try this";
+    if (mark === "na") return "Not applicable";
+    return "Recorded";
+  }
+
+  function staleAnswerText(saved) {
+    return (
+      "Previous answer: " +
+      markLabel(saved.mark) +
+      ". Confirm an answer for these updated instructions."
+    );
+  }
+
+  function staleAnswer(saved) {
+    return status(staleAnswerText(saved), "staleanswer");
   }
   function stateWord(saved) {
     var state = stateOf(saved);
@@ -3335,14 +3456,17 @@
           var who =
             (result.body.reviewer && result.body.reviewer.name) ||
             state.reviewer;
-          submitStatus = "Review submitted" + (who ? " as " + who : "") + ".";
+          var account = result.body.reviewer && result.body.reviewer.login;
+          needsSignIn = false;
+          submitStatus =
+            "Review submitted" +
+            (who ? " as " + who : "") +
+            (account ? " (account " + account + ")" : "") +
+            ".";
           return;
         }
         if (result.status === 401) {
-          // The local probe can be stale — a session that expired while the
-          // review was being worked. What the service says is what counts, so
-          // the sign-in prompt comes back.
-          identity = { signedIn: false, login: "", name: "" };
+          needsSignIn = true;
           submitStatus = "Sign in and submit again. Nothing has been lost.";
           return;
         }
@@ -3384,9 +3508,6 @@
     lines.push("");
     lines.push("- Instance: `" + INSTANCE + "` (" + location.origin + ")");
     lines.push("- Reviewer: " + (state.reviewer || "_unnamed_"));
-    if (identity && identity.signedIn && identity.login) {
-      lines.push("- Authenticated login: " + identity.login);
-    }
     lines.push("- Generated: " + generated);
     lines.push(
       "- Checklist revision: `" + (uat.checklistRevision || "unknown") + "`",
@@ -3442,9 +3563,9 @@
               ? "FAIL"
               : st.mark === "blocked" && completeAnswer
                 ? "BLOCKED"
-              : st.mark === "na"
-                ? "N/A "
-                : "----";
+                : st.mark === "na"
+                  ? "N/A "
+                  : "----";
         lines.push(
           "- [" +
             box +
@@ -3508,9 +3629,9 @@
         label: LABEL,
         origin: location.origin,
         reviewer: state.reviewer,
-        // The account the application verified, where there was one. The name
-        // above can be typed; this cannot.
-        login: (identity && identity.signedIn && identity.login) || null,
+        // Downloads have not been authenticated. Grist submissions receive the
+        // verified login from the service, never from this client artifact.
+        login: null,
         generated: generated,
         checklistRevision: uat.checklistRevision || null,
         deploymentId: build && build.deploymentId ? build.deploymentId : null,
@@ -3653,6 +3774,8 @@
       // of wrapping. A narrow column turns that into a step taller than the window
       // it has to fit; the extra width absorbs it.
       ".panel{position:relative;box-sizing:border-box;width:100%;height:100%;display:flex;flex-direction:column;background:#fff;border:0;box-shadow:0 0 18px rgba(0,0,0,.16);overflow:hidden;}",
+      ".checklistpane{display:flex;flex-direction:column;flex:1;min-height:0;}.checklistpane[hidden],.storytrigger[hidden],.storyscope[hidden]{display:none;}",
+      ".review-overview .stories{flex:1;min-height:0;display:flex;flex-direction:column;padding:0;border:0;}",
       ".dock-right .panel{border-left:1px solid var(--border);}.dock-left .panel{border-right:1px solid var(--border);}.dock-bottom .panel{border-top:1px solid var(--border);}",
       ".splitter{position:absolute;z-index:7;background:transparent;touch-action:none;}",
       ".splitter:focus-visible{outline:2px solid var(--blue);outline-offset:-2px;}",
@@ -3660,19 +3783,19 @@
       ".dock-right .splitter:after,.dock-left .splitter:after{content:'';position:absolute;top:0;bottom:0;left:3px;width:1px;background:var(--border);}.dock-bottom .splitter:after{content:'';position:absolute;left:0;right:0;top:3px;height:1px;background:var(--border);}",
       // Only the checklist scrolls. Without this the fixed rows shrink to absorb
       // a long checklist and clip their own text.
-      ".head,.statusbox,.whoami,.signin,.stories,.who,.fb,.foot{flex:none;}",
+      ".head,.statusbox,.signin,.stories,.who,.fb,.foot{flex:none;}",
       ".stories{position:relative;display:block;padding:var(--sp3) var(--sp4);border-bottom:1px solid var(--border);background:#fff;}",
       ".storyscope{font-size:var(--label);font-weight:600;color:var(--text2);margin-bottom:var(--sp2);}",
       ".storytrigger{display:grid;grid-template-columns:minmax(0,1fr) auto 18px;align-items:center;gap:var(--sp3);width:100%;min-height:44px;border:1px solid var(--border-strong);border-radius:4px;padding:7px 10px;background:#fff;color:var(--text);font:inherit;text-align:left;cursor:pointer;}",
       ".storytrigger:hover{background:var(--layer);}.storytriggertitle{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600;}.storytriggerprogress{font-size:var(--label);color:var(--text2);font-variant-numeric:tabular-nums;}.storychevron{font-size:18px;line-height:1;color:var(--text2);transform-origin:center;}.storytrigger[aria-expanded=true] .storychevron{transform:rotate(180deg);}",
-      ".storymenu{position:absolute;z-index:4;top:calc(100% - 1px);left:var(--sp4);right:var(--sp4);display:flex;flex-direction:column;max-height:min(400px,calc(100dvh - 240px));border:1px solid var(--border);background:#fff;box-shadow:0 8px 24px rgba(0,0,0,.16);}",
+      ".storymenu{display:flex;flex-direction:column;flex:1;min-height:0;background:#fff;}",
       ".storymenu[hidden]{display:none;}.storymenuhead{display:flex;justify-content:space-between;gap:var(--sp3);padding:9px 10px;border-bottom:1px solid var(--border);}.storymenutitle{font-size:var(--label);}.storymenucount{font-size:var(--label);color:var(--text3);font-variant-numeric:tabular-nums;}",
       ".storynotice{padding:8px 10px;background:#fcf4d6;color:#684e00;font-size:var(--label);border-bottom:1px solid #f1c21b;}.storynotice[hidden]{display:none;}",
       ".storylist{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;}.storysearch{box-sizing:border-box;margin:8px 10px;padding:9px 10px;border:1px solid var(--border-strong);border-radius:4px;font:inherit;min-height:40px;}.storyempty{padding:16px;color:var(--text2);}.storymenuhead,.storysearch,.storynotice,.storyscopetoggle{flex:none;}",
       ".storyoption{display:grid;grid-template-columns:24px minmax(0,1fr) auto;align-items:start;gap:var(--sp3);width:100%;min-height:58px;border:0;border-bottom:1px solid var(--border);padding:9px 10px;background:#fff;color:var(--text);font:inherit;text-align:left;cursor:pointer;}",
       ".storyoption:hover{background:var(--layer);}.storyoption.selected{background:var(--blue-bg);box-shadow:inset 3px 0 var(--blue);}.storycheck{display:flex;align-items:center;justify-content:center;width:20px;height:20px;border:1.5px solid var(--border-strong);border-radius:50%;color:#fff;font-size:var(--label);font-weight:600;}.storyoption.complete .storycheck{background:#24a148;border-color:#24a148;}.storyoptioncontent{display:flex;min-width:0;flex-direction:column;gap:2px;}.storyoptiontitle{min-width:0;font-weight:600;line-height:1.3;}.storyoptionpurpose{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;color:var(--text2);font-size:var(--label);line-height:1.3;}.storyoptionticket{color:var(--blue-dark);font-size:12px;font-weight:600;}.storyoptionprogress{font-size:var(--label);color:var(--text2);white-space:nowrap;font-variant-numeric:tabular-nums;}",
       ".storycontinue{margin:8px 10px;width:calc(100% - 20px);}.storycontinue[hidden]{display:none;}",
-      ".storyscopetoggle{width:100%;min-height:40px;border:0;background:#fff;color:var(--blue-dark);font:inherit;font-size:var(--label);font-weight:600;text-align:left;padding:8px 10px;cursor:pointer;}.storyscopetoggle:hover{background:var(--blue-bg);}.storyscopetoggle[hidden]{display:none;}",
+      ".storyscopetoggle{width:100%;min-height:40px;border:0;background:#fff;color:var(--blue-dark);font:inherit;font-size:var(--label);font-weight:600;text-align:left;padding:8px 10px;cursor:pointer;}.storyscopetoggle:hover,.storyscopetoggle[aria-pressed=true]{background:var(--blue-bg);}.storyscopetoggle[hidden]{display:none;}",
       ".who label{font-size:var(--label);color:var(--text2);white-space:nowrap;}",
       // Pinned to the top of the scroller: several steps into a section, the
       // heading that says which part of the review this is has scrolled away.
@@ -3680,7 +3803,7 @@
       ".secrow[hidden]{display:none;}",
       ".secline{display:flex;align-items:baseline;justify-content:space-between;gap:var(--sp3);}",
       ".storydescription{margin:var(--sp3) 0 var(--sp4);padding:10px var(--sp4);background:var(--layer);border-left:3px solid var(--blue);}",
-      ".storydescriptionlabel{font-size:var(--label);font-weight:600;color:var(--blue-dark);margin-bottom:var(--sp2);}",
+      ".storydescriptionlabel{font-size:var(--label);font-weight:600;color:var(--blue-dark);cursor:pointer;}.storydescription[open] .storydescriptionlabel{margin-bottom:var(--sp2);}",
       ".userstory{margin:0;font-size:var(--body);line-height:1.5;color:var(--text);font-style:normal;white-space:pre-line;}",
       ".sec{font-size:var(--label);text-transform:uppercase;letter-spacing:.02em;color:var(--text2);font-weight:600;margin:0;}",
       ".seccount{font-size:var(--label);color:var(--text3);font-variant-numeric:tabular-nums;}",
@@ -3691,8 +3814,7 @@
       ".sub{font-size:var(--label);opacity:.8;margin-top:2px;font-variant-numeric:tabular-nums;}.placement{width:auto;min-width:78px;height:30px;border:1px solid #6f6f6f;border-radius:3px;background:#262626;color:#fff;padding:0 6px;font:inherit;font-size:var(--label);}",
       ".icon{background:transparent;border:none;color:inherit;font-size:var(--body);line-height:1;cursor:pointer;min-width:24px;min-height:24px;border-radius:4px;}.icon:hover{background:rgba(255,255,255,.15);}.icon svg{display:block;}",
       ".statusbox:empty{display:none;}",
-      ".whoami{flex:1;min-width:0;font-size:var(--label);color:var(--text2);}",
-      ".whoami[hidden],.signin[hidden]{display:none;}",
+      ".signin[hidden]{display:none;}",
       ".signin{padding:var(--sp3) var(--sp4);font-size:var(--label);background:var(--blue-bg);color:var(--blue-dark);border-bottom:1px solid var(--blue-soft);}",
       ".status{padding:var(--sp3) var(--sp4);border-bottom:1px solid var(--border);color:var(--text2);}",
       ".status.error{background:#fff1f1;color:#a2191f;font-weight:600;}",
@@ -3744,13 +3866,14 @@
       ".expectlabel{flex:none;font-size:var(--label);font-weight:600;text-transform:uppercase;letter-spacing:.02em;color:var(--blue-dark);}",
       ".expecttext{color:var(--text);}",
       ".optional{font-size:var(--label);color:var(--text3);margin-bottom:var(--sp2);}",
+      ".staleanswer{margin:var(--sp2) 0;padding:6px 9px;background:#fcf4d6;border-left:3px solid #f1c21b;border-radius:0 4px 4px 0;color:#684e00;font-size:var(--label);}",
       ".marks{display:flex;gap:var(--sp2);flex-wrap:wrap;}",
       ".mark{flex:1 1 120px;border:1px solid var(--border-strong);background:#fff;border-radius:4px;padding:6px 8px;font:inherit;font-size:var(--label);font-weight:600;cursor:pointer;color:var(--text2);min-height:32px;}",
       ".mark.pass.on{background:#defbe6;border-color:#24a148;color:#0e6027;}",
       ".mark.fail.on{background:#fff1f1;border-color:#da1e28;color:#a2191f;}",
       ".mark.blocked.on{background:#fcf4d6;border-color:#f1c21b;color:#684e00;}",
       ".mark.na.on{background:var(--layer);border-color:var(--border-strong);color:var(--text2);}",
-      ".stepnote{margin-top:var(--sp3);}.continue{display:block;margin-top:var(--sp3);margin-left:auto;}.legacyanswer{margin-top:var(--sp2);font-size:var(--label);color:var(--text2);}",
+      ".stepnote{margin-top:var(--sp3);}.continue{display:block;margin-top:var(--sp3);margin-left:auto;}.continue[hidden]{display:none;}.legacyanswer{margin-top:var(--sp2);font-size:var(--label);color:var(--text2);}",
       ".completion{padding:var(--sp3) var(--sp4);border-top:1px solid var(--border);background:var(--blue-bg);}.completion[hidden]{display:none;}.completiontitle{display:block;}.completionsummary{display:block;margin:2px 0 6px;color:var(--text2);font-size:var(--label);}.completion textarea{min-height:54px;resize:vertical;}",
       ".fb{padding:6px var(--sp4) var(--sp3);border-top:1px solid var(--border);}",
       ".notetoggle{background:none;border:none;color:var(--blue-dark);font:inherit;font-weight:600;cursor:pointer;padding:var(--sp2) 0;min-height:24px;}",
@@ -3779,7 +3902,7 @@
       // is narrow too but is not over anything, and this rule matches it selector
       // for selector, so without the exclusion source order rather than
       // specificity would decide which layout a 460px review window gets.
-      "@media (max-width:640px){.has-story-picker .titlebox{display:block;}.head{gap:4px;}.placement{min-width:70px;}.who label{font-size:13px;}.whoami{font-size:12px;}.expect{display:block;}.expectlabel{display:block;margin-bottom:4px;}.primary{padding:8px 12px;}}",
+      "@media (max-width:640px){.has-story-picker .titlebox{display:block;}.head{gap:4px;}.placement{min-width:70px;}.who label{font-size:13px;}.expect{display:block;}.expectlabel{display:block;margin-bottom:4px;}.primary{padding:8px 12px;}}",
       "@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important;}}",
     ].join("");
   }

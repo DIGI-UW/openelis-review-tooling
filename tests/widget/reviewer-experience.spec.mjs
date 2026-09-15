@@ -11,6 +11,9 @@ async function openPanel(page) {
   const widget = page.locator("#oe-review-host");
   await widget.getByRole("button", { name: /review/i }).click();
   await expect(widget.locator(".panel")).toBeVisible();
+  await widget
+    .getByRole("option", { name: /Find and route microbiology/ })
+    .click();
   return widget;
 }
 
@@ -47,6 +50,9 @@ test("shows one step at a time instead of a keyhole onto all of them", async ({
   page,
 }) => {
   const widget = await openPanel(page);
+  // Choosing a story first shows its purpose. Selecting its checkpoint brings
+  // the action and response controls into view, even on a compact panel.
+  await widget.locator(".step.current .steptop").click();
   const steps = widget.locator(".step");
   await expect(steps).toHaveCount(3);
 
@@ -100,7 +106,10 @@ test("answering a step moves the reviewer on to the next one", async ({
   const steps = widget.locator(".step");
   await expect(steps.nth(0)).toHaveClass(/current/);
 
-  await steps.nth(0).getByRole("button", { name: "Worked as expected" }).click();
+  await steps
+    .nth(0)
+    .getByRole("button", { name: "Worked as expected" })
+    .click();
 
   await expect(steps.nth(0)).not.toHaveClass(/current/);
   await expect(steps.nth(1)).toHaveClass(/current/);
@@ -420,7 +429,11 @@ test("keeps secondary review actions out of the primary footer", async ({
   ).toHaveCount(0);
 
   await stories.click();
-  await expect(stories).toHaveAttribute("aria-expanded", "true");
+  await expect(widget.locator(".storymenu")).toBeVisible();
+  await expect(footer).toBeHidden();
+  await widget
+    .getByRole("option", { name: /Find and route microbiology/ })
+    .click();
   await more.click();
   await expect(stories).toHaveAttribute("aria-expanded", "false");
   await expect(more).toHaveAttribute("aria-expanded", "true");
@@ -442,8 +455,9 @@ test("keeps secondary review actions out of the primary footer", async ({
 
   await more.click();
   await stories.click();
-  await expect(stories).toHaveAttribute("aria-expanded", "true");
-  await expect(more).toHaveAttribute("aria-expanded", "false");
+  await expect(widget.locator(".storymenu")).toBeVisible();
+  await expect(footer).toBeHidden();
+  await expect(widget.locator(".moremenu")).toBeHidden();
 });
 
 test("records the page and console errors behind a failure", async ({
