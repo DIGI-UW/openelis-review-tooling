@@ -547,6 +547,32 @@ newcomer acceptance must be recorded separately; local checks are not acceptance
   deployment-hook PR remains deferred; no application or deployment PR merge
   was required for this correction.
 
+### Published content and stale-evidence correction — September 15 UTC
+
+- The shared widget source `f1dc136`, integrated as
+  `18b0435c1d8a31854dfdc5a1e28a577283a1590c`, is published with SHA256
+  `903f8af2c53099bd52981f6feaf1c2254f221442182ba762015477577b3944f2`.
+  Public bytes match the central host, AMR and Analyzers; Testing loads that
+  central script through its existing injection. Reporting's ready-target
+  identity records this exact widget revision.
+- AMR story `AMR-S17` was the first content migration. Its three original stable
+  keys and routes remain unchanged; version `1.1` and public checklist revision
+  `8aa0d71d5efdd4ddb188b835f6d11688ced642abd4878aff62c04d3e13f7c7c8`
+  replace multi-action prose with labelled, newline-separated actions and
+  observable outcomes. The managed authoring dry run reported three updates and
+  no additions or removals; live Grist and the public adapter then matched.
+- Prior evidence remains pinned. Existing AMR submission 35 / `AMR-1` remains
+  associated with its earlier application, story and checklist revisions. The
+  current panel counts it as `0 of 3` and presents an amber “Previous answer”
+  notice with unpressed response controls. Selecting the same result once
+  confirms it against the current instruction; it does not silently reuse the
+  earlier answer.
+- Future content migration is incremental and story-scoped. Before each rewrite,
+  preserve the current checklist content, retain stable keys, dry-run the exact
+  payload, verify Grist and the public adapter, and inspect the live widget.
+  Newlines and short labels are the plain-text authoring format; Grist does not
+  gain a rich-text model.
+
 ## Required validation
 
 - Unit tests for Grist configuration parsing, invalid story references and

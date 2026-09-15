@@ -160,6 +160,14 @@ Write UAT steps as **verifiable checks** — a `do` a reviewer performs and an
 `expect` they judge against. A missing feature is a legitimate step: the reviewer
 marks it Fail, which is useful signal.
 
+Write for scanning, not prose. Put each discrete action or outcome on its own
+newline, beginning with a short plain-text label such as `Open:`, `Set:`,
+`Check:` or `Result:`. The widget renders those lines as a bulleted list and
+bolds only the label. Do not join a sequence of actions into one sentence, and
+do not put Markdown or HTML in Grist. Keep a story's purpose, starting state and
+fixture guidance concise; keep only the context required to perform one check in
+that checkpoint.
+
 Before publishing, dry-run the exact prose on the deployed target without test
 helpers or fixture APIs. The story must name the starting surface, full nav path,
 stable human-visible fixture data, record-reuse/reset rules, and the part of a
