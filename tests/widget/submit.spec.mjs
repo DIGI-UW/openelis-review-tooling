@@ -151,17 +151,22 @@ test("requires an entered name even when the application session is signed in", 
 test("a reviewer the service will not vouch for is asked to sign in", async ({
   page,
 }) => {
-  // The local session probe can be out of date — a session expires while the
-  // review is being worked. What the service says is the answer that counts.
-  await captureSubmit(page, (route) =>
-    route.fulfill({
-      status: 401,
-      json: { error: "sign in to submit this review", needsLogin: true },
-    }),
-  );
+  let attempts = 0;
+  await captureSubmit(page, (route) => {
+    attempts += 1;
+    return attempts === 1
+      ? route.fulfill({ status: 401, json: { needsLogin: true } })
+      : ok(route);
+  });
   const widget = await answerOneStep(await openPanel(page));
   await submitButton(widget).click();
   await expect(widget.locator(".signin")).toContainText(/sign in/i);
+  await submitButton(widget).click();
+  await expect(widget.locator(".statusbox")).toContainText("account mmwanza");
+  await expect(widget.locator(".signin")).toBeHidden();
+  await expect(
+    widget.locator(".step").first().locator(".stepnote"),
+  ).toHaveValue("the list was empty");
 });
 
 test("a deployment that does not take submissions says so, and what to do instead", async ({
@@ -247,9 +252,7 @@ test("an impatient second click does not file the review twice", async ({
   expect(sent).toHaveLength(1);
 });
 
-test("the primary footer fits the narrowest panel", async ({
-  page,
-}) => {
+test("the primary footer fits the narrowest panel", async ({ page }) => {
   // The popped-out window is 460px and the compact overlay is not much wider.
   // Submission remains the direct action; the compact overflow control keeps
   // occasional actions available without a row that can clip or wrap.
