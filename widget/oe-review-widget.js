@@ -2100,8 +2100,10 @@
     parts.completion.appendChild(parts.completionNote);
     panel.appendChild(parts.completion);
 
-    parts.checklistPane.appendChild(buildNotes(parts));
-    parts.checklistPane.appendChild(who);
+    // These fields remain available when sharing feedback, but scroll away
+    // while a reviewer reads a checkpoint. Only submission stays pinned.
+    parts.body.appendChild(buildNotes(parts));
+    parts.body.appendChild(who);
 
     var foot = el("div", "foot");
     foot.appendChild(parts.whoami);

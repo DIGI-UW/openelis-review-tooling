@@ -44,6 +44,9 @@ for (const entry of ["select", "advance"]) {
       current.boundingBox(),
     ]);
     expect(step.height).toBeGreaterThan(view.height);
+    // A 340px bottom pane must leave room for several instruction lines;
+    // collecting a name and optional notes must not pin them over the task.
+    expect(view.height).toBeGreaterThanOrEqual(140);
     expect(start.y).toBeGreaterThanOrEqual(view.y);
     expect(start.y + start.height).toBeLessThanOrEqual(view.y + view.height);
     await expect(current.locator(".steptop")).toBeFocused();
