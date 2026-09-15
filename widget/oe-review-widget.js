@@ -2711,9 +2711,12 @@
   function storyDescription(section) {
     var story = String((section.links && section.links.userStory) || "").trim();
     if (!story) return null;
-    var box = el("div", "storydescription");
-    var label = el("div", "storydescriptionlabel");
-    label.textContent = "Story";
+    // The story explains why a review exists, but the immediate task should win
+    // the first screen. Native details preserves that context without asking a
+    // reviewer to read a paragraph before they can start the checkpoint.
+    var box = el("details", "storydescription");
+    var label = el("summary", "storydescriptionlabel");
+    label.textContent = "About this review";
     var text = el("p", "userstory");
     text.textContent = story;
     box.appendChild(label);
@@ -3757,7 +3760,7 @@
       ".secrow[hidden]{display:none;}",
       ".secline{display:flex;align-items:baseline;justify-content:space-between;gap:var(--sp3);}",
       ".storydescription{margin:var(--sp3) 0 var(--sp4);padding:10px var(--sp4);background:var(--layer);border-left:3px solid var(--blue);}",
-      ".storydescriptionlabel{font-size:var(--label);font-weight:600;color:var(--blue-dark);margin-bottom:var(--sp2);}",
+      ".storydescriptionlabel{font-size:var(--label);font-weight:600;color:var(--blue-dark);cursor:pointer;}.storydescription[open] .storydescriptionlabel{margin-bottom:var(--sp2);}",
       ".userstory{margin:0;font-size:var(--body);line-height:1.5;color:var(--text);font-style:normal;white-space:pre-line;}",
       ".sec{font-size:var(--label);text-transform:uppercase;letter-spacing:.02em;color:var(--text2);font-weight:600;margin:0;}",
       ".seccount{font-size:var(--label);color:var(--text3);font-variant-numeric:tabular-nums;}",
