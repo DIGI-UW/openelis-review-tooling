@@ -310,9 +310,24 @@ test("refresh preserves reordered answers and marks changed instructions stale",
       .filter({ hasText: "Find and inspect a shipped profile" })
       .locator(".steptop"),
   ).toHaveAttribute("aria-label", /^Step 2, needs another look:/);
+  const staleStep = widget
+    .locator(".step")
+    .filter({ hasText: "Find and inspect a shipped profile" });
+  await staleStep.locator(".steptop").click();
+  await expect(staleStep.locator(".staleanswer")).toContainText(
+    "Previous answer: Worked as expected. Confirm an answer for these updated instructions.",
+  );
+  await expect(
+    staleStep.getByRole("button", { name: "Worked as expected" }),
+  ).toHaveAttribute("aria-pressed", "false");
+  await staleStep.getByRole("button", { name: "Worked as expected" }).click();
+  await expect(staleStep.locator(".staleanswer")).toHaveCount(0);
+  await expect(
+    staleStep.getByRole("button", { name: "Worked as expected" }),
+  ).toHaveAttribute("aria-pressed", "true");
   const stored = await savedState(page);
   expect(stored.value.steps["AN-QC-001"].mark).toBe("pass");
-  expect(stored.value.steps["AN-QC-001"].stale).toBe(true);
+  expect(stored.value.steps["AN-QC-001"].stale).toBe(false);
 });
 
 test("shows checklist load failures instead of an empty checklist", async ({

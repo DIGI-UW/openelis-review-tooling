@@ -2819,6 +2819,9 @@
       detail.appendChild(optional);
     }
     var saved = state.steps[step.key] || {};
+    if (saved.stale && saved.mark) {
+      detail.appendChild(staleAnswer(saved));
+    }
     var marks = el("div", "marks");
     [
       ["pass", "Worked as expected"],
@@ -2827,11 +2830,16 @@
     ].forEach(function (option) {
       var button = el(
         "button",
-        "mark " + option[0] + (saved.mark === option[0] ? " on" : ""),
+        "mark " +
+          option[0] +
+          (saved.mark === option[0] && !saved.stale ? " on" : ""),
       );
       button.textContent = option[1];
       button.setAttribute("data-mark", option[0]);
-      button.setAttribute("aria-pressed", String(saved.mark === option[0]));
+      button.setAttribute(
+        "aria-pressed",
+        String(saved.mark === option[0] && !saved.stale),
+      );
       button.onclick = function () {
         mark(step, option[0]);
       };
@@ -2845,7 +2853,8 @@
     note.placeholder =
       saved.mark === "blocked" ? "What stopped you?" : "What happened?";
     note.value = saved.note || "";
-    note.hidden = saved.mark !== "fail" && saved.mark !== "blocked";
+    note.hidden =
+      saved.stale || (saved.mark !== "fail" && saved.mark !== "blocked");
     note.required = !note.hidden;
     note.oninput = function () {
       var entry = state.steps[step.key] || {};
@@ -2881,7 +2890,10 @@
 
   function mark(step, value) {
     var saved = state.steps[step.key] || {};
-    saved.mark = saved.mark === value ? null : value;
+    // A stale mark is historical evidence, not the active answer. Choosing the
+    // same result again confirms it against the current instructions; only an
+    // already-current choice toggles off.
+    saved.mark = saved.mark === value && !saved.stale ? null : value;
     saved.markedAt = saved.mark ? nowISO() : null;
     saved.actualUrl = saved.mark ? reviewedUrl() : null;
     saved.signature = stepSignature(step);
@@ -3184,13 +3196,24 @@
   }
 
   function syncMarks(row, saved) {
+    var previous = row.detail.querySelector(".staleanswer");
+    if (saved.stale && saved.mark) {
+      if (previous) previous.textContent = staleAnswerText(saved);
+      else {
+        var marks = row.detail.querySelector(".marks");
+        row.detail.insertBefore(staleAnswer(saved), marks);
+      }
+    } else if (previous) {
+      previous.remove();
+    }
     row.detail.querySelectorAll(".mark").forEach(function (button) {
       var value = button.getAttribute("data-mark");
-      var on = saved.mark === value;
+      var on = saved.mark === value && !saved.stale;
       button.classList.toggle("on", on);
       button.setAttribute("aria-pressed", String(on));
     });
-    var needsExplanation = saved.mark === "fail" || saved.mark === "blocked";
+    var needsExplanation =
+      !saved.stale && (saved.mark === "fail" || saved.mark === "blocked");
     var note = row.detail.querySelector(".stepnote");
     var continuation = row.detail.querySelector(".continue");
     if (note) {
@@ -3223,6 +3246,26 @@
       return saved.mark;
     }
     return "todo";
+  }
+
+  function markLabel(mark) {
+    if (mark === "pass") return "Worked as expected";
+    if (mark === "fail") return "There was a problem";
+    if (mark === "blocked") return "I couldn't try this";
+    if (mark === "na") return "Not applicable";
+    return "Recorded";
+  }
+
+  function staleAnswerText(saved) {
+    return (
+      "Previous answer: " +
+      markLabel(saved.mark) +
+      ". Confirm an answer for these updated instructions."
+    );
+  }
+
+  function staleAnswer(saved) {
+    return status(staleAnswerText(saved), "staleanswer");
   }
   function stateWord(saved) {
     var state = stateOf(saved);
@@ -3823,6 +3866,7 @@
       ".expectlabel{flex:none;font-size:var(--label);font-weight:600;text-transform:uppercase;letter-spacing:.02em;color:var(--blue-dark);}",
       ".expecttext{color:var(--text);}",
       ".optional{font-size:var(--label);color:var(--text3);margin-bottom:var(--sp2);}",
+      ".staleanswer{margin:var(--sp2) 0;padding:6px 9px;background:#fcf4d6;border-left:3px solid #f1c21b;border-radius:0 4px 4px 0;color:#684e00;font-size:var(--label);}",
       ".marks{display:flex;gap:var(--sp2);flex-wrap:wrap;}",
       ".mark{flex:1 1 120px;border:1px solid var(--border-strong);background:#fff;border-radius:4px;padding:6px 8px;font:inherit;font-size:var(--label);font-weight:600;cursor:pointer;color:var(--text2);min-height:32px;}",
       ".mark.pass.on{background:#defbe6;border-color:#24a148;color:#0e6027;}",
