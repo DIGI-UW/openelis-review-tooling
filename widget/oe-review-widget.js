@@ -2100,8 +2100,10 @@
     parts.completion.appendChild(parts.completionNote);
     panel.appendChild(parts.completion);
 
-    parts.checklistPane.appendChild(buildNotes(parts));
-    parts.checklistPane.appendChild(who);
+    // These fields remain available when sharing feedback, but scroll away
+    // while a reviewer reads a checkpoint. Only submission stays pinned.
+    parts.body.appendChild(buildNotes(parts));
+    parts.body.appendChild(who);
 
     var foot = el("div", "foot");
     foot.appendChild(parts.whoami);
@@ -3008,7 +3010,12 @@
       focusWasInside === undefined
         ? ui.panel.contains(root.activeElement)
         : focusWasInside;
-    if (first && inside) first.focus();
+    // A long checkpoint's answers can be below the visible pane. Focus its
+    // instruction instead, keeping the reading position and keyboard focus
+    // together rather than scrolling past the action to an answer button.
+    var target =
+      bottom - top > body.clientHeight - reserve ? row.summary : first;
+    if (target && inside) target.focus({ preventScroll: true });
   }
 
   // ---- keeping the built panel in step with state ---------------------------

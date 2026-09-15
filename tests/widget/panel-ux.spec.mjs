@@ -1,4 +1,65 @@
 import { expect, test } from "@playwright/test";
+import { readFileSync } from "node:fs";
+
+const longReportingStep = JSON.parse(
+  readFileSync(new URL("./long-reporting-step.json", import.meta.url), "utf8"),
+);
+
+for (const entry of ["select", "advance"]) {
+  test(`keeps a long checkpoint's beginning visible on ${entry}`, async ({
+    page,
+  }, testInfo) => {
+    const errors = [];
+    page.on("pageerror", (error) => errors.push(error.message));
+    await page.route("**/tests/widget/uat-amr.json", async (route) => {
+      const response = await route.fetch();
+      const checklist = await response.json();
+      Object.assign(checklist.sections[0].steps[1], longReportingStep);
+      await route.fulfill({ response, json: checklist });
+    });
+    const widget = await open(page, 1280, 720);
+    await widget.getByLabel("Review placement").selectOption("bottom");
+    const appScroll = await page.evaluate(() => window.scrollY);
+    if (entry === "select") {
+      await widget.locator(".step").nth(1).locator(".steptop").click();
+    } else {
+      await widget.locator(".step.current .steptop").click();
+      await widget
+        .locator(".step.current")
+        .getByRole("button", {
+          name: "Worked as expected",
+          exact: true,
+        })
+        .click();
+    }
+    const current = widget.locator(".step.current");
+    await expect(current).toContainText("Non-Conformance");
+    const [view, start, step] = await Promise.all([
+      widget.locator(".body").boundingBox(),
+      current
+        .locator(".steplabel .instructionlist")
+        .getByRole("listitem")
+        .first()
+        .boundingBox(),
+      current.boundingBox(),
+    ]);
+    expect(step.height).toBeGreaterThan(view.height);
+    // A 340px bottom pane must leave room for several instruction lines;
+    // collecting a name and optional notes must not pin them over the task.
+    expect(view.height).toBeGreaterThanOrEqual(140);
+    expect(start.y).toBeGreaterThanOrEqual(view.y);
+    expect(start.y + start.height).toBeLessThanOrEqual(view.y + view.height);
+    await expect(current.locator(".steptop")).toBeFocused();
+    expect(await page.evaluate(() => window.scrollY)).toBe(appScroll);
+    await expect(
+      current.locator(".expecttext .instructionlist").getByRole("listitem"),
+    ).toHaveCount(6);
+    expect(errors).toEqual([]);
+    await page.screenshot({
+      path: testInfo.outputPath("checkpoint-visible.png"),
+    });
+  });
+}
 
 async function open(page, width = 1440, height = 900) {
   await page.setViewportSize({ width, height });
