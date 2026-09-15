@@ -49,6 +49,12 @@ always-on submission route. Empty configuration disables Review on that site.
 When upgrading an existing shared router, stage each site's enabled configuration
 before the one-time proxy recreation so its existing Review availability is
 preserved. Keep its widget asset mounts for already-open review windows.
+The shared-router migration must carry forward its running `AMR_DOMAIN`,
+`ANALYZERS_DOMAIN`, `PHRASES_DOMAIN` and `GRIST_DOMAIN` values explicitly; its
+Grist runtime environment file alone does not supply all of them. Check the
+effective Compose environment before recreation and during rollback.
+For centralized submission routing, register the public application origins in
+the operator-owned backend map, so stored feedback names the public site.
 
 Use `--build-path none` if the site does not serve deployment identity JSON.
 Use `--session-path` for a nonstandard OpenELIS context path. Scope, suggested
