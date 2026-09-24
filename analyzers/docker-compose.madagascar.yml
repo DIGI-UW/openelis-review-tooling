@@ -1,7 +1,7 @@
 # Site overlay for the Madagascar distro on analyzers.openelis-global.org.
 # Layer after distro/docker-compose.yml and harness/compose.validate.yaml.
-# Distro: 05a2132debcee3f26e9da14ba450375fc7fad346
-# OE2 develop: 45c42dec8af2f45c7aa0ae655112409b133bc067
+# Distro: 5f8cd424cddbb96bc755a77017d10eb6deed862f
+# OE2 develop: 305f2cbb9c942dbc5383e761429efa53d343762b
 # Bridge 3.2.1: b4a9f2cbffe93fa1900f25055755c2ff3bccea0e
 # Mock main: 6df789111d26a122a440892e478b358c8c4738b4
 # Harness: ee0cb55722c668a8fa7cb7a261bdfce16da78b29
@@ -14,14 +14,14 @@ services:
 
   db.openelis.org:
     container_name: madagascar-openelisglobal-database
-    image: itechuw/openelis-global-2-database@sha256:b982f1657fdccd1275b10e605faac4e5cf5ae131c9cc32969fb0599438305079
+    image: itechuw/openelis-global-2-database@sha256:c5cdcf1df3ad880112442511544c514c9eceef745bdd267992f014c54a6aa564
     ports: !reset []
     volumes:
       - madagascar-db:/var/lib/postgresql/data
 
   oe.openelis.org:
     container_name: madagascar-openelisglobal-webapp
-    image: itechuw/openelis-global-2@sha256:26c730a359b10f005f672f3261971a5ec620ec776b72baf3be4bc3443aeb4cdb
+    image: itechuw/openelis-global-2@sha256:8c9a9cc45da3232a63710b270ea9ef847eba71baa291f75fe3b5dcd1d793d03d
     ports: !reset []
     networks:
       openelis-network:
@@ -30,12 +30,12 @@ services:
 
   fhir.openelis.org:
     container_name: madagascar-external-fhir-api
-    image: itechuw/openelis-global-2-fhir@sha256:9054f964c9e3eb970eac82f337671eda3c16bb2c2c00f2547667f89cc431e8d6
+    image: itechuw/openelis-global-2-fhir@sha256:370fec41ee9770de68197ccf4d949f1930d123b43f052c5488672b13e02f3c6e
     ports: !reset []
 
   frontend.openelis.org:
     container_name: madagascar-openelisglobal-front-end
-    image: itechuw/openelis-global-2-frontend@sha256:7af9a5fe3f2707f4d915262e4f23f5926e9a88fbfe835a78a1a8cca975c1e6b3
+    image: itechuw/openelis-global-2-frontend@sha256:2fdbbec1ab176080451fa39e1660adf1a0f4bdb5faf1cc3b6c3fba4beef1a35a
     networks:
       openelis-network:
       edge:
@@ -43,7 +43,7 @@ services:
 
   proxy:
     container_name: madagascar-openelisglobal-proxy
-    image: itechuw/openelis-global-2-proxy@sha256:6dca7da7ad9e2d7218f3a028032ebf7d014664ab5e913c887a64853ee5842d3c
+    image: itechuw/openelis-global-2-proxy@sha256:5780e40db6bc454a9c00615b066e01e32f1b5a944674f1d7ffdf83eef9040b56
     ports: !reset []
 
   openelis-analyzer-bridge:

@@ -47,30 +47,42 @@ Run the harness `harness-demo-video` Playwright project against the public URL
 and retain its video artifacts. Only then update the review target's ready
 metadata and, if the reviewer journey changed, its Grist checklist rows.
 
-As of 2026-09-24, this overlay pins OE2 `45c42dec`, the base of draft
-[OE2 PR #4407](https://github.com/DIGI-UW/OpenELIS-Global-2/pull/4407).
-That PR fixes a concurrent activation race that can leave OpenELIS showing an
-active analyzer after Bridge stopped it. Do not mark this site ready until the
-fix is merged, a matching image is published and pinned here, and activation
-and result delivery are checked again. The current `harness-demo-video` flow
-also expects the removed analyzer modal; the deployed OE2 opens the setup
-wizard. Update the harness journey before treating its video as acceptance
-evidence.
+As of 2026-09-24, the server pins OE2 develop `305f2cbb`, which includes
+merged PR #4407, distro `5f8cd424`, Bridge 3.2.1, and Mock `6df78911`.
+The server admin password was explicitly reset to the demo default
+`adminADMIN!`; both OE2 and Bridge integration credentials use that value.
+The previous configuration and database backup are retained under
+`/opt/madagascar-analyzers/backups/before-develop-305f2cbb`.
 
-The public-site recovery check **passed** on 2026-09-24: a synthetic GeneXpert
-result entered Bridge while OE2 was paused, remained in its durable outbox
-across a Bridge restart, and reached OE2 after recovery on the second attempt.
-The outbox had one delivered entry for that result, no undelivered or
-dead-lettered entries, and OE2 showed exactly one matching review row.
+The public-site recovery check passed on the preceding OE2 build: a synthetic
+GeneXpert result remained in Bridge's durable outbox across an outage and
+Bridge restart, then reached OE2 once. After this upgrade, exact image checks,
+the OE2 delivery-issues API, and a fresh Mock-to-Bridge-to-OE2 delivery passed;
+the queue had no pending or dead-lettered messages. Browser login with the
+reset demo password and the full guided setup/activate/deactivate flow also
+passed on this build (2 Playwright tests, 23 seconds).
 
-OE2's own Playwright video flow reaches the current result-review UI, but the
-Madagascar catalog has no `INDETERMINATE` result option for its held
-"REVIEW REQUIRED" value. Its guided setup flow also stops at Verify: that
-observed held value leaves the shared GeneXpert mapping at 16 of 17 results
-ready. Do not substitute a different clinical result to make either test pass.
-Resolve the catalog expectation with lab-approved meaning, or capture a site-specific
-held-result review video that keeps the value held. Neither failed video is
-acceptance evidence.
+Use OE2's current Playwright journeys for this site. The separate Madagascar
+harness still expects the removed setup modal. The OE2 result-review demo needs
+the INDETERMINATE dictionary and test-result rows from its own catalog fixtures.
+Only those two rows were loaded through the supported configuration loader;
+Madagascar's existing catalog files were preserved. The site labels differ from
+the generic fixture in capitalization and spacing, so the site test accepts
+`Not Detected` and `HIVVIRALLOAD(Serum)`. Before repeating the review story,
+reset only its synthetic REVIEW REQUIRED mapping and send a fresh known result;
+accepted results are consumed by review. The setup and result-review videos
+passed before the upgrade and are retained with their test artifacts.
+
+Recreating Bridge removes Docker network attachments added dynamically by Mock.
+Restore its attachment to each still-active Mock analyzer network before testing
+traffic. For the existing GeneXpert fixture, the preserved network is
+`mock-analyzer-genexpert`, with Mock at `10.42.140.10` and Bridge at `10.42.140.2`.
+Check membership first; when absent, restore it with:
+
+```sh
+docker network connect --ip 10.42.140.2 --alias openelis-analyzer-bridge \
+  mock-analyzer-genexpert madagascar-openelis-analyzer-bridge
+```
 
 For rollback, stop the `madagascar-analyzers` project without removing its
 volumes and restart the preserved old `analyzers` project. The router resumes

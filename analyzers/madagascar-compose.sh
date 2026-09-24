@@ -12,7 +12,7 @@ require_commit() {
   fi
 }
 
-require_commit distro 05a2132debcee3f26e9da14ba450375fc7fad346
+require_commit distro 5f8cd424cddbb96bc755a77017d10eb6deed862f
 require_commit harness ee0cb55722c668a8fa7cb7a261bdfce16da78b29
 require_commit bridge b4a9f2cbffe93fa1900f25055755c2ff3bccea0e
 
