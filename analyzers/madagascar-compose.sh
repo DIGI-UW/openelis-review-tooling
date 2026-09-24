@@ -24,8 +24,9 @@ export BRIDGE_REPO="$site_root/bridge"
 export HARNESS_DEMO_CONTEXT="$site_root/harness/tests/playwright"
 export HARNESS_TEST_RESULTS_DIR="$site_root/test-results"
 export BASE_URL="${BASE_URL:-https://analyzers.openelis-global.org}"
-export TEST_PASS="$(sed -n 's/^OE_ADMIN_PASSWORD=//p' "$env_file" | head -n 1)"
+TEST_PASS="$(sed -n 's/^OE_ADMIN_PASSWORD=//p' "$env_file" | head -n 1)"
 [[ -n "$TEST_PASS" ]] || { printf 'Missing OE_ADMIN_PASSWORD\n' >&2; exit 1; }
+export TEST_PASS
 
 exec docker compose \
   --env-file "$env_file" \

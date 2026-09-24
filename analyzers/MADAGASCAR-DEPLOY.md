@@ -4,7 +4,9 @@
 Madagascar distro, Bridge, and Mock run in a separate `madagascar-analyzers`
 Compose project. The adjacent Compose overlay pins every running image by
 digest and removes all host port bindings. Its header records the exact source
-commits used to select those images.
+commits used to select those images. Bridge forwarding and health checks both
+use the private `oe.openelis.org` service name; the default distro container
+name does not apply after this overlay renames the webapp container.
 
 On the host, place exact Git checkouts in `/opt/madagascar-analyzers/{distro,harness,bridge}`
 and copy the overlay and `madagascar-compose.sh` to

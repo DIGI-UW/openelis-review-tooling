@@ -50,6 +50,9 @@ services:
     container_name: madagascar-openelis-analyzer-bridge
     image: itechuw/openelis-analyzer-bridge:3.2.1@sha256:9d50cbceeb299c6b534cf8c7494514ee9678d23a8ed9b225bb55427e913806fd
     ports: !reset []
+    environment:
+      ORG_ITECH_AHB_FORWARD_HTTP_SERVER_URI: ${ANALYZER_FORWARD_URI:-https://oe.openelis.org:8443/OpenELIS-Global/analyzer}
+      ORG_ITECH_AHB_FORWARD_HTTP_SERVER_HEALTH_URI: ${ANALYZER_FORWARD_HEALTH_URI:-https://oe.openelis.org:8443/OpenELIS-Global/health}
 
   analyzer-mock:
     container_name: madagascar-analyzer-mock
