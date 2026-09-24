@@ -57,6 +57,21 @@ also expects the removed analyzer modal; the deployed OE2 opens the setup
 wizard. Update the harness journey before treating its video as acceptance
 evidence.
 
+The public-site recovery check **passed** on 2026-09-24: a synthetic GeneXpert
+result entered Bridge while OE2 was paused, remained in its durable outbox
+across a Bridge restart, and reached OE2 after recovery on the second attempt.
+The outbox had one delivered entry for that result, no undelivered or
+dead-lettered entries, and OE2 showed exactly one matching review row.
+
+OE2's own Playwright video flow reaches the current result-review UI, but the
+Madagascar catalog has no `INDETERMINATE` result option for its held
+"REVIEW REQUIRED" value. Its guided setup flow also stops at Verify: that
+observed held value leaves the shared GeneXpert mapping at 16 of 17 results
+ready. Do not substitute a different clinical result to make either test pass.
+Resolve the catalog expectation with lab-approved meaning, or capture a site-specific
+held-result review video that keeps the value held. Neither failed video is
+acceptance evidence.
+
 For rollback, stop the `madagascar-analyzers` project without removing its
 volumes and restart the preserved old `analyzers` project. The router resumes
 using the old services under the same aliases. The existing
