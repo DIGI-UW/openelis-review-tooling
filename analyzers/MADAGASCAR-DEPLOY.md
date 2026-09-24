@@ -14,6 +14,12 @@ and copy the overlay and `madagascar-compose.sh` to
 Create `distro/.env` with mode `0600`, setting unique `OE_DB_PASSWORD`,
 `ADMIN_PASSWORD`, and `OE_ADMIN_PASSWORD`. Do not commit or print its values.
 Use the Bridge checkout named in the overlay for the Mock's profile mount.
+The published OE2 image has its initial admin password baked in at build time;
+`OE_ADMIN_PASSWORD` does not change that account at container startup. For a
+unique site password, change the fresh admin account through OE2's supported
+`ChangePasswordLogin?apiCall=true` endpoint, then recreate both OE2 and Bridge
+so their runtime integration credentials match the account. Verify that the
+Bridge health and OE2 analyzer-type catalog both respond successfully.
 
 `compose.sh` enforces the checkout SHAs, loads the private environment, sets the
 Mock's profile source and Playwright paths, and uses this file chain and project
@@ -40,6 +46,16 @@ complete result across a Bridge restart and delivers it once after recovery.
 Run the harness `harness-demo-video` Playwright project against the public URL
 and retain its video artifacts. Only then update the review target's ready
 metadata and, if the reviewer journey changed, its Grist checklist rows.
+
+As of 2026-09-24, this overlay pins OE2 `45c42dec`, the base of draft
+[OE2 PR #4407](https://github.com/DIGI-UW/OpenELIS-Global-2/pull/4407).
+That PR fixes a concurrent activation race that can leave OpenELIS showing an
+active analyzer after Bridge stopped it. Do not mark this site ready until the
+fix is merged, a matching image is published and pinned here, and activation
+and result delivery are checked again. The current `harness-demo-video` flow
+also expects the removed analyzer modal; the deployed OE2 opens the setup
+wizard. Update the harness journey before treating its video as acceptance
+evidence.
 
 For rollback, stop the `madagascar-analyzers` project without removing its
 volumes and restart the preserved old `analyzers` project. The router resumes
