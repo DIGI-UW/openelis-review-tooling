@@ -1,0 +1,71 @@
+# Site overlay for the Madagascar distro on analyzers.openelis-global.org.
+# Layer after distro/docker-compose.yml and harness/compose.validate.yaml.
+# Distro: 05a2132debcee3f26e9da14ba450375fc7fad346
+# OE2 develop: 45c42dec8af2f45c7aa0ae655112409b133bc067
+# Bridge 3.2.1: b4a9f2cbffe93fa1900f25055755c2ff3bccea0e
+# Mock main: 6df789111d26a122a440892e478b358c8c4738b4
+# Harness: ee0cb55722c668a8fa7cb7a261bdfce16da78b29
+
+services:
+  certs:
+    container_name: madagascar-oe-certs
+    image: itechuw/certgen:main@sha256:c61651de8bc3bb4032abf85a9ebfaf8df6ef83f7933c20cafa5c4bd1f2362be0
+    restart: "no"
+
+  db.openelis.org:
+    container_name: madagascar-openelisglobal-database
+    image: itechuw/openelis-global-2-database@sha256:b982f1657fdccd1275b10e605faac4e5cf5ae131c9cc32969fb0599438305079
+    ports: !reset []
+    volumes:
+      - madagascar-db:/var/lib/postgresql/data
+
+  oe.openelis.org:
+    container_name: madagascar-openelisglobal-webapp
+    image: itechuw/openelis-global-2@sha256:26c730a359b10f005f672f3261971a5ec620ec776b72baf3be4bc3443aeb4cdb
+    ports: !reset []
+    networks:
+      openelis-network:
+      edge:
+        aliases: [analyzers-oe]
+
+  fhir.openelis.org:
+    container_name: madagascar-external-fhir-api
+    image: itechuw/openelis-global-2-fhir@sha256:9054f964c9e3eb970eac82f337671eda3c16bb2c2c00f2547667f89cc431e8d6
+    ports: !reset []
+
+  frontend.openelis.org:
+    container_name: madagascar-openelisglobal-front-end
+    image: itechuw/openelis-global-2-frontend@sha256:7af9a5fe3f2707f4d915262e4f23f5926e9a88fbfe835a78a1a8cca975c1e6b3
+    networks:
+      openelis-network:
+      edge:
+        aliases: [analyzers-frontend]
+
+  proxy:
+    container_name: madagascar-openelisglobal-proxy
+    image: itechuw/openelis-global-2-proxy@sha256:6dca7da7ad9e2d7218f3a028032ebf7d014664ab5e913c887a64853ee5842d3c
+    ports: !reset []
+
+  openelis-analyzer-bridge:
+    container_name: madagascar-openelis-analyzer-bridge
+    image: itechuw/openelis-analyzer-bridge:3.2.1@sha256:9d50cbceeb299c6b534cf8c7494514ee9678d23a8ed9b225bb55427e913806fd
+    ports: !reset []
+
+  analyzer-mock:
+    container_name: madagascar-analyzer-mock
+    image: itechuw/astm-mock-server:main@sha256:000979aa2af5c7737d64c934743d3932c97f3b50af277db1daf225211ed8c71c
+    build: !reset null
+    ports: !reset []
+    environment:
+      BRIDGE_CONTAINER_NAME: madagascar-openelis-analyzer-bridge
+      MOCK_CONTAINER_NAME: madagascar-analyzer-mock
+
+networks:
+  openelis-network:
+    name: madagascar-analyzers-internal
+  edge:
+    external: true
+    name: oe-edge
+
+volumes:
+  madagascar-db:
