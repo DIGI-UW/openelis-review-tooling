@@ -1,0 +1,72 @@
+# analyzers.openelis-global.org: OpenELIS's own published-image stack with its
+# analyzers overlay, behind the shared oe-edge router.
+#
+# Layered last, from the deployed release directory (see compose.sh):
+#   docker compose -p oe-analyzers \
+#     -f docker-compose.yml -f docker-compose.analyzers.yml -f docker-compose.site.yml
+#
+# Every image is from one tested build of OpenELIS-Global-2 commit
+# 3fa79f2cb1 (03 - E2E run 38257676103): the images publish-images.yml retags
+# to Docker Hub unchanged once a commit reaches develop. The Bridge and mock
+# are built from the submodule pins of that commit, Bridge 853ea28 (release
+# 3.4.1) and mock 5bb050a (release 0.3.0).
+#
+# Isolation from the other stacks on the host: own container names, own
+# default subnet, no host ports except the mock's simulate API on loopback.
+# The router reaches the stack through the aliases analyzers-frontend and
+# analyzers-oe on oe-edge; only one project may publish them at a time.
+
+services:
+  certs:
+    container_name: oe-analyzers-certs
+    image: ghcr.io/digi-uw/openelis-global-2/e2e-cache/certgen@sha256:f1ee62f694a3ca3edd649ac25897d97f36c1050235c99d09f672a1ca3ac082f4
+
+  db.openelis.org:
+    container_name: oe-analyzers-database
+    image: ghcr.io/digi-uw/openelis-global-2/e2e-cache/openelisglobal-databse.build@sha256:7cb2ac33332748d197955545e830149b97f3a33efd538e3b014cfb776159a39e
+    ports: !reset []
+
+  oe.openelis.org:
+    container_name: oe-analyzers-webapp
+    image: ghcr.io/digi-uw/openelis-global-2/e2e-cache/openelisglobal-webapp.build@sha256:c073bde8de42514dc8ea1811f231c1e86b331f23dcad3f3aa6a8cb64024159bf
+    ports: !reset []
+    networks:
+      default:
+        ipv4_address: 172.26.1.121
+      edge:
+        aliases: [analyzers-oe]
+
+  fhir.openelis.org:
+    container_name: oe-analyzers-fhir
+    image: ghcr.io/digi-uw/openelis-global-2/e2e-cache/external-fhir-api.build@sha256:7ad515f61dd89f3cbe75e8af44c8dfc4dc30daf601c27a779ca61af7072ee250
+    ports: !reset []
+
+  frontend.openelis.org:
+    container_name: oe-analyzers-frontend
+    image: ghcr.io/digi-uw/openelis-global-2/e2e-cache/frontend@sha256:7403a227cfe01cdd3b77b4834950d156fc2ca6fb9e08494a624b9f4f8b8d674c
+    networks:
+      default:
+      edge:
+        aliases: [analyzers-frontend]
+
+  proxy:
+    container_name: oe-analyzers-proxy
+    image: ghcr.io/digi-uw/openelis-global-2/e2e-cache/openelisglobal-proxy.build@sha256:5d1d493d8f0d68659da3be4cb9e1576fcf88c090e73e0a10e80ee3665421d116
+    ports: !reset []
+
+  openelis-analyzer-bridge:
+    container_name: oe-analyzers-bridge
+    image: ghcr.io/digi-uw/openelis-global-2/e2e-cache/openelis-analyzer-bridge.ci@sha256:a185c6a7f26c0ee6a146be60a7621c34fa6a80c5ef4ac8bdf18bd400be40d659
+
+  astm-simulator:
+    container_name: oe-analyzers-mock
+    image: ghcr.io/digi-uw/openelis-global-2/e2e-cache/openelis-astm-simulator.ci@sha256:5b3c23fdec945d10596bd302d2986a0ab2c8aec8635cbfa7b6c1fc05144926af
+
+networks:
+  edge:
+    external: true
+    name: oe-edge
+  default:
+    ipam: !override
+      config:
+        - subnet: 172.26.1.0/24
