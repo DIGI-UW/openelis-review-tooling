@@ -75,9 +75,10 @@ then publishes the ready target the review widget pins answers to
   `mllp://openelis-analyzer-bridge:2575` with sender `OE2-TEST-BC5380`; the
   FluoroCycler is `/simulate/file/hain_fluorocycler` with
   `{"target_dir":"/data/analyzer-imports/fluorocycler-xt/incoming"}`.
-- A fresh start: `./compose.sh down -v` and `rm -rf configuration/backend/*`,
-  then `site-deploy.sh` again. The pairing code in `.env` is reused; a Bridge
-  whose state volume was removed accepts it again.
+- A fresh start: `./compose.sh down -v`, remove `configuration/backend`,
+  `lucene` and the release directory, then `site-deploy.sh` again
+  (`fresh-start.sh` does exactly that). The pairing code in `.env` is reused;
+  a Bridge whose state volume was removed accepts it again.
 - A new commit: build its bundle, update the digests in
   `docker-compose.site.yml` from that commit's `e2e-image-map` artifact, and
   run `site-deploy.sh` with the new sha. The database and catalog carry over.

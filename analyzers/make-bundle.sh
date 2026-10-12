@@ -33,5 +33,6 @@ mkdir -p "$work/tools/openelis-analyzer-bridge/$(dirname "$PROFILES")"
 mv "$work/bridge/$PROFILES" "$work/tools/openelis-analyzer-bridge/$PROFILES"
 rm -rf "$work/bridge"
 
-tar -czf "$OUT" -C "$work" docker-compose.yml docker-compose.analyzers.yml volume projects tools
+# No AppleDouble (._*) entries: the mock reads every *.json in the profiles directory.
+COPYFILE_DISABLE=1 tar --no-xattrs -czf "$OUT" -C "$work" docker-compose.yml docker-compose.analyzers.yml volume projects tools
 printf '%s %s\n' "$COMMIT" "$OUT"
