@@ -19,6 +19,8 @@ set -euo pipefail
 APP_SHA="${1:?app sha}"
 BUNDLE="${2:?bundle.tgz}"
 BUNDLE_SHA="${3:-$APP_SHA}"
+# The branch the app commit is on, named in the ready target for the review widget.
+APP_BRANCH="${APP_BRANCH:-develop}"
 SITE="${OE_ANALYZERS_SITE:-/opt/oe-analyzers-site}"
 EDGE_DIR="${EDGE_DIR:-/opt/oe-review-tooling}"
 DOMAIN="${ANALYZERS_DOMAIN:-analyzers.openelis-global.org}"
@@ -155,13 +157,13 @@ PY
 bridge_sha="$(cat "$RELEASE/tools/openelis-analyzer-bridge/PIN" 2>/dev/null || echo unknown)"
 mock_sha="$(cat "$RELEASE/tools/analyzer-mock-server/PIN" 2>/dev/null || echo unknown)"
 tmp="$(mktemp "$EDGE_DIR/runtime/.target-analyzers.XXXXXX")"
-python3 - "$tmp" "$DEPLOYMENT_ID" "$APP_SHA" "$BUNDLE_SHA" "$bridge_sha" "$mock_sha" "$(git -C "$EDGE_DIR" rev-parse HEAD)" <<'PY'
+python3 - "$tmp" "$DEPLOYMENT_ID" "$APP_SHA" "$BUNDLE_SHA" "$APP_BRANCH" "$bridge_sha" "$mock_sha" "$(git -C "$EDGE_DIR" rev-parse HEAD)" <<'PY'
 import datetime, json, sys
-path, deployment, app_sha, bundle_sha, bridge_sha, mock_sha, harness_sha = sys.argv[1:]
+path, deployment, app_sha, bundle_sha, app_branch, bridge_sha, mock_sha, harness_sha = sys.argv[1:]
 json.dump({
     "instance": "analyzers", "deploymentId": deployment, "state": "ready",
     "appRepo": "https://github.com/DIGI-UW/OpenELIS-Global-2.git",
-    "appBranch": "fix/analyzer-review-results", "appSha": app_sha, "bundleSha": bundle_sha,
+    "appBranch": app_branch, "appSha": app_sha, "bundleSha": bundle_sha,
     "harnessSha": harness_sha, "deployedAt": datetime.datetime.now(datetime.timezone.utc).isoformat(),
     "scope": "full", "schemaAffecting": True,
     "verification": {"health": "passed", "seed": "passed", "astm": "passed", "hl7": "passed", "file": "passed"},

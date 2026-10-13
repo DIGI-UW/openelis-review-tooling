@@ -47,8 +47,12 @@ On the host:
 
 ```sh
 cd /opt/oe-analyzers-site
-./site-deploy.sh <sha> oe2-<sha>.tgz
+APP_BRANCH=<branch> ./site-deploy.sh <sha> oe2-<sha>.tgz
 ```
+
+`APP_BRANCH` names the branch the commit is on in the ready target the review
+widget shows (default `develop`). A bundle built from another commit of the
+same stack, differing only in deployment files, is named by a third argument.
 
 `site-deploy.sh` unpacks the release, seeds the catalog and the pairing code
 on first use, refuses to start while another project publishes the aliases,
