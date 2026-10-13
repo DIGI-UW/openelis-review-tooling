@@ -132,8 +132,11 @@ lanes = [
      {"destination": "tcp://openelis-analyzer-bridge:12001", "sample_id": f"DEV01{digits}000001", "sender_id": "OE2-TEST-GENEXPERT"}),
     ("Mindray BC-5380", "/simulate/fixture/mindray_bc5380_hl7/cbc/analysis-result",
      {"destination": "mllp://openelis-analyzer-bridge:2575", "sample_id": f"DEV01{digits}000002", "sender_id": "OE2-TEST-BC5380"}),
+    # The Bridge skips a file whose bytes it has already imported, so each
+    # deployment names its own samples in the fixture's two patient rows.
     ("FluoroCycler XT", "/simulate/file/hain_fluorocycler",
-     {"target_dir": "/data/analyzer-imports/fluorocycler-xt/incoming"}),
+     {"target_dir": "/data/analyzer-imports/fluorocycler-xt/incoming",
+      "sample_ids": [f"DEV01{digits}000003", f"DEV01{digits}000004"]}),
 ]
 for name, path, body in lanes:
     analyzer_id = analyzers.get(name)
