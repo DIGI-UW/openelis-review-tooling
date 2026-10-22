@@ -264,3 +264,23 @@ The Macro Library review is a dedicated `phrases` Grist instance. Do not place
 its stories under `amr` with a host filter: submissions are authenticated against
 the backend mapped to the checklist instance, so sharing the AMR slug would
 verify the wrong application session.
+
+## AMR workflow evidence
+
+The AMR host serves curated workflow recordings at `/evidence/`. Publish each
+release under `runtime/evidence/amr/<release-id>/`, then atomically replace
+`runtime/evidence/amr/index.html` with an index linking to that release. These
+files use the existing read-only runtime mount; no additional service is needed.
+Keep each published release immutable. An earlier index can be restored without
+rolling back the application.
+
+Publish only reviewed MP4s, posters, synthetic sample PDFs, sanitized test
+results and version metadata. Never copy raw browser sessions, traces, logs,
+server backups, secrets or restricted reference datasets into this directory.
+Label the environment and application version captured in each recording, and
+keep local automation evidence distinct from live-server checks and human UAT.
+
+The route is confined to the AMR virtual host. Before reloading the shared
+router, validate its rendered configuration with `nginx -t`; after reload,
+check the index, an archived release and an MP4 byte-range request, alongside
+the other hosted application routes.

@@ -219,6 +219,21 @@ http {
         # stack runs one) accepts the forwarded request (Vite 5 allowedHosts is
         # strict); harmless for the static-nginx runtime build, which ignores Host.
         # Review is optional and owned by the separately mounted configuration.
+        # Curated, versioned workflow recordings. Only the publication directory
+        # is exposed; runtime secrets and browser sessions stay outside it.
+        location = /evidence { return 302 /evidence/; }
+        location = /evidence/ {
+            alias /etc/nginx/runtime/evidence/amr/index.html;
+            default_type text/html;
+            add_header Cache-Control "no-store";
+        }
+        location ^~ /evidence/ {
+            alias /etc/nginx/runtime/evidence/amr/;
+            index index.html;
+            autoindex off;
+            add_header X-Content-Type-Options "nosniff" always;
+        }
+
         location / {
             set $amr_frontend "amr-frontend";
             proxy_pass http://$amr_frontend;
