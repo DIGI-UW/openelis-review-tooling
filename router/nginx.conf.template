@@ -222,7 +222,7 @@ http {
         # Curated, versioned workflow recordings. Only the publication directory
         # is exposed; runtime secrets and browser sessions stay outside it.
         location = /evidence { return 302 /evidence/; }
-        location = /evidence/ {
+        location = /evidence/index.html {
             alias /etc/nginx/runtime/evidence/amr/index.html;
             default_type text/html;
             add_header Cache-Control "no-store";
