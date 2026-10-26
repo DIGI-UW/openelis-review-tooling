@@ -49,9 +49,9 @@ configuration lists.
 
 | # | Step | Repository | Status |
 |---|---|---|---|
-| 1 | Resync the OpenELIS checkout to the restacked #4819, add a head-of-stack branch, start the full local stack | OpenELIS-Global-2 | Pending |
-| 2 | Packager: report reader, site filing configurations (`amr`, `analyzers`), still trimming, index and gallery, unit tests, one ffmpeg test on a generated clip | review-tooling | Pending |
-| 3 | Publishing: `/evidence` route and operations doc onto `main`, `scripts/publish-evidence.sh` with `release.json` and index rebuild, tests | review-tooling | Pending |
+| 1 | Resync the OpenELIS checkout to the restacked #4819, add a head-of-stack branch, start the full local stack | OpenELIS-Global-2 | Done; the local database needed the #4793 secrets upgrade |
+| 2 | Packager: report reader, site filing configurations (`amr`, `analyzers`), still trimming, index and gallery, unit tests, one ffmpeg test on a generated clip | review-tooling | Done |
+| 3 | Publishing: `/evidence` route and operations doc onto `main`, `scripts/publish-evidence.sh` with `release.json` and index rebuild, tests | review-tooling | Done |
 | 4 | Rename `harness-demo-video` to `evidence-video` covering core and harness specs; update all references; delete `pw-evidence-videos.mjs` | OpenELIS-Global-2 | Pending |
 | 5 | Tag and narrate the AMR stories; add the disk-zone story | OpenELIS-Global-2 | Pending |
 | 6 | `pw:guard`, microbiology specs in the normal project, lint, format, push | OpenELIS-Global-2 | Pending |

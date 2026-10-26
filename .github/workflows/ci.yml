@@ -19,6 +19,8 @@ jobs:
       # dependencies. Without this the service dies at import and every one of
       # those tests fails as a connection error.
       - run: npm ci --prefix grist/uat-read
+      # The evidence packager's test encodes a generated clip.
+      - run: sudo apt-get update && sudo apt-get install -y ffmpeg
       - run: npm test
       - run: npx playwright install --with-deps chromium
       - run: npm run test:widget
