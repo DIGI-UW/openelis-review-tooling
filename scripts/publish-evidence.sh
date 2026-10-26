@@ -33,8 +33,9 @@ done
 
 fail() { echo "[publish-evidence] $*" >&2; exit 1; }
 
-[ -n "$SITE" ] && [ -n "$PACKAGE" ] && [ -n "$ID" ] ||
+if [ -z "$SITE" ] || [ -z "$PACKAGE" ] || [ -z "$ID" ]; then
   fail "--site, --package and --id are required"
+fi
 [[ "$SITE" =~ ^[a-z0-9-]+$ ]] || fail "site $SITE is not a plain name"
 [ -f "$REPO/evidence/sites/$SITE.json" ] || fail "no site configuration evidence/sites/$SITE.json"
 [[ "$ID" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}-[a-z0-9][a-z0-9.-]*$ ]] ||
