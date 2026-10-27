@@ -63,8 +63,8 @@ copy_dir() {
     mkdir -p "$to"
     cp -R "$from"/. "$to"/
   else
-    # COPYFILE_DISABLE keeps macOS tar from adding ._ metadata files.
-    COPYFILE_DISABLE=1 tar --exclude="._*" -C "$from" -cf - . | ssh -o BatchMode=yes "$HOST" \
+    # COPYFILE_DISABLE and --no-xattrs keep macOS metadata out of the archive.
+    COPYFILE_DISABLE=1 tar --no-xattrs --exclude="._*" -C "$from" -cf - . | ssh -o BatchMode=yes "$HOST" \
       "sudo -n mkdir -p $(printf '%q' "$to") && sudo -n tar --no-same-owner -C $(printf '%q' "$to") -xf -"
   fi
 }
