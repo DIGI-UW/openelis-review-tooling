@@ -192,6 +192,7 @@ export function packageEvidence({ site, report, out, release }) {
       lane: lane.tag.slice(1),
       stage: stage.tag.slice(1),
       title: story.title,
+      summary: story.summary,
       spec: story.file,
       file,
       seconds: Math.round(seconds * 10) / 10,

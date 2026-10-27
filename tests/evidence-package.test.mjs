@@ -59,6 +59,31 @@ test("only the evidence project's stories are read, with tags normalised to @", 
   assert.equal(stories[0].file, "foundational/core/microbiology-a.spec.ts");
 });
 
+test("a narrated story is named by its intro, and an unnarrated one by its test title", () => {
+  const narrated = spec("records a culture", [
+    "evidence",
+    "microbiology",
+    "culture",
+  ]);
+  narrated.tests[0].results[0].annotations = [
+    { type: "story", description: "Working a culture" },
+    { type: "story-summary", description: "A bottle is inoculated and read." },
+  ];
+  const [named, plain] = recordedStories(
+    report([
+      narrated,
+      spec("reads a plate", ["evidence", "microbiology", "culture"], {
+        line: 2,
+      }),
+    ]),
+    "evidence-video",
+  );
+  assert.equal(named.title, "Working a culture");
+  assert.equal(named.summary, "A bottle is inoculated and read.");
+  assert.equal(plain.title, "reads a plate");
+  assert.equal(plain.summary, null);
+});
+
 test("stories are filed in the site's stage order and numbered within each stage", () => {
   const stories = recordedStories(
     report([

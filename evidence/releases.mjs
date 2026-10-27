@@ -67,6 +67,7 @@ section{border-top:1px solid var(--line);padding:16px 0}section>a{font-size:20px
 p{margin:4px 0}.about{color:var(--muted);font-size:15px}
 </style></head><body><main>
 <h1>${escape(site.title)}</h1>
+${site.home ? `<p><a href="${escape(site.home.href)}">${escape(site.home.text)}</a></p>` : ""}
 <section><h2>Latest</h2>${latest ? entry(latest) : "<p>No evidence is published yet.</p>"}</section>
 ${earlier.length ? `<section><h2>Earlier</h2>${earlier.map((r) => `<div>${entry(r)}</div>`).join("")}</section>` : ""}
 <p class="about">Automated synthetic workflows support review; human UAT and physical instrument validation remain separate.</p>

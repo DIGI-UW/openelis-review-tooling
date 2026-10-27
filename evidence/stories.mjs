@@ -11,8 +11,14 @@ export function recordedStories(report, project) {
         if (test.projectName !== project) continue;
         const result = test.results?.[test.results.length - 1];
         const video = result?.attachments?.find((a) => a.name === "video");
+        // A narrated story names itself in its intro; the test title is the fallback.
+        const note = (type) =>
+          [...(result?.annotations ?? []), ...(test.annotations ?? [])].find(
+            (a) => a.type === type,
+          )?.description;
         stories.push({
-          title: spec.title,
+          title: note("story") ?? spec.title,
+          summary: note("story-summary") ?? null,
           file: spec.file ?? file,
           line: spec.line ?? 0,
           // The JSON reporter writes tags without their "@".
@@ -112,7 +118,7 @@ export function galleryHtml(site, index, release) {
         `<section><h2>${escape(heading)}</h2>${videos
           .map(
             (v) =>
-              `<figure><video controls preload="metadata" src="${escape(v.file)}"></video><figcaption>${escape(sentence(v.title))} <span>${Math.round(v.seconds)} s</span></figcaption></figure>`,
+              `<figure><video controls preload="metadata" src="${escape(v.file)}"></video><figcaption>${escape(sentence(v.title))} <span>${Math.round(v.seconds)} s</span>${v.summary ? `<p>${escape(v.summary)}</p>` : ""}</figcaption></figure>`,
           )
           .join("")}</section>`,
       );
@@ -134,7 +140,8 @@ main{max-width:1100px;margin:0 auto;padding:32px 16px}
 h1{font-size:28px;margin:0 0 4px}p.about{color:var(--muted);margin:0 0 24px}
 section{border-top:1px solid var(--line);padding:16px 0}h2{font-size:20px;margin:0 0 12px}
 figure{margin:0 0 20px}video{width:100%;max-width:960px;background:#000;border-radius:4px}
-figcaption{margin-top:6px}figcaption span{color:var(--muted);margin-left:8px}
+figcaption{margin-top:6px;font-weight:600}figcaption span{color:var(--muted);margin-left:8px;font-weight:400}
+figcaption p{margin:2px 0 0;font-weight:400;color:var(--muted)}
 </style></head><body><main>
 <h1>${escape(site.title)}</h1>
 <p class="about">${about.map(escape).join(" · ")}</p>

@@ -89,6 +89,10 @@ test("publishes the package as a new release and lists it first on the index", (
       index.indexOf("CLSI workflow"),
   );
   assert.match(index, /href="2026-10-27-amr-videos\/"/);
+  assert.match(
+    index,
+    /href="https:\/\/amr\.openelis-global\.org\/">Open the AMR V2 demo/,
+  );
   assert.deepEqual(
     fs.readdirSync(path.join(root, "amr")).filter((f) => f.startsWith(".")),
     [],

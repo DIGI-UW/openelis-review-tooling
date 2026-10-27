@@ -1,6 +1,10 @@
 {
   "site": "amr",
   "title": "AMR workflow evidence",
+  "home": {
+    "href": "https://amr.openelis-global.org/",
+    "text": "Open the AMR V2 demo"
+  },
   "project": "evidence-video",
   "lanes": [{ "tag": "@microbiology", "title": "Microbiology" }],
   "stages": [
