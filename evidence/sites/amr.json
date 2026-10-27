@@ -1,0 +1,19 @@
+{
+  "site": "amr",
+  "title": "AMR workflow evidence",
+  "home": {
+    "href": "https://amr.openelis-global.org/",
+    "text": "Open the AMR V2 demo"
+  },
+  "project": "evidence-video",
+  "lanes": [{ "tag": "@microbiology", "title": "Microbiology" }],
+  "stages": [
+    { "tag": "@admin", "title": "Reference data and administration" },
+    { "tag": "@case", "title": "Cases and orders" },
+    { "tag": "@culture", "title": "Cultures" },
+    { "tag": "@isolates", "title": "Isolates and referrals" },
+    { "tag": "@ast", "title": "Susceptibility testing and reporting" },
+    { "tag": "@worklist", "title": "Worklists and bench work" },
+    { "tag": "@exports", "title": "WHONET exports" }
+  ]
+}

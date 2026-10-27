@@ -229,3 +229,42 @@ The Macro Library review is a dedicated `phrases` Grist instance. Do not place
 its stories under `amr` with a host filter: submissions are authenticated against
 the backend mapped to the checklist instance, so sharing the AMR slug would
 verify the wrong application session.
+
+## AMR workflow evidence
+
+The AMR host serves curated workflow recordings at `/evidence/`. Each release
+lives under `runtime/evidence/amr/<release-id>/`; `runtime/evidence/amr/releases.json`
+lists the published releases, newest first, and `index.html` is rendered from
+it. These files use the existing read-only runtime mount; no additional service
+is needed. A published release is never rewritten. An earlier index can be
+restored without rolling back the application.
+
+Recordings come from the OpenELIS-Global-2 Playwright `evidence-video` project,
+which records every story tagged `@evidence` with one lane and one stage tag.
+`evidence/sites/<site>.json` lists the lanes and stages a site files its
+videos under. From an OpenELIS checkout's `frontend/` directory:
+
+```bash
+npm run pw:test:evidence-video -- --grep @microbiology   # writes test-results/evidence-video.json
+node <review-tooling>/evidence/package.mjs --site amr \
+  --report test-results/evidence-video.json --out <package> --release <release.json>
+<review-tooling>/scripts/publish-evidence.sh --site amr --package <package> \
+  --id <yyyy-mm-dd-label>
+```
+
+`release.json` needs a `title` and `summary`, and names where the recording ran
+(`recordedOn`) and the application build (`application`). The packager stops,
+listing every problem, if a story is untagged, failed, lacks a video, or carries
+a lane or stage the site does not list. Review every video along its full length
+before publishing.
+
+Publish only reviewed MP4s, posters, synthetic sample PDFs, sanitized test
+results and version metadata. Never copy raw browser sessions, traces, logs,
+server backups, secrets or restricted reference datasets into this directory.
+Label the environment and application version captured in each recording, and
+keep local automation evidence distinct from live-server checks and human UAT.
+
+The route is confined to the AMR virtual host. Before reloading the shared
+router, validate its rendered configuration with `nginx -t`; after reload,
+check the index, an archived release and an MP4 byte-range request, alongside
+the other hosted application routes.

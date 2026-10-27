@@ -34,6 +34,7 @@ Two URLs, no build, no redeploy — a script tag or one nginx line:
 | [`widget/`](widget/) | The reviewer overlay as a **standalone, backend-free drop-in plugin**. Grab-and-go — no OE2, no build, no server needed. |
 | [`integration/`](integration/) | Copy-paste ways to attach the overlay to an **existing** deployment (config, not code). |
 | `grist/` | The authoring backend: open-source Grist as source of truth + REST API, plus the slim read-only `/uat` transformer. |
+| `evidence/` | Packages OpenELIS Playwright evidence recordings into one narrated MP4 per story, filed by each site's lanes and stages; `scripts/publish-evidence.sh` publishes a package to a demo site's `/evidence/`. See [`docs/OPERATIONS.md`](docs/OPERATIONS.md). |
 | `router/`, `amr/`, `analyzers/`, `scripts/`, `deploy.sh` | The demo deployment: an umbrella nginx router splitting subdomains, additive Compose overlays on the OE2 app builds, and Let's Encrypt certs. |
 | `docs/` | [`AGENTS.md`](docs/AGENTS.md) (agent contract), [`OPERATIONS.md`](docs/OPERATIONS.md) (runtime contract), and collaborator guides. |
 

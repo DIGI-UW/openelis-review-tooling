@@ -7,7 +7,8 @@ on:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    # Playwright 1.57 supports Ubuntu 24.04, not the Ubuntu 26 latest image.
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -19,6 +20,8 @@ jobs:
       # dependencies. Without this the service dies at import and every one of
       # those tests fails as a connection error.
       - run: npm ci --prefix grist/uat-read
+      # The evidence packager's test encodes a generated clip.
+      - run: sudo apt-get update && sudo apt-get install -y ffmpeg
       - run: npm test
       - run: npx playwright install --with-deps chromium
       - run: npm run test:widget

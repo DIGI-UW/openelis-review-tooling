@@ -1,0 +1,16 @@
+{
+  "site": "analyzers",
+  "title": "Analyzer workflow evidence",
+  "project": "evidence-video",
+  "lanes": [
+    { "tag": "@astm", "title": "ASTM (GeneXpert)" },
+    { "tag": "@hl7", "title": "HL7 (Mindray BC-5380)" },
+    { "tag": "@file", "title": "File (QuantStudio and FluoroCycler)" }
+  ],
+  "stages": [
+    { "tag": "@admin", "title": "Administration" },
+    { "tag": "@setup", "title": "Setup" },
+    { "tag": "@results", "title": "Results" },
+    { "tag": "@exceptions", "title": "Exceptions" }
+  ]
+}
